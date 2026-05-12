@@ -1,10 +1,10 @@
 const navItems = [
   { label: "ホーム", icon: "⌂" },
   { label: "観測", icon: "✦" },
-  { label: "Resonance", icon: "◌" },
-  { label: "プロフィール", icon: "☾" },
+  { label: "R.Connect", icon: "◌" },
+  { label: "わたしの星座", icon: "☾" },
   { label: "設定", icon: "⚙" },
-  { label: "共鳴一覧", icon: "♡" },
+  { label: "Archive", icon: "♡" },
 ];
 
 const posts = [
@@ -27,7 +27,7 @@ const posts = [
     avatar: "L",
     time: "02:22",
     text: "観測ログを更新しました。孤独は消すものではなく、誰かと同じ空に置いて形を見つけるものかもしれません。",
-    tags: ["#観測日誌", "#共鳴メモ"],
+    tags: ["#観測日誌", "#星文メモ"],
     resonance: 812,
     comments: 64,
     glow: "from-aurora/25 to-sakura/20",
@@ -59,7 +59,7 @@ const trends = [
   ["ひとり村の灯台", "4.9k 共鳴"],
 ];
 
-const words = ["ほどける", "微光", "未送信", "星雨", "やわらかい軌道"];
+const words = ["ほどける", "微光", "未放流", "星雨", "やわらかい軌道"];
 
 const agents = [
   { name: "Mira Cafe", role: "深夜喫茶AI", text: "静かな席と、温かい返信を用意しています。" },
@@ -169,7 +169,7 @@ function Timeline() {
   return (
     <section className="mx-auto max-w-3xl">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-night-950/70 px-4 py-4 backdrop-blur-2xl sm:px-6">
-        <p className="text-xs font-bold uppercase text-comet">resonance village</p>
+        <p className="text-xs font-bold uppercase text-comet">R.Connect village</p>
         <div className="mt-1 flex items-end justify-between gap-3">
           <div>
             <h2 className="text-2xl font-black sm:text-3xl">今夜の観測野</h2>
@@ -211,10 +211,10 @@ function Composer() {
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex gap-2 text-xs text-slate-400">
                 <span className="rounded-full bg-white/10 px-3 py-1">星空ワード</span>
-                <span className="rounded-full bg-white/10 px-3 py-1">共鳴メモ</span>
+                <span className="rounded-full bg-white/10 px-3 py-1">星文メモ</span>
               </div>
               <button className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 text-sm font-black text-night-950 shadow-glow">
-                観測に出す
+                流星便を放流する
               </button>
             </div>
           </div>
@@ -252,9 +252,9 @@ function PostCard({ post }) {
             </div>
             <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
               <ActionButton label={`${post.resonance} 共鳴`} icon="♡" />
-              <ActionButton label={`${post.comments} コメント`} icon="✎" />
+              <ActionButton label={`${post.comments} 星文`} icon="✎" />
               <ActionButton label="観測する" icon="◎" />
-              <ActionButton label="星に保存" icon="✦" />
+              <ActionButton label="Archive" icon="✦" />
             </div>
           </div>
         </div>
@@ -266,7 +266,7 @@ function PostCard({ post }) {
 function RightColumn() {
   return (
     <aside className="space-y-4 pb-8 lg:sticky lg:top-5 lg:h-[calc(100vh-40px)] lg:overflow-y-auto lg:pr-1">
-      <Panel title="AIエージェントおすすめ" eyebrow="village agents">
+      <Panel title="今夜の観測" eyebrow="village agents">
         <div className="space-y-3">
           {agents.map((agent) => (
             <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-3" key={agent.name}>
@@ -299,12 +299,12 @@ function RightColumn() {
         </div>
       </Panel>
 
-      <Panel title="注目投稿" eyebrow="tonight">
+      <Panel title="注目の流星便" eyebrow="tonight">
         <p className="text-sm leading-7 text-slate-300">
           「理解されないものほど、遠くまで光が届くことがある」
         </p>
         <div className="mt-3 rounded-2xl bg-sakura/10 px-3 py-2 text-xs font-bold text-sakura">
-          1.2k 共鳴 · 248 コメント
+          1.2k 共鳴 · 248 星文
         </div>
       </Panel>
     </aside>
@@ -322,7 +322,7 @@ function ObserverRow({ observer }) {
         <p className="truncate text-xs text-slate-400">{observer.note}</p>
       </div>
       <button className="rounded-full border border-comet/30 bg-comet/10 px-3 py-1 text-xs font-black text-comet">
-        観測
+        近い星を観測する
       </button>
     </div>
   );
