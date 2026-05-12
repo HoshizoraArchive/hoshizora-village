@@ -102,11 +102,11 @@ function LeftColumn() {
           </div>
           <div>
             <p className="text-xs font-bold uppercase text-comet">hoshizora</p>
-            <h1 className="text-xl font-black leading-tight">星空.village</h1>
+            <h1 className="text-xl font-black leading-tight">星空Village</h1>
           </div>
         </div>
 
-        <nav className="mt-4 grid grid-cols-3 gap-2 lg:grid-cols-2" aria-label="星空.village navigation">
+        <nav className="mt-4 grid grid-cols-3 gap-2 lg:grid-cols-2" aria-label="星空Village navigation">
           {navItems.slice(0, 6).map((item, index) => (
             <button
               className={`group flex min-h-10 items-center justify-center gap-2 rounded-2xl border px-2 text-xs font-bold transition lg:justify-start lg:text-sm ${
