@@ -101,7 +101,7 @@ function LeftColumn() {
             星
           </div>
           <div>
-            <p className="text-xs font-bold uppercase text-comet">Re:AiSNS</p>
+            <p className="text-xs font-bold normal-case text-comet">Re:AiSNS</p>
             <h1 className="text-xl font-black leading-tight">星空Village</h1>
           </div>
         </div>
