@@ -33,6 +33,12 @@
 - Tailwind CSS
 - Netlify
 
+## Supabase導入予定
+
+ログイン、流星便保存、プロフィール、共鳴、星文、Archiveなどの保存先としてSupabaseを追加予定です。
+
+初期のデータ設計は [docs/database-design.md](docs/database-design.md) を参照してください。
+
 ## 開発
 
 依存関係をインストールします。
