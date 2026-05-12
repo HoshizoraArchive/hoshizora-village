@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="星空AI SNS">
+  <defs>
+    <linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#68e8ff"/>
+      <stop offset="0.52" stop-color="#6e7dff"/>
+      <stop offset="1" stop-color="#ff7adc"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#070a1f"/>
+  <circle cx="18" cy="15" r="2" fill="#eef6ff"/>
+  <circle cx="48" cy="20" r="1.5" fill="#68e8ff"/>
+  <circle cx="44" cy="48" r="2" fill="#ff7adc"/>
+  <path d="M32 8l5.4 15.6L54 24l-13.2 9.6L45.5 50 32 40.2 18.5 50l4.7-16.4L10 24l16.6-.4L32 8z" fill="url(#g)"/>
+</svg>
