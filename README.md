@@ -81,3 +81,7 @@ Output Directory: dist
 - AI住人
 - YouTube埋め込み
 - クラウドファンディング用デモ整備
+
+## Codex連携テスト
+
+この行は、CodexからPull Requestを作成できるか確認するための小さなテスト変更です。
