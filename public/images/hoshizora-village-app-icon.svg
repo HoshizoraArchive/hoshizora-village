@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-hidden="true">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="42%" r="72%">
+      <stop offset="0" stop-color="#243a7a"/>
+      <stop offset="0.45" stop-color="#10183e"/>
+      <stop offset="1" stop-color="#050716"/>
+    </radialGradient>
+    <radialGradient id="aurora" cx="35%" cy="22%" r="78%">
+      <stop offset="0" stop-color="#80e8ff" stop-opacity="0.42"/>
+      <stop offset="0.42" stop-color="#9f8cff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#050716" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="starFill" x1="260" y1="214" x2="770" y2="796" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f6fbff"/>
+      <stop offset="0.35" stop-color="#8defff"/>
+      <stop offset="0.72" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#ff9bd7"/>
+    </linearGradient>
+    <linearGradient id="villageFill" x1="330" y1="555" x2="694" y2="710" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#071024"/>
+      <stop offset="1" stop-color="#17102f"/>
+    </linearGradient>
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.45 0 0 0 0 0.9 0 0 0 0 1 0 0 0 0.9 0" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="tinyGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#050716"/>
+  <rect width="1024" height="1024" fill="url(#bgGlow)"/>
+  <rect width="1024" height="1024" fill="url(#aurora)"/>
+
+  <circle cx="188" cy="198" r="5" fill="#dff8ff" opacity="0.8"/>
+  <circle cx="842" cy="214" r="4" fill="#dff8ff" opacity="0.62"/>
+  <circle cx="773" cy="793" r="5" fill="#f8d6ff" opacity="0.64"/>
+  <circle cx="222" cy="716" r="3" fill="#dff8ff" opacity="0.52"/>
+  <circle cx="450" cy="128" r="3" fill="#ffffff" opacity="0.5"/>
+  <circle cx="606" cy="882" r="4" fill="#8defff" opacity="0.56"/>
+
+  <ellipse cx="512" cy="512" rx="345" ry="230" fill="none" stroke="#9defff" stroke-width="18" opacity="0.22"/>
+  <ellipse cx="512" cy="512" rx="278" ry="178" fill="none" stroke="#ff9bd7" stroke-width="10" opacity="0.18" transform="rotate(-13 512 512)"/>
+
+  <g filter="url(#softGlow)">
+    <path d="M512 188l67 190 200-54-108 178 148 145-207 30-100 183-100-183-207-30 148-145-108-178 200 54 67-190z" fill="url(#starFill)"/>
+    <path d="M512 256l48 137 144-39-78 128 107 105-149 22-72 132-72-132-149-22 107-105-78-128 144 39 48-137z" fill="#071024" opacity="0.86"/>
+  </g>
+
+  <g opacity="0.98">
+    <path d="M330 544c48-54 112-82 182-82s134 28 182 82c-48 54-112 82-182 82s-134-28-182-82z" fill="#dff8ff" opacity="0.9"/>
+    <path d="M373 544c39-36 84-54 139-54s100 18 139 54c-39 36-84 54-139 54s-100-18-139-54z" fill="#081129"/>
+    <circle cx="512" cy="544" r="44" fill="#8defff" filter="url(#tinyGlow)"/>
+    <circle cx="512" cy="544" r="22" fill="#f8fdff"/>
+  </g>
+
+  <g transform="translate(0 18)">
+    <path d="M340 650c42-36 100-57 172-57s130 21 172 57v62H340v-62z" fill="url(#villageFill)" opacity="0.96"/>
+    <path d="M382 662l42-36 42 36v50h-84v-50z" fill="#0b1534"/>
+    <path d="M484 642l58-48 58 48v70H484v-70z" fill="#0b1534"/>
+    <path d="M616 668l36-31 36 31v44h-72v-44z" fill="#0b1534"/>
+    <rect x="411" y="674" width="18" height="22" rx="5" fill="#ffeaa7" filter="url(#tinyGlow)"/>
+    <rect x="532" y="652" width="20" height="28" rx="6" fill="#9df7ff" filter="url(#tinyGlow)"/>
+    <rect x="648" y="678" width="16" height="20" rx="5" fill="#ffb9df" filter="url(#tinyGlow)"/>
+  </g>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.72">
+    <path d="M672 350c52 20 88 58 105 112" stroke="#9defff" stroke-width="12"/>
+    <path d="M352 714c-48-20-82-55-100-103" stroke="#ff9bd7" stroke-width="10"/>
+    <path d="M703 438l42-35 42 35" stroke="#9defff" stroke-width="10"/>
+  </g>
+
+  <g fill="#dff8ff" filter="url(#tinyGlow)">
+    <circle cx="735" cy="402" r="13"/>
+    <circle cx="787" cy="438" r="10" opacity="0.88"/>
+    <circle cx="252" cy="610" r="11" opacity="0.78"/>
+  </g>
+</svg>
