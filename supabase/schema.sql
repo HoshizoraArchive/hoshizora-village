@@ -16,7 +16,7 @@ begin
 end;
 $$;
 
--- profiles: public-facing user profile linked to Supabase Auth.
+-- profiles: user profile linked to Supabase Auth.
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null check (char_length(trim(display_name)) > 0),
@@ -31,7 +31,8 @@ create table if not exists public.profiles (
 comment on table public.profiles is 'ユーザープロフィール。表示名、自己紹介、アイコン、わたしの星座を保存する。';
 comment on column public.profiles.constellation_note is 'わたしの星座を説明する自由記述。';
 
--- posts: 流星便. MVP supports text/image/audio/video/youtube.
+-- posts: 流星便.
+-- MVP supports text/image/audio/video/youtube.
 create table if not exists public.posts (
   id uuid primary key default gen_random_uuid(),
   author_id uuid not null references public.profiles(id) on delete cascade,
@@ -90,7 +91,8 @@ create table if not exists public.post_tags (
 
 comment on table public.post_tags is '流星便タグ。投稿ごとのテーマ、感情、創作ジャンルなどを保存する。';
 
--- resonances: 共鳴. Multiple resonances from the same profile to the same post are allowed in MVP.
+-- resonances: 共鳴.
+-- Multiple resonances from the same profile to the same post are allowed in MVP.
 create table if not exists public.resonances (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
@@ -114,7 +116,8 @@ create table if not exists public.star_letters (
 
 comment on table public.star_letters is '星文。コメントではなく、流星便に残す言葉を保存する。';
 
--- archives: Archive. Private by default through RLS.
+-- archives: Archive.
+-- Private by default through RLS.
 create table if not exists public.archives (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references public.profiles(id) on delete cascade,
@@ -131,7 +134,8 @@ comment on table public.archives is 'Archive。保存ではなく、消したく
 comment on column public.archives.archive_tags is 'Archive分類タグ。例: 夜明け前、祈り、未完成の光。';
 comment on column public.archives.work_constellation is '作品につける星座名。';
 
--- observations: 観測ログ. Future AI resident observation output is stored here.
+-- observations: 観測ログ.
+-- Future AI resident observation output is stored here.
 create table if not exists public.observations (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
@@ -214,7 +218,8 @@ alter table public.star_letters enable row level security;
 alter table public.archives enable row level security;
 alter table public.observations enable row level security;
 
--- profiles: readable by anyone, writable by owner.
+-- profiles:
+-- Readable by anyone, writable by owner.
 drop policy if exists profiles_select_public on public.profiles;
 create policy profiles_select_public on public.profiles
 for select using (true);
@@ -231,7 +236,8 @@ drop policy if exists profiles_delete_own on public.profiles;
 create policy profiles_delete_own on public.profiles
 for delete using (auth.uid() = id);
 
--- posts: public posts are readable by anyone; private posts only by author.
+-- posts:
+-- Public posts are readable by anyone; private posts only by author.
 drop policy if exists posts_select_visible on public.posts;
 create policy posts_select_visible on public.posts
 for select using (visibility = 'public' or author_id = auth.uid());
@@ -312,7 +318,9 @@ for delete using (
   )
 );
 
--- resonances: logged-in users can create their own 共鳴. Repeated 共鳴 is allowed in MVP.
+-- resonances:
+-- Logged-in users can create their own 共鳴.
+-- Repeated 共鳴 is allowed in MVP.
 drop policy if exists resonances_select_visible on public.resonances;
 create policy resonances_select_visible on public.resonances
 for select using (
@@ -340,7 +348,8 @@ drop policy if exists resonances_delete_own on public.resonances;
 create policy resonances_delete_own on public.resonances
 for delete using (profile_id = auth.uid());
 
--- star_letters: logged-in users can leave 星文 on visible posts.
+-- star_letters:
+-- Logged-in users can leave 星文 on visible posts.
 drop policy if exists star_letters_select_visible on public.star_letters;
 create policy star_letters_select_visible on public.star_letters
 for select using (
@@ -372,7 +381,8 @@ drop policy if exists star_letters_delete_own on public.star_letters;
 create policy star_letters_delete_own on public.star_letters
 for delete using (author_id = auth.uid());
 
--- archives: private Archive. Only owner can read or mutate.
+-- archives:
+-- Private Archive. Only owner can read or mutate.
 drop policy if exists archives_select_own on public.archives;
 create policy archives_select_own on public.archives
 for select using (profile_id = auth.uid());
@@ -396,7 +406,8 @@ drop policy if exists archives_delete_own on public.archives;
 create policy archives_delete_own on public.archives
 for delete using (profile_id = auth.uid());
 
--- observations: public-post observations can be selected for MVP, but app/API should filter columns before showing AI internals.
+-- observations:
+-- Public-post observations can be selected for MVP, but app/API should filter columns before showing AI internals.
 -- AI resident writes should happen later from trusted server-side code using service_role; never expose service_role to the frontend.
 drop policy if exists observations_select_visible on public.observations;
 create policy observations_select_visible on public.observations
