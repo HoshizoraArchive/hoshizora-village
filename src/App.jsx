@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { supabase } from "./lib/supabaseClient";
+
 const navItems = [
   { label: "ホーム", icon: "⌂" },
   { label: "観測", icon: "✦" },
@@ -67,12 +70,46 @@ const agents = [
 ];
 
 function App() {
+  const [authStatus, setAuthStatus] = useState("確認中");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function readSession() {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setAuthStatus("確認エラー");
+        return;
+      }
+
+      setAuthStatus(data.session ? "ログイン中" : "未ログイン");
+    }
+
+    readSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthStatus(session ? "ログイン中" : "未ログイン");
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-night-950 text-starlight">
       <SkyBackdrop />
 
       <div className="mx-auto grid min-h-screen w-full max-w-[1520px] grid-cols-1 items-start gap-4 px-3 py-3 sm:px-4 lg:grid-cols-[300px_minmax(0,720px)_330px] lg:justify-center lg:py-5 xl:grid-cols-[320px_minmax(0,760px)_360px]">
-        <LeftColumn />
+        <LeftColumn authStatus={authStatus} />
         <main className="min-w-0 border-x border-white/10 lg:order-none">
           <Timeline />
         </main>
@@ -92,7 +129,7 @@ function SkyBackdrop() {
   );
 }
 
-function LeftColumn() {
+function LeftColumn({ authStatus }) {
   return (
     <aside className="space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-40px)] lg:overflow-y-auto lg:pr-1">
       <section className="glass-panel p-4">
@@ -122,6 +159,11 @@ function LeftColumn() {
             </button>
           ))}
         </nav>
+
+        <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-slate-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-comet/70" />
+          <span>開発確認: {authStatus}</span>
+        </div>
       </section>
 
       <section className="glass-panel overflow-hidden">
