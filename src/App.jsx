@@ -70,7 +70,11 @@ const agents = [
 ];
 
 function App() {
+  const [session, setSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("確認中");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const [authError, setAuthError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -84,9 +88,11 @@ function App() {
 
       if (error) {
         setAuthStatus("確認エラー");
+        setAuthError(error.message);
         return;
       }
 
+      setSession(data.session);
       setAuthStatus(data.session ? "ログイン中" : "未ログイン");
     }
 
@@ -95,6 +101,7 @@ function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
       setAuthStatus(session ? "ログイン中" : "未ログイン");
     });
 
@@ -104,12 +111,90 @@ function App() {
     };
   }, []);
 
+  async function handleSignUp(email, password) {
+    setAuthLoading(true);
+    setAuthMessage("");
+    setAuthError("");
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+    });
+
+    setAuthLoading(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    setSession(data.session);
+    setAuthStatus(data.session ? "ログイン中" : "未ログイン");
+    setAuthMessage(
+      data.session
+        ? "会員登録してログインしました。"
+        : "確認メールを送信しました。メールを確認してからログインしてください。",
+    );
+  }
+
+  async function handleLogin(email, password) {
+    setAuthLoading(true);
+    setAuthMessage("");
+    setAuthError("");
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    setAuthLoading(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    setSession(data.session);
+    setAuthStatus("ログイン中");
+    setAuthMessage("ログインしました。");
+  }
+
+  async function handleLogout() {
+    setAuthLoading(true);
+    setAuthMessage("");
+    setAuthError("");
+
+    const { error } = await supabase.auth.signOut();
+
+    setAuthLoading(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    setSession(null);
+    setAuthStatus("未ログイン");
+    setAuthMessage("ログアウトしました。");
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-night-950 text-starlight">
       <SkyBackdrop />
 
       <div className="mx-auto grid min-h-screen w-full max-w-[1520px] grid-cols-1 items-start gap-4 px-3 py-3 sm:px-4 lg:grid-cols-[300px_minmax(0,720px)_330px] lg:justify-center lg:py-5 xl:grid-cols-[320px_minmax(0,760px)_360px]">
-        <LeftColumn authStatus={authStatus} />
+        <LeftColumn
+          auth={{
+            error: authError,
+            loading: authLoading,
+            message: authMessage,
+            onLogin: handleLogin,
+            onLogout: handleLogout,
+            onSignUp: handleSignUp,
+            session,
+            status: authStatus,
+          }}
+        />
         <main className="min-w-0 border-x border-white/10 lg:order-none">
           <Timeline />
         </main>
@@ -129,7 +214,7 @@ function SkyBackdrop() {
   );
 }
 
-function LeftColumn({ authStatus }) {
+function LeftColumn({ auth }) {
   return (
     <aside className="space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-40px)] lg:overflow-y-auto lg:pr-1">
       <section className="glass-panel p-4">
@@ -160,10 +245,7 @@ function LeftColumn({ authStatus }) {
           ))}
         </nav>
 
-        <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold text-slate-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-comet/70" />
-          <span>開発確認: {authStatus}</span>
-        </div>
+        <AuthPanel auth={auth} />
       </section>
 
       <section className="glass-panel overflow-hidden">
@@ -204,6 +286,121 @@ function LeftColumn({ authStatus }) {
         星を灯す
       </button>
     </aside>
+  );
+}
+
+function AuthPanel({ auth }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const isSignUp = mode === "signup";
+  const userEmail = auth.session?.user?.email;
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    if (isSignUp) {
+      await auth.onSignUp(email, password);
+      return;
+    }
+
+    await auth.onLogin(email, password);
+  }
+
+  return (
+    <section className="mt-4 rounded-2xl border border-white/10 bg-night-950/35 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-bold normal-case text-comet">Supabase Auth</p>
+          <p className="mt-1 text-sm font-black text-white">{auth.status}</p>
+        </div>
+        <span className={`h-2 w-2 rounded-full ${auth.session ? "bg-comet" : "bg-slate-500"}`} />
+      </div>
+
+      {auth.session ? (
+        <div className="mt-3 space-y-3">
+          <p className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-slate-300">
+            {userEmail ? `${userEmail} でログイン中` : "ログイン中"}
+          </p>
+          <button
+            className="min-h-10 w-full rounded-2xl border border-sakura/30 bg-sakura/10 px-4 text-xs font-black text-sakura transition hover:bg-sakura/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={auth.loading}
+            onClick={auth.onLogout}
+            type="button"
+          >
+            {auth.loading ? "処理中..." : "ログアウト"}
+          </button>
+        </div>
+      ) : (
+        <form className="mt-3 space-y-3" onSubmit={handleSubmit}>
+          <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1">
+            <button
+              className={`min-h-9 rounded-xl text-xs font-black transition ${
+                mode === "login" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
+              }`}
+              onClick={() => setMode("login")}
+              type="button"
+            >
+              ログイン
+            </button>
+            <button
+              className={`min-h-9 rounded-xl text-xs font-black transition ${
+                mode === "signup" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
+              }`}
+              onClick={() => setMode("signup")}
+              type="button"
+            >
+              会員登録
+            </button>
+          </div>
+
+          <label className="block text-xs font-bold text-slate-400">
+            メールアドレス
+            <input
+              autoComplete="email"
+              className="mt-1 min-h-10 w-full rounded-2xl border border-white/10 bg-night-950/70 px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              required
+              type="email"
+              value={email}
+            />
+          </label>
+
+          <label className="block text-xs font-bold text-slate-400">
+            パスワード
+            <input
+              autoComplete={isSignUp ? "new-password" : "current-password"}
+              className="mt-1 min-h-10 w-full rounded-2xl border border-white/10 bg-night-950/70 px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+              minLength={6}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="6文字以上"
+              required
+              type="password"
+              value={password}
+            />
+          </label>
+
+          <button
+            className="min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={auth.loading}
+            type="submit"
+          >
+            {auth.loading ? "処理中..." : isSignUp ? "会員登録する" : "ログインする"}
+          </button>
+        </form>
+      )}
+
+      {(auth.message || auth.error) && (
+        <p
+          className={`mt-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+            auth.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+          }`}
+        >
+          {auth.error || auth.message}
+        </p>
+      )}
+    </section>
   );
 }
 
