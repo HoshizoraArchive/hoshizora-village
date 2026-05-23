@@ -69,12 +69,51 @@ const agents = [
   { name: "Orion Note", role: "観測補助AI", text: "散らばった感情から星座を探します。" },
 ];
 
+const emptyProfileForm = {
+  display_name: "",
+  username: "",
+  bio: "",
+  constellation_note: "",
+};
+
+const defaultProfileView = {
+  display_name: "名無しの観測者",
+  username: "@silent_creator",
+  bio: "まだ名前のない作品を、夜空に置いていく人。未完成の光を観測しています。",
+  avatar: "創",
+};
+
+function profileFormFromRecord(profile) {
+  return {
+    display_name: profile?.display_name ?? "",
+    username: profile?.username ?? "",
+    bio: profile?.bio ?? "",
+    constellation_note: profile?.constellation_note ?? "",
+  };
+}
+
+function optionalText(value) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function optionalUsername(value) {
+  const trimmed = value.trim().replace(/^@/, "");
+  return trimmed ? trimmed : null;
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("確認中");
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
+  const [profile, setProfile] = useState(null);
+  const [profileForm, setProfileForm] = useState(emptyProfileForm);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState("");
+  const [profileError, setProfileError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -110,6 +149,53 @@ function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      setProfile(null);
+      setProfileForm(emptyProfileForm);
+      setProfileLoading(false);
+      setProfileSaving(false);
+      setProfileMessage("");
+      setProfileError("");
+      return;
+    }
+
+    async function readProfile() {
+      setProfileLoading(true);
+      setProfileMessage("");
+      setProfileError("");
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, display_name, username, bio, constellation_note")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (!isMounted) {
+        return;
+      }
+
+      setProfileLoading(false);
+
+      if (error) {
+        setProfileError(error.message);
+        return;
+      }
+
+      setProfile(data);
+      setProfileForm(data ? profileFormFromRecord(data) : { ...emptyProfileForm, display_name: defaultProfileView.display_name });
+    }
+
+    readProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id]);
 
   async function handleSignUp(email, password) {
     setAuthLoading(true);
@@ -178,6 +264,59 @@ function App() {
     setAuthMessage("ログアウトしました。");
   }
 
+  function handleProfileFieldChange(field, value) {
+    setProfileForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  async function handleProfileSubmit(event) {
+    event.preventDefault();
+
+    if (!session?.user?.id) {
+      setProfileError("プロフィール保存にはログインが必要です。");
+      return;
+    }
+
+    const displayName = profileForm.display_name.trim();
+
+    if (!displayName) {
+      setProfileError("表示名を入力してください。");
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileMessage("");
+    setProfileError("");
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .upsert(
+        {
+          id: session.user.id,
+          display_name: displayName,
+          username: optionalUsername(profileForm.username),
+          bio: optionalText(profileForm.bio),
+          constellation_note: optionalText(profileForm.constellation_note),
+        },
+        { onConflict: "id" },
+      )
+      .select("id, display_name, username, bio, constellation_note")
+      .single();
+
+    setProfileSaving(false);
+
+    if (error) {
+      setProfileError(error.message);
+      return;
+    }
+
+    setProfile(data);
+    setProfileForm(profileFormFromRecord(data));
+    setProfileMessage("プロフィールを保存しました。");
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-night-950 text-starlight">
       <SkyBackdrop />
@@ -193,6 +332,17 @@ function App() {
             onSignUp: handleSignUp,
             session,
             status: authStatus,
+          }}
+          profile={{
+            canEdit: Boolean(session),
+            data: profile,
+            error: profileError,
+            form: profileForm,
+            loading: profileLoading,
+            message: profileMessage,
+            onChange: handleProfileFieldChange,
+            onSubmit: handleProfileSubmit,
+            saving: profileSaving,
           }}
         />
         <main className="min-w-0 border-x border-white/10 lg:order-none">
@@ -214,7 +364,7 @@ function SkyBackdrop() {
   );
 }
 
-function LeftColumn({ auth }) {
+function LeftColumn({ auth, profile }) {
   return (
     <aside className="space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-40px)] lg:overflow-y-auto lg:pr-1">
       <section className="glass-panel p-4">
@@ -248,31 +398,7 @@ function LeftColumn({ auth }) {
         <AuthPanel auth={auth} />
       </section>
 
-      <section className="glass-panel overflow-hidden">
-        <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
-        <div className="p-4 pt-0">
-          <div className="-mt-7 flex items-end justify-between gap-3">
-            <div className="grid h-16 w-16 place-items-center rounded-3xl border border-white/20 bg-gradient-to-br from-night-800 via-aurora/70 to-sakura/70 text-xl font-black shadow-glow">
-              創
-            </div>
-            <button className="mb-2 rounded-full border border-comet/30 bg-comet/10 px-4 py-1.5 text-xs font-black text-comet">
-              編集
-            </button>
-          </div>
-          <div className="mt-3">
-            <h2 className="text-lg font-black text-white">名無しの観測者</h2>
-            <p className="text-sm text-slate-400">@silent_creator</p>
-            <p className="mt-3 text-sm leading-7 text-slate-300">
-              まだ名前のない作品を、夜空に置いていく人。未完成の光を観測しています。
-            </p>
-          </div>
-          <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
-            <Stat label="観測" value="128" />
-            <Stat label="観測者" value="2.4k" />
-            <Stat label="共鳴" value="9.8k" />
-          </div>
-        </div>
-      </section>
+      <ProfileCard profile={profile} />
 
       <Panel title="観測者" eyebrow="observers">
         <div className="space-y-3">
@@ -286,6 +412,122 @@ function LeftColumn({ auth }) {
         星を灯す
       </button>
     </aside>
+  );
+}
+
+function ProfileCard({ profile }) {
+  const displayName = profile.data?.display_name || defaultProfileView.display_name;
+  const username = profile.data?.username ? `@${profile.data.username}` : defaultProfileView.username;
+  const bio = profile.data?.bio || defaultProfileView.bio;
+  const constellationNote = profile.data?.constellation_note;
+  const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
+
+  return (
+    <section className="glass-panel overflow-hidden">
+      <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
+      <div className="p-4 pt-0">
+        <div className="-mt-7 flex items-end justify-between gap-3">
+          <div className="grid h-16 w-16 place-items-center rounded-3xl border border-white/20 bg-gradient-to-br from-night-800 via-aurora/70 to-sakura/70 text-xl font-black shadow-glow">
+            {avatar}
+          </div>
+          <div className="mb-2 rounded-full border border-comet/30 bg-comet/10 px-4 py-1.5 text-xs font-black text-comet">
+            {profile.loading ? "読込中" : "編集"}
+          </div>
+        </div>
+        <div className="mt-3">
+          <h2 className="text-lg font-black text-white">{displayName}</h2>
+          <p className="text-sm text-slate-400">{username}</p>
+          <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
+          {constellationNote && (
+            <div className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 px-3 py-2">
+              <p className="text-[11px] font-black text-comet">わたしの星座</p>
+              <p className="mt-1 text-xs leading-5 text-slate-200">{constellationNote}</p>
+            </div>
+          )}
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
+          <Stat label="観測" value="128" />
+          <Stat label="観測者" value="2.4k" />
+          <Stat label="共鳴" value="9.8k" />
+        </div>
+
+        {profile.canEdit && <ProfileEditor profile={profile} />}
+      </div>
+    </section>
+  );
+}
+
+function ProfileEditor({ profile }) {
+  return (
+    <form className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-night-950/35 p-3" onSubmit={profile.onSubmit}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-black text-comet">プロフィール編集</p>
+        {profile.loading && <span className="text-[11px] font-bold text-slate-500">読み込み中...</span>}
+      </div>
+
+      <label className="block text-xs font-bold text-slate-400">
+        表示名
+        <input
+          className="mt-1 min-h-10 w-full rounded-2xl border border-white/10 bg-night-950/70 px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+          onChange={(event) => profile.onChange("display_name", event.target.value)}
+          placeholder="名無しの観測者"
+          required
+          type="text"
+          value={profile.form.display_name}
+        />
+      </label>
+
+      <label className="block text-xs font-bold text-slate-400">
+        ユーザー名
+        <input
+          className="mt-1 min-h-10 w-full rounded-2xl border border-white/10 bg-night-950/70 px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+          onChange={(event) => profile.onChange("username", event.target.value)}
+          pattern="[A-Za-z0-9_]{3,32}"
+          placeholder="silent_creator"
+          title="半角英数字とアンダースコアで3〜32文字"
+          type="text"
+          value={profile.form.username}
+        />
+      </label>
+
+      <label className="block text-xs font-bold text-slate-400">
+        自己紹介
+        <textarea
+          className="mt-1 min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+          onChange={(event) => profile.onChange("bio", event.target.value)}
+          placeholder="まだ名前のない作品を、夜空に置いていく人。"
+          value={profile.form.bio}
+        />
+      </label>
+
+      <label className="block text-xs font-bold text-slate-400">
+        わたしの星座
+        <textarea
+          className="mt-1 min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+          onChange={(event) => profile.onChange("constellation_note", event.target.value)}
+          placeholder="好きなもの、創作傾向、今の自分の光など"
+          value={profile.form.constellation_note}
+        />
+      </label>
+
+      <button
+        className="min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={profile.loading || profile.saving}
+        type="submit"
+      >
+        {profile.saving ? "保存中..." : "プロフィールを保存する"}
+      </button>
+
+      {(profile.message || profile.error) && (
+        <p
+          className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${
+            profile.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+          }`}
+        >
+          {profile.error || profile.message}
+        </p>
+      )}
+    </form>
   );
 }
 
