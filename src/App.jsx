@@ -10,7 +10,7 @@ const navItems = [
   { label: "Archive", icon: "♡" },
 ];
 
-const posts = [
+const prototypePosts = [
   {
     name: "月灯 しおり",
     handle: "@moonbookmark",
@@ -102,6 +102,42 @@ function optionalUsername(value) {
   return trimmed ? trimmed : null;
 }
 
+function getAvatarText(value) {
+  return value.trim().charAt(0) || defaultProfileView.avatar;
+}
+
+function formatPostTime(createdAt) {
+  const date = new Date(createdAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "今";
+  }
+
+  return date.toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function mapSavedPost(post, authorProfile) {
+  const displayName = authorProfile?.display_name || defaultProfileView.display_name;
+  const username = authorProfile?.username ? `@${authorProfile.username}` : "@starry_creator";
+
+  return {
+    id: post.id,
+    name: displayName,
+    handle: username,
+    badge: "流星便",
+    avatar: getAvatarText(displayName),
+    time: formatPostTime(post.created_at),
+    text: post.body,
+    tags: ["#流星便", "#観測待ち"],
+    resonance: "未集計",
+    comments: "未集計",
+    glow: "from-comet/25 to-sakura/20",
+  };
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("確認中");
@@ -114,6 +150,13 @@ function App() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
+  const [savedPosts, setSavedPosts] = useState([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [postsError, setPostsError] = useState("");
+  const [postDraft, setPostDraft] = useState("");
+  const [postSaving, setPostSaving] = useState(false);
+  const [postMessage, setPostMessage] = useState("");
+  const [postError, setPostError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -196,6 +239,70 @@ function App() {
       isMounted = false;
     };
   }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function readPublicPosts() {
+      setPostsLoading(true);
+      setPostsError("");
+
+      const { data, error } = await supabase
+        .from("posts")
+        .select("id, author_id, type, body, visibility, created_at")
+        .eq("visibility", "public")
+        .eq("type", "text")
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setPostsLoading(false);
+        setPostsError(error.message);
+        return;
+      }
+
+      const authorIds = [...new Set((data ?? []).map((post) => post.author_id).filter(Boolean))];
+      const profilesById = new Map();
+
+      if (authorIds.length > 0) {
+        const { data: profileRows, error: profileRowsError } = await supabase
+          .from("profiles")
+          .select("id, display_name, username")
+          .in("id", authorIds);
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (profileRowsError) {
+          setPostsLoading(false);
+          setPostsError(profileRowsError.message);
+          return;
+        }
+
+        for (const profileRow of profileRows ?? []) {
+          profilesById.set(profileRow.id, profileRow);
+        }
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      setSavedPosts((data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id))));
+      setPostsLoading(false);
+    }
+
+    readPublicPosts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleSignUp(email, password) {
     setAuthLoading(true);
@@ -317,6 +424,54 @@ function App() {
     setProfileMessage("プロフィールを保存しました。");
   }
 
+  async function handlePostSubmit(event) {
+    event.preventDefault();
+    setPostMessage("");
+    setPostError("");
+
+    if (!session?.user?.id) {
+      setPostError("ログインすると流星便を放流できます。");
+      return;
+    }
+
+    if (!profile?.id) {
+      setPostError("先にプロフィールを保存してください。");
+      return;
+    }
+
+    const body = postDraft.trim();
+
+    if (!body) {
+      setPostError("流星便の本文を入力してください。");
+      return;
+    }
+
+    setPostSaving(true);
+
+    const { data, error } = await supabase
+      .from("posts")
+      .insert({
+        author_id: session.user.id,
+        type: "text",
+        body,
+        visibility: "public",
+      })
+      .select("id, author_id, type, body, visibility, created_at")
+      .single();
+
+    setPostSaving(false);
+
+    if (error) {
+      setPostError(error.message);
+      return;
+    }
+
+    const newPost = mapSavedPost(data, profile);
+    setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
+    setPostDraft("");
+    setPostMessage("流星便を放流しました。");
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-night-950 text-starlight">
       <SkyBackdrop />
@@ -346,7 +501,21 @@ function App() {
           }}
         />
         <main className="min-w-0 border-x border-white/10 lg:order-none">
-          <Timeline />
+          <Timeline
+            composer={{
+              canPost: Boolean(session),
+              draft: postDraft,
+              error: postError,
+              hasProfile: Boolean(profile?.id),
+              message: postMessage,
+              onChange: setPostDraft,
+              onSubmit: handlePostSubmit,
+              saving: postSaving,
+            }}
+            posts={[...savedPosts, ...prototypePosts]}
+            postsError={postsError}
+            postsLoading={postsLoading}
+          />
         </main>
         <RightColumn />
       </div>
@@ -646,7 +815,7 @@ function AuthPanel({ auth }) {
   );
 }
 
-function Timeline() {
+function Timeline({ composer, posts, postsError, postsLoading }) {
   return (
     <section className="mx-auto max-w-3xl">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-night-950/70 px-4 py-4 backdrop-blur-2xl sm:px-6">
@@ -664,20 +833,39 @@ function Timeline() {
         </div>
       </header>
 
-      <Composer />
+      <Composer composer={composer} />
+
+      {(postsLoading || postsError) && (
+        <div className="px-3 pt-4 sm:px-5">
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              postsError ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {postsError || "公開流星便を読み込み中..."}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-4 px-3 pb-10 pt-4 sm:px-5">
         {posts.map((post) => (
-          <PostCard key={post.handle} post={post} />
+          <PostCard key={post.id ?? post.handle} post={post} />
         ))}
       </div>
     </section>
   );
 }
 
-function Composer() {
+function Composer({ composer }) {
+  const helperText = !composer.canPost
+    ? "ログインすると流星便を放流できます。"
+    : !composer.hasProfile
+      ? "先にプロフィールを保存すると流星便を放流できます。"
+      : "テキスト流星便を公開で放流します。";
+  const canSubmit = composer.canPost && composer.hasProfile && composer.draft.trim() && !composer.saving;
+
   return (
-    <section className="border-b border-white/10 px-3 py-4 sm:px-5">
+    <form className="border-b border-white/10 px-3 py-4 sm:px-5" onSubmit={composer.onSubmit}>
       <div className="glass-panel p-4">
         <div className="flex gap-3">
           <div className="grid h-11 w-11 flex-none place-items-center rounded-2xl bg-gradient-to-br from-comet/70 to-aurora/80 font-black">
@@ -686,22 +874,38 @@ function Composer() {
           <div className="min-w-0 flex-1">
             <textarea
               className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/50 p-4 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+              disabled={!composer.canPost || !composer.hasProfile || composer.saving}
               maxLength={160}
+              onChange={(event) => composer.onChange(event.target.value)}
               placeholder="今夜、どの星を観測してほしい？"
+              value={composer.draft}
             />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex gap-2 text-xs text-slate-400">
-                <span className="rounded-full bg-white/10 px-3 py-1">星空ワード</span>
+              <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                <span className="rounded-full bg-white/10 px-3 py-1">{helperText}</span>
                 <span className="rounded-full bg-white/10 px-3 py-1">星文メモ</span>
               </div>
-              <button className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 text-sm font-black text-night-950 shadow-glow">
-                流星便を放流する
+              <button
+                className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 text-sm font-black text-night-950 shadow-glow transition disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canSubmit}
+                type="submit"
+              >
+                {composer.saving ? "放流中..." : "流星便を放流する"}
               </button>
             </div>
+            {(composer.message || composer.error) && (
+              <p
+                className={`mt-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+                  composer.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+                }`}
+              >
+                {composer.error || composer.message}
+              </p>
+            )}
           </div>
         </div>
       </div>
-    </section>
+    </form>
   );
 }
 
