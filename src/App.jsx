@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./lib/supabaseClient";
 
-const navItems = [
-  { label: "ホーム", icon: "⌂" },
-  { label: "観測", icon: "✦" },
-  { label: "R.Connect", icon: "◌" },
-  { label: "わたしの星座", icon: "☾" },
-  { label: "設定", icon: "⚙" },
-  { label: "Archive", icon: "♡" },
+const bottomNavItems = [
+  { label: "観測", icon: "telescope" },
+  { label: "R.Connect", icon: "bell" },
+  { label: "流星便投稿", icon: "plus", primary: true },
+  { label: "Archive", icon: "bookmark" },
+  { label: "わたしの星座", icon: "constellation" },
 ];
 
 const prototypePosts = [
@@ -473,7 +472,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-night-950 text-starlight">
+    <div className="min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
       <SkyBackdrop />
 
       <div className="mx-auto grid min-h-screen w-full max-w-[1520px] grid-cols-1 items-start gap-4 px-3 py-3 sm:px-4 lg:grid-cols-[300px_minmax(0,720px)_330px] lg:justify-center lg:py-5 xl:grid-cols-[320px_minmax(0,760px)_360px]">
@@ -519,6 +518,8 @@ function App() {
         </main>
         <RightColumn />
       </div>
+
+      <BottomNav />
     </div>
   );
 }
@@ -546,23 +547,6 @@ function LeftColumn({ auth, profile }) {
             <h1 className="text-xl font-black leading-tight">星空Village</h1>
           </div>
         </div>
-
-        <nav className="mt-4 grid grid-cols-3 gap-2 lg:grid-cols-2" aria-label="星空Village navigation">
-          {navItems.slice(0, 6).map((item, index) => (
-            <button
-              className={`group flex min-h-10 items-center justify-center gap-2 rounded-2xl border px-2 text-xs font-bold transition lg:justify-start lg:text-sm ${
-                index === 0
-                  ? "border-comet/40 bg-comet/10 text-white"
-                  : "border-transparent text-slate-300 hover:border-white/20 hover:bg-white/10 hover:text-white"
-              }`}
-              key={item.label}
-              type="button"
-            >
-              <span className="text-comet">{item.icon}</span>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
 
         <AuthPanel auth={auth} />
       </section>
@@ -697,6 +681,85 @@ function ProfileEditor({ profile }) {
         </p>
       )}
     </form>
+  );
+}
+
+function BottomNav() {
+  return (
+    <nav
+      aria-label="星空Village bottom navigation"
+      className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-5"
+    >
+      <div className="mx-auto max-w-2xl rounded-3xl border border-white/15 bg-night-950/85 px-2 py-2 shadow-[0_0_40px_rgba(125,223,255,0.16)] backdrop-blur-2xl">
+        <div className="grid grid-cols-5 items-end gap-1">
+          {bottomNavItems.map((item) => (
+            <button
+              className={
+                item.primary
+                  ? "-mt-5 flex min-h-16 flex-col items-center justify-center gap-1 rounded-3xl bg-gradient-to-br from-comet via-aurora to-sakura px-2 pb-2 pt-2 text-night-950 shadow-glow transition hover:scale-[1.03]"
+                  : "flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
+              }
+              key={item.label}
+              type="button"
+            >
+              <span
+                className={
+                  item.primary
+                    ? "grid h-9 w-9 place-items-center rounded-full bg-night-950/15 text-night-950"
+                    : "grid h-6 w-6 place-items-center text-comet"
+                }
+              >
+                <BottomNavIcon icon={item.icon} />
+              </span>
+              <span className={`text-center text-[10px] font-black leading-tight ${item.primary ? "text-night-950" : ""}`}>
+                {item.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function BottomNavIcon({ icon }) {
+  if (icon === "plus") {
+    return <span className="text-2xl leading-none">+</span>;
+  }
+
+  if (icon === "telescope") {
+    return (
+      <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+        <path d="M4 14.5 14.5 9l1.5 3L5.5 17.5 4 14.5Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+        <path d="m14.5 9 3-1.6 2.2 4.2-3.7 1.4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        <path d="M9.5 16 7 21" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        <path d="m11.5 14.8 3.2 5.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+
+  if (icon === "bell") {
+    return (
+      <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+        <path d="M18 10a6 6 0 0 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        <path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+
+  if (icon === "bookmark") {
+    return (
+      <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+        <path d="M7 4h10v16l-5-3-5 3V4Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+      <path d="M6 16 11 8l4 5 3-6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M6 16h.01M11 8h.01M15 13h.01M18 7h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="3" />
+    </svg>
   );
 }
 
