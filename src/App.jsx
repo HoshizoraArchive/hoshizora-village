@@ -446,9 +446,9 @@ function ProfileCard({ profile }) {
           )}
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
-          <Stat label="観測" value="128" />
-          <Stat label="観測者" value="2.4k" />
-          <Stat label="共鳴" value="9.8k" />
+          <Stat label="観測" value="未集計" />
+          <Stat label="観測者" value="未集計" />
+          <Stat label="共鳴" value="未集計" />
         </div>
 
         {profile.canEdit && <ProfileEditor profile={profile} />}
