@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "./lib/supabaseClient";
 
 const bottomNavItems = [
-  { label: "観測", icon: "telescope" },
-  { label: "R.Connect", icon: "bell" },
-  { label: "流星便投稿", icon: "plus", primary: true },
-  { label: "Archive", icon: "bookmark" },
-  { label: "わたしの星座", icon: "constellation" },
+  { id: "observe", label: "観測", icon: "telescope" },
+  { id: "rconnect", label: "R.Connect", icon: "bell" },
+  { id: "post", label: "流星便投稿", icon: "plus", primary: true },
+  { id: "archive", label: "Archive", icon: "bookmark" },
+  { id: "profile", label: "わたしの星座", icon: "constellation" },
 ];
 
 const prototypePosts = [
@@ -46,12 +46,6 @@ const prototypePosts = [
     comments: 18,
     glow: "from-sakura/20 to-comet/25",
   },
-];
-
-const observers = [
-  { name: "星野 まどか", handle: "@madoka_star", avatar: "ま", note: "短歌と夜景" },
-  { name: "Nocturne-7", handle: "@nocturne7", avatar: "N", note: "夜間観測AI" },
-  { name: "雨森 透", handle: "@amenomori", avatar: "透", note: "透明な日記" },
 ];
 
 const trends = [
@@ -124,6 +118,7 @@ function mapSavedPost(post, authorProfile) {
 
   return {
     id: post.id,
+    authorId: post.author_id,
     name: displayName,
     handle: username,
     badge: "流星便",
@@ -138,6 +133,7 @@ function mapSavedPost(post, authorProfile) {
 }
 
 function App() {
+  const [activeTab, setActiveTab] = useState("observe");
   const [session, setSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("確認中");
   const [authLoading, setAuthLoading] = useState(false);
@@ -469,57 +465,68 @@ function App() {
     setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
     setPostDraft("");
     setPostMessage("流星便を放流しました。");
+    setActiveTab("observe");
   }
+
+  function handleTabChange(tabId) {
+    setActiveTab(tabId);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const auth = {
+    error: authError,
+    loading: authLoading,
+    message: authMessage,
+    onLogin: handleLogin,
+    onLogout: handleLogout,
+    onSignUp: handleSignUp,
+    session,
+    status: authStatus,
+  };
+  const profileState = {
+    canEdit: Boolean(session),
+    data: profile,
+    error: profileError,
+    form: profileForm,
+    loading: profileLoading,
+    message: profileMessage,
+    onChange: handleProfileFieldChange,
+    onSubmit: handleProfileSubmit,
+    saving: profileSaving,
+  };
+  const composer = {
+    canPost: Boolean(session),
+    draft: postDraft,
+    error: postError,
+    hasProfile: Boolean(profile?.id),
+    message: postMessage,
+    onChange: setPostDraft,
+    onSubmit: handlePostSubmit,
+    saving: postSaving,
+  };
+  const posts = [...savedPosts, ...prototypePosts];
+  const ownPosts = session?.user?.id ? savedPosts.filter((post) => post.authorId === session.user.id) : [];
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
       <SkyBackdrop />
 
-      <div className="mx-auto grid min-h-screen w-full max-w-[1520px] grid-cols-1 items-start gap-4 px-3 py-3 sm:px-4 lg:grid-cols-[300px_minmax(0,720px)_330px] lg:justify-center lg:py-5 xl:grid-cols-[320px_minmax(0,760px)_360px]">
-        <LeftColumn
-          auth={{
-            error: authError,
-            loading: authLoading,
-            message: authMessage,
-            onLogin: handleLogin,
-            onLogout: handleLogout,
-            onSignUp: handleSignUp,
-            session,
-            status: authStatus,
-          }}
-          profile={{
-            canEdit: Boolean(session),
-            data: profile,
-            error: profileError,
-            form: profileForm,
-            loading: profileLoading,
-            message: profileMessage,
-            onChange: handleProfileFieldChange,
-            onSubmit: handleProfileSubmit,
-            saving: profileSaving,
-          }}
+      <div className="mx-auto min-h-screen w-full max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5">
+        <AppHeader auth={auth} />
+
+        <TabContent
+          activeTab={activeTab}
+          auth={auth}
+          composer={composer}
+          ownPosts={ownPosts}
+          posts={posts}
+          postsError={postsError}
+          postsLoading={postsLoading}
+          profile={profileState}
         />
-        <main className="min-w-0 border-x border-white/10 lg:order-none">
-          <Timeline
-            composer={{
-              canPost: Boolean(session),
-              draft: postDraft,
-              error: postError,
-              hasProfile: Boolean(profile?.id),
-              message: postMessage,
-              onChange: setPostDraft,
-              onSubmit: handlePostSubmit,
-              saving: postSaving,
-            }}
-            posts={[...savedPosts, ...prototypePosts]}
-            postsError={postsError}
-            postsLoading={postsLoading}
-          />
-        </main>
-        <RightColumn />
       </div>
 
-      <BottomNav />
+      <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
     </div>
   );
 }
@@ -534,10 +541,10 @@ function SkyBackdrop() {
   );
 }
 
-function LeftColumn({ auth, profile }) {
+function AppHeader({ auth }) {
   return (
-    <aside className="space-y-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-40px)] lg:overflow-y-auto lg:pr-1">
-      <section className="glass-panel p-4">
+    <header className="glass-panel mb-4 p-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-comet via-aurora to-sakura text-lg font-black text-night-950 shadow-glow">
             星
@@ -549,22 +556,141 @@ function LeftColumn({ auth, profile }) {
         </div>
 
         <AuthPanel auth={auth} />
+      </div>
+    </header>
+  );
+}
+
+function TabContent({ activeTab, auth, composer, ownPosts, posts, postsError, postsLoading, profile }) {
+  if (activeTab === "rconnect") {
+    return (
+      <PlaceholderScreen
+        eyebrow="resonance connect"
+        title="R.Connect"
+        text="共鳴・星文・観測通知がここに届きます。"
+        note="現在、新しい通知はありません。"
+      />
+    );
+  }
+
+  if (activeTab === "post") {
+    return <PostScreen composer={composer} />;
+  }
+
+  if (activeTab === "archive") {
+    return (
+      <PlaceholderScreen
+        eyebrow="private archive"
+        title="Archive"
+        text="保存した流星便がここに集まります。"
+        note="Archive機能は今後実装予定です。"
+      />
+    );
+  }
+
+  if (activeTab === "profile") {
+    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} />;
+  }
+
+  return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} />;
+}
+
+function ObserveScreen({ posts, postsError, postsLoading }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,760px)_340px] lg:items-start">
+      <main className="min-w-0 border-x border-white/10">
+        <Timeline posts={posts} postsError={postsError} postsLoading={postsLoading} />
+      </main>
+      <RightColumn />
+    </div>
+  );
+}
+
+function PostScreen({ composer }) {
+  return (
+    <main className="mx-auto max-w-3xl">
+      <section className="glass-panel mb-4 p-4 sm:p-5">
+        <p className="text-xs font-bold uppercase text-comet">meteor letter</p>
+        <h2 className="mt-1 text-2xl font-black text-white sm:text-3xl">流星便投稿</h2>
+        <p className="mt-2 text-sm leading-7 text-slate-400">
+          今夜、観測してほしい未完成の光を放流します。
+        </p>
       </section>
 
-      <ProfileCard profile={profile} />
+      <Composer composer={composer} />
+    </main>
+  );
+}
 
-      <Panel title="観測者" eyebrow="observers">
-        <div className="space-y-3">
-          {observers.map((observer) => (
-            <ObserverRow key={observer.handle} observer={observer} />
+function PlaceholderScreen({ eyebrow, title, text, note }) {
+  return (
+    <main className="mx-auto max-w-3xl">
+      <section className="glass-panel p-5 sm:p-6">
+        <p className="text-xs font-bold uppercase text-comet">{eyebrow}</p>
+        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">{title}</h2>
+        <p className="mt-4 text-sm leading-7 text-slate-300">{text}</p>
+        <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
+          {note}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ProfileScreen({ auth, ownPosts, profile }) {
+  return (
+    <main className="grid gap-4 lg:grid-cols-[minmax(0,560px)_minmax(320px,1fr)] lg:items-start">
+      <div className="space-y-4">
+        <ProfileCard profile={profile} />
+        <SettingsPanel auth={auth} />
+      </div>
+
+      <OwnPostsPanel auth={auth} posts={ownPosts} />
+    </main>
+  );
+}
+
+function OwnPostsPanel({ auth, posts }) {
+  return (
+    <Panel title="わたしの流星便" eyebrow="my meteor letters">
+      {!auth.session ? (
+        <p className="text-sm leading-7 text-slate-400">ログインすると、自分が放流した流星便をここで確認できます。</p>
+      ) : posts.length === 0 ? (
+        <p className="text-sm leading-7 text-slate-400">
+          まだ自分の流星便はありません。中央の＋から最初の流星便を放流できます。
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {posts.map((post) => (
+            <PostCard key={post.id} post={post} />
           ))}
         </div>
-      </Panel>
+      )}
+    </Panel>
+  );
+}
 
-      <button className="w-full min-h-12 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 font-black text-night-950 shadow-glow transition hover:scale-[1.01]">
-        星を灯す
-      </button>
-    </aside>
+function SettingsPanel({ auth }) {
+  return (
+    <Panel title="設定" eyebrow="settings">
+      <div className="space-y-3 text-sm leading-7 text-slate-400">
+        <p>基本設定は今後ここから調整できるようにします。</p>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+          <p className="text-xs font-black text-comet">ログイン状態</p>
+          <p className="mt-1 text-slate-300">{auth.status}</p>
+        </div>
+        {auth.session && (
+          <button
+            className="min-h-10 w-full rounded-2xl border border-sakura/30 bg-sakura/10 px-4 text-xs font-black text-sakura transition hover:bg-sakura/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={auth.loading}
+            onClick={auth.onLogout}
+            type="button"
+          >
+            {auth.loading ? "処理中..." : "ログアウト"}
+          </button>
+        )}
+      </div>
+    </Panel>
   );
 }
 
@@ -684,7 +810,7 @@ function ProfileEditor({ profile }) {
   );
 }
 
-function BottomNav() {
+function BottomNav({ activeTab, onTabChange }) {
   return (
     <nav
       aria-label="星空Village bottom navigation"
@@ -692,30 +818,41 @@ function BottomNav() {
     >
       <div className="mx-auto max-w-2xl rounded-3xl border border-white/15 bg-night-950/85 px-2 py-2 shadow-[0_0_40px_rgba(125,223,255,0.16)] backdrop-blur-2xl">
         <div className="grid grid-cols-5 items-end gap-1">
-          {bottomNavItems.map((item) => (
-            <button
-              className={
-                item.primary
-                  ? "-mt-5 flex min-h-16 flex-col items-center justify-center gap-1 rounded-3xl bg-gradient-to-br from-comet via-aurora to-sakura px-2 pb-2 pt-2 text-night-950 shadow-glow transition hover:scale-[1.03]"
-                  : "flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
-              }
-              key={item.label}
-              type="button"
-            >
-              <span
-                className={
-                  item.primary
-                    ? "grid h-9 w-9 place-items-center rounded-full bg-night-950/15 text-night-950"
-                    : "grid h-6 w-6 place-items-center text-comet"
-                }
+          {bottomNavItems.map((item) => {
+            const isActive = activeTab === item.id;
+            const buttonClass = item.primary
+              ? `-mt-5 flex min-h-16 flex-col items-center justify-center gap-1 rounded-3xl bg-gradient-to-br from-comet via-aurora to-sakura px-2 pb-2 pt-2 text-night-950 shadow-glow transition hover:scale-[1.03] ${
+                  isActive ? "-translate-y-1 ring-2 ring-white/40" : ""
+                }`
+              : `flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 transition ${
+                  isActive ? "bg-comet/15 text-white ring-1 ring-comet/30" : "text-slate-300 hover:bg-white/10 hover:text-white"
+                }`;
+
+            return (
+              <button
+                aria-current={isActive ? "page" : undefined}
+                className={buttonClass}
+                key={item.id}
+                onClick={() => onTabChange(item.id)}
+                type="button"
               >
-                <BottomNavIcon icon={item.icon} />
-              </span>
-              <span className={`text-center text-[10px] font-black leading-tight ${item.primary ? "text-night-950" : ""}`}>
-                {item.label}
-              </span>
-            </button>
-          ))}
+                <span
+                  className={
+                    item.primary
+                      ? "grid h-9 w-9 place-items-center rounded-full bg-night-950/15 text-night-950"
+                      : `grid h-6 w-6 place-items-center ${isActive ? "text-white" : "text-comet"}`
+                  }
+                >
+                  <BottomNavIcon icon={item.icon} />
+                </span>
+                <span
+                  className={`text-center text-[10px] font-black leading-tight ${item.primary ? "text-night-950" : ""}`}
+                >
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </nav>
@@ -818,9 +955,11 @@ function AuthPanel({ auth }) {
               ログイン
             </button>
             <button
-              className={`min-h-9 rounded-xl text-xs font-black transition ${
-                mode === "signup" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
-              }`}
+              className={
+                `min-h-9 rounded-xl text-xs font-black transition ${
+                  mode === "signup" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
+                }
+              `}
               onClick={() => setMode("signup")}
               type="button"
             >
@@ -878,7 +1017,7 @@ function AuthPanel({ auth }) {
   );
 }
 
-function Timeline({ composer, posts, postsError, postsLoading }) {
+function Timeline({ posts, postsError, postsLoading }) {
   return (
     <section className="mx-auto max-w-3xl">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-night-950/70 px-4 py-4 backdrop-blur-2xl sm:px-6">
@@ -895,8 +1034,6 @@ function Timeline({ composer, posts, postsError, postsLoading }) {
           </div>
         </div>
       </header>
-
-      <Composer composer={composer} />
 
       {(postsLoading || postsError) && (
         <div className="px-3 pt-4 sm:px-5">
@@ -1056,23 +1193,6 @@ function RightColumn() {
         </div>
       </Panel>
     </aside>
-  );
-}
-
-function ObserverRow({ observer }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="grid h-10 w-10 place-items-center rounded-2xl bg-white/10 font-black">
-        {observer.avatar}
-      </div>
-      <div className="min-w-0 flex-1">
-        <h3 className="truncate text-sm font-black text-white">{observer.name}</h3>
-        <p className="truncate text-xs text-slate-400">{observer.note}</p>
-      </div>
-      <button className="rounded-full border border-comet/30 bg-comet/10 px-3 py-1 text-xs font-black text-comet">
-        近い星を観測する
-      </button>
-    </div>
   );
 }
 
