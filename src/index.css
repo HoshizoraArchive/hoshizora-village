@@ -64,6 +64,10 @@
     background-size: 86px 100%, 100% 18px;
     mask-image: linear-gradient(to top, black 0%, transparent 85%);
   }
+
+  header[data-auth-panel="hidden"] > .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @keyframes starDrift {
