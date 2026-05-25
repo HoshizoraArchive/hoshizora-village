@@ -6,6 +6,10 @@
 
 create extension if not exists "pgcrypto";
 
+-- Private schema for trigger/helper functions that should not be exposed through the Data API.
+create schema if not exists app_private;
+revoke all on schema app_private from public, anon, authenticated;
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -104,6 +108,26 @@ create table if not exists public.resonances (
 comment on table public.resonances is '共鳴。いいねではなく、心が反応した印。MVPでは同じユーザーが同じ流星便に何度でも共鳴できる。';
 comment on column public.resonances.resonance_type is '共鳴の種類。将来、1投稿1ユーザー1共鳴にする場合は unique(post_id, profile_id) を追加する。';
 
+-- notifications: R.Connect notification records.
+-- Frontend users can read only their own notifications and update only is_read.
+-- Notification rows are created by trusted database triggers, not by direct client inserts.
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_id uuid not null references public.profiles(id) on delete cascade,
+  actor_id uuid references public.profiles(id) on delete set null,
+  post_id uuid references public.posts(id) on delete cascade,
+  type text not null check (type in ('resonance')),
+  message text not null check (char_length(trim(message)) > 0),
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.notifications is 'R.Connect通知。共鳴、星文、Archiveなどの通知を保存する。MVPでは共鳴通知のみ。';
+comment on column public.notifications.recipient_id is '通知を受け取るユーザー。本人だけが閲覧できる。';
+comment on column public.notifications.actor_id is '通知のきっかけを作ったユーザー。削除された場合はnullになる。';
+comment on column public.notifications.type is '通知タイプ。MVPでは resonance のみ。';
+comment on column public.notifications.is_read is '既読状態。本人だけが更新できる。';
+
 -- star_letters: 星文.
 create table if not exists public.star_letters (
   id uuid primary key default gen_random_uuid(),
@@ -184,6 +208,57 @@ create trigger star_letters_set_updated_at
 before update on public.star_letters
 for each row execute function public.set_updated_at();
 
+-- Create a resonance notification for the 流星便 author.
+-- The function lives in a private schema because it needs SECURITY DEFINER
+-- to insert trusted notification rows without granting client insert access.
+create or replace function app_private.create_resonance_notification()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  target_author_id uuid;
+begin
+  select p.author_id
+    into target_author_id
+  from public.posts p
+  where p.id = new.post_id;
+
+  if target_author_id is null then
+    return new;
+  end if;
+
+  if target_author_id = new.profile_id then
+    return new;
+  end if;
+
+  insert into public.notifications (
+    recipient_id,
+    actor_id,
+    post_id,
+    type,
+    message
+  )
+  values (
+    target_author_id,
+    new.profile_id,
+    new.post_id,
+    'resonance',
+    'あなたの流星便に共鳴が届きました。'
+  );
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.create_resonance_notification() from public, anon, authenticated;
+
+drop trigger if exists resonances_create_notification on public.resonances;
+create trigger resonances_create_notification
+after insert on public.resonances
+for each row execute function app_private.create_resonance_notification();
+
 -- Indexes for MVP queries.
 create index if not exists profiles_username_idx on public.profiles(username);
 create index if not exists posts_author_id_idx on public.posts(author_id);
@@ -195,6 +270,10 @@ create index if not exists post_tags_label_idx on public.post_tags(label);
 create index if not exists resonances_post_id_idx on public.resonances(post_id);
 create index if not exists resonances_profile_id_idx on public.resonances(profile_id);
 create index if not exists resonances_type_idx on public.resonances(resonance_type);
+create index if not exists notifications_recipient_created_at_idx on public.notifications(recipient_id, created_at desc);
+create index if not exists notifications_recipient_is_read_idx on public.notifications(recipient_id, is_read);
+create index if not exists notifications_actor_id_idx on public.notifications(actor_id);
+create index if not exists notifications_post_id_idx on public.notifications(post_id);
 create index if not exists star_letters_post_id_idx on public.star_letters(post_id);
 create index if not exists star_letters_author_id_idx on public.star_letters(author_id);
 create index if not exists archives_profile_id_idx on public.archives(profile_id);
@@ -214,6 +293,7 @@ alter table public.posts enable row level security;
 alter table public.profile_tags enable row level security;
 alter table public.post_tags enable row level security;
 alter table public.resonances enable row level security;
+alter table public.notifications enable row level security;
 alter table public.star_letters enable row level security;
 alter table public.archives enable row level security;
 alter table public.observations enable row level security;
@@ -347,6 +427,24 @@ for insert with check (
 drop policy if exists resonances_delete_own on public.resonances;
 create policy resonances_delete_own on public.resonances
 for delete using (profile_id = auth.uid());
+
+-- notifications:
+-- Client inserts are intentionally not allowed; trusted triggers create rows.
+-- UPDATE is limited to is_read through column privileges plus RLS owner checks.
+revoke all on table public.notifications from anon, authenticated;
+grant select on table public.notifications to authenticated;
+grant update (is_read) on table public.notifications to authenticated;
+
+drop policy if exists notifications_select_own on public.notifications;
+create policy notifications_select_own on public.notifications
+for select to authenticated
+using (recipient_id = auth.uid());
+
+drop policy if exists notifications_update_read_own on public.notifications;
+create policy notifications_update_read_own on public.notifications
+for update to authenticated
+using (recipient_id = auth.uid())
+with check (recipient_id = auth.uid());
 
 -- star_letters:
 -- Logged-in users can leave 星文 on visible posts.

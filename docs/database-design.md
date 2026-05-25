@@ -21,6 +21,7 @@ Databaseには以下を保存します。
 - `profile_tags`: わたしの星座
 - `post_tags`: 流星便タグ
 - `resonances`: 共鳴
+- `notifications`: R.Connect通知
 - `star_letters`: 星文
 - `archives`: Archive
 - `observations`: 観測ログ
@@ -169,6 +170,48 @@ RLS方針:
 
 - 初期MVPでは、同じユーザーが同じ流星便に何度も共鳴できる設計です。
 - 将来、1投稿1ユーザー1共鳴にする場合は `unique(post_id, profile_id)` を追加します。
+- 共鳴が作成されると、DBトリガーで流星便の作者にR.Connect通知を作成します。
+
+### notifications
+
+R.Connectに表示する通知を保存します。
+
+MVPでは、共鳴された時に流星便の作者へ通知を残します。
+
+主なカラム:
+
+- `id`: 通知ID
+- `recipient_id`: 通知を受け取るユーザー
+- `actor_id`: 通知のきっかけを作ったユーザー
+- `post_id`: 対象流星便
+- `type`: 通知タイプ
+- `message`: 通知文
+- `is_read`: 既読状態
+- `created_at`: 作成日時
+
+`type`:
+
+- `resonance`
+
+RLS方針:
+
+- `recipient_id = auth.uid()` の本人のみselect可能
+- 本人のみ `is_read` をupdate可能
+- フロントエンドからの自由なinsertは許可しない
+- 通知作成は `resonances` insert時のDBトリガーで行う
+
+トリガー方針:
+
+- `resonances.post_id` から `posts.author_id` を取得する
+- `posts.author_id` を `recipient_id` として通知を作成する
+- `resonances.profile_id` を `actor_id` として保存する
+- 自分の流星便に自分で共鳴した場合は通知を作らない
+- messageはMVPでは `あなたの流星便に共鳴が届きました。` の固定文にする
+
+補足:
+
+- 表示名を含む通知文は、将来UI側で `actor_id` から組み立てます。
+- 星文、Archive、AI住人観測の通知は今後追加します。
 
 ### star_letters
 
@@ -277,6 +320,7 @@ RLS方針:
 - Supabase Storage
 - AI API接続
 - AI住人のサーバー処理
+- R.Connect通知の画面表示
 - 本番デプロイ操作
 
 ## SQL Editor投入前の注意
@@ -284,5 +328,7 @@ RLS方針:
 `supabase/schema.sql` はMVP初期投入向けのSQLです。
 
 すでに古いドラフトSQLをSupabaseに投入済みの場合は、このSQLをそのまま再実行する前に、既存テーブルの有無とデータを確認してください。必要に応じて、初期化するか、差分マイグレーションとして分けて実行します。
+
+R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
 
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。
