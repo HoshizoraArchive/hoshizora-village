@@ -329,4 +329,6 @@ RLS方針:
 
 すでに古いドラフトSQLをSupabaseに投入済みの場合は、このSQLをそのまま再実行する前に、既存テーブルの有無とデータを確認してください。必要に応じて、初期化するか、差分マイグレーションとして分けて実行します。
 
+R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
+
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。
