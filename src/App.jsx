@@ -74,7 +74,6 @@ function mapSavedPost(post, authorProfile) {
     text: post.body,
     tags: ["#流星便", "#観測待ち"],
     resonanceCount: 0,
-    hasResonated: false,
     comments: "未集計",
     glow: "from-comet/25 to-sakura/20",
   };
@@ -143,7 +142,6 @@ function App() {
   useEffect(() => {
     let isMounted = true;
     const postIds = postIdsKey ? postIdsKey.split("|") : [];
-    const userId = session?.user?.id;
 
     if (postIds.length === 0) {
       return () => {
@@ -169,21 +167,15 @@ function App() {
       }
 
       const countsByPost = new Map();
-      const resonatedPostIds = new Set();
 
       for (const resonance of data ?? []) {
         countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
-
-        if (userId && resonance.profile_id === userId) {
-          resonatedPostIds.add(resonance.post_id);
-        }
       }
 
       setSavedPosts((currentPosts) =>
         currentPosts.map((post) => ({
           ...post,
           resonanceCount: countsByPost.get(post.id) ?? 0,
-          hasResonated: userId ? resonatedPostIds.has(post.id) : false,
         })),
       );
     }
@@ -193,7 +185,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [postIdsKey, session?.user?.id]);
+  }, [postIdsKey]);
 
   useEffect(() => {
     let isMounted = true;
@@ -496,34 +488,7 @@ function App() {
       return;
     }
 
-    if (targetPost.hasResonated) {
-      setResonanceMessage("この流星便には共鳴済みです。");
-      return;
-    }
-
     setResonanceSavingPostId(postId);
-
-    const { data: existingResonances, error: existingError } = await supabase
-      .from("resonances")
-      .select("id")
-      .eq("post_id", postId)
-      .eq("profile_id", session.user.id)
-      .limit(1);
-
-    if (existingError) {
-      setResonanceSavingPostId(null);
-      setResonanceError(existingError.message);
-      return;
-    }
-
-    if ((existingResonances ?? []).length > 0) {
-      setSavedPosts((currentPosts) =>
-        currentPosts.map((post) => (post.id === postId ? { ...post, hasResonated: true } : post)),
-      );
-      setResonanceSavingPostId(null);
-      setResonanceMessage("この流星便には共鳴済みです。");
-      return;
-    }
 
     const { error } = await supabase.from("resonances").insert({
       post_id: postId,
@@ -543,7 +508,6 @@ function App() {
         post.id === postId
           ? {
               ...post,
-              hasResonated: true,
               resonanceCount: (Number(post.resonanceCount) || 0) + 1,
             }
           : post,
@@ -1201,7 +1165,7 @@ function Composer({ composer }) {
 function PostCard({ post, resonance }) {
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
-  const resonanceLabel = post.hasResonated ? `共鳴済み · ${resonanceCount} 共鳴` : `${resonanceCount} 共鳴`;
+  const resonanceLabel = `${resonanceCount} 共鳴`;
 
   return (
     <article className="glass-panel group overflow-hidden">
@@ -1230,9 +1194,8 @@ function PostCard({ post, resonance }) {
             </div>
             <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
               <ActionButton
-                active={post.hasResonated}
-                disabled={isResonanceSaving || post.hasResonated || !resonance?.onResonate}
-                icon={post.hasResonated ? "♥" : "♡"}
+                disabled={isResonanceSaving || !resonance?.onResonate}
+                icon="♡"
                 label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
                 onClick={() => resonance?.onResonate?.(post.id)}
               />
