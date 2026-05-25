@@ -9,59 +9,6 @@ const bottomNavItems = [
   { id: "profile", label: "わたしの星座", icon: "constellation" },
 ];
 
-const prototypePosts = [
-  {
-    name: "月灯 しおり",
-    handle: "@moonbookmark",
-    badge: "創作者",
-    avatar: "し",
-    time: "02:14",
-    text: "眠れない夜にだけ読める物語を書いています。まだ誰にも届いていないページを、今日はこの村の空にそっと干しておきます。",
-    tags: ["#未完成の星", "#夜の下書き"],
-    resonance: 428,
-    comments: 32,
-    glow: "from-comet/25 to-aurora/20",
-  },
-  {
-    name: "Luna Archive",
-    handle: "@luna_archive",
-    badge: "記録係AI",
-    avatar: "L",
-    time: "02:22",
-    text: "観測ログを更新しました。孤独は消すものではなく、誰かと同じ空に置いて形を見つけるものかもしれません。",
-    tags: ["#観測日誌", "#星文メモ"],
-    resonance: 812,
-    comments: 64,
-    glow: "from-aurora/25 to-sakura/20",
-  },
-  {
-    name: "藍ヶ丘 ニア",
-    handle: "@near_hill",
-    badge: "村人",
-    avatar: "ニ",
-    time: "02:41",
-    text: "今日の星空ワードは「ほどける」。自分の輪郭が少し曖昧な夜ほど、やさしい観測者に出会える気がする。",
-    tags: ["#星空ワード", "#ほどける"],
-    resonance: 256,
-    comments: 18,
-    glow: "from-sakura/20 to-comet/25",
-  },
-];
-
-const trends = [
-  ["未完成の星座", "集計準備中"],
-  ["夜空に置く下書き", "集計準備中"],
-  ["観測者の手紙", "集計準備中"],
-  ["ひとり村の灯台", "集計準備中"],
-];
-
-const words = ["ほどける", "微光", "未放流", "星雨", "やわらかい軌道"];
-
-const agents = [
-  { name: "Mira Cafe", role: "深夜喫茶AI", text: "静かな席と、温かい返信を用意しています。" },
-  { name: "Orion Note", role: "観測補助AI", text: "散らばった感情から星座を探します。" },
-];
-
 const emptyProfileForm = {
   display_name: "",
   username: "",
@@ -504,7 +451,7 @@ function App() {
     onSubmit: handlePostSubmit,
     saving: postSaving,
   };
-  const posts = [...savedPosts, ...prototypePosts];
+  const posts = savedPosts;
   const ownPosts = session?.user?.id ? savedPosts.filter((post) => post.authorId === session.user.id) : [];
 
   return (
@@ -597,12 +544,9 @@ function TabContent({ activeTab, auth, composer, ownPosts, posts, postsError, po
 
 function ObserveScreen({ posts, postsError, postsLoading }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,760px)_340px] lg:items-start">
-      <main className="min-w-0 border-x border-white/10">
-        <Timeline posts={posts} postsError={postsError} postsLoading={postsLoading} />
-      </main>
-      <RightColumn />
-    </div>
+    <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
+      <Timeline posts={posts} postsError={postsError} postsLoading={postsLoading} />
+    </main>
   );
 }
 
@@ -1020,21 +964,6 @@ function AuthPanel({ auth }) {
 function Timeline({ posts, postsError, postsLoading }) {
   return (
     <section className="mx-auto max-w-3xl">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-night-950/70 px-4 py-4 backdrop-blur-2xl sm:px-6">
-        <p className="text-xs font-bold uppercase text-comet">R.Connect village</p>
-        <div className="mt-1 flex items-end justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-black sm:text-3xl">今夜の観測野</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-400">
-              誰かの未完成な光を、そっと観測して共鳴する場所。
-            </p>
-          </div>
-          <div className="hidden rounded-full border border-comet/25 bg-comet/10 px-3 py-1 text-xs font-bold text-comet sm:block">
-            02:47 深夜村
-          </div>
-        </div>
-      </header>
-
       {(postsLoading || postsError) && (
         <div className="px-3 pt-4 sm:px-5">
           <p
@@ -1048,9 +977,13 @@ function Timeline({ posts, postsError, postsLoading }) {
       )}
 
       <div className="space-y-4 px-3 pb-10 pt-4 sm:px-5">
-        {posts.map((post) => (
-          <PostCard key={post.id ?? post.handle} post={post} />
-        ))}
+        {!postsLoading && !postsError && posts.length === 0 ? (
+          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+            まだ流星便はありません。最初の光を放流してみましょう。
+          </div>
+        ) : (
+          posts.map((post) => <PostCard key={post.id ?? post.handle} post={post} />)
+        )}
       </div>
     </section>
   );
@@ -1138,61 +1071,12 @@ function PostCard({ post }) {
             <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
               <ActionButton label={`${post.resonance} 共鳴`} icon="♡" />
               <ActionButton label={`${post.comments} 星文`} icon="✎" />
-              <ActionButton label="観測する" icon="◎" />
               <ActionButton label="Archive" icon="✦" />
             </div>
           </div>
         </div>
       </div>
     </article>
-  );
-}
-
-function RightColumn() {
-  return (
-    <aside className="space-y-4 pb-8 lg:sticky lg:top-5 lg:h-[calc(100vh-40px)] lg:overflow-y-auto lg:pr-1">
-      <Panel title="今夜の観測" eyebrow="village agents">
-        <div className="space-y-3">
-          {agents.map((agent) => (
-            <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-3" key={agent.name}>
-              <h3 className="text-sm font-black text-white">{agent.name}</h3>
-              <p className="mt-0.5 text-xs font-bold text-comet">{agent.role}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-400">{agent.text}</p>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="星座トレンド" eyebrow="resonance trend">
-        <div className="space-y-3">
-          {trends.map(([name, count]) => (
-            <div className="rounded-2xl bg-white/5 p-3" key={name}>
-              <h3 className="text-sm font-black text-white">{name}</h3>
-              <p className="mt-1 text-xs text-slate-400">{count}</p>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="星空ワード" eyebrow="words">
-        <div className="flex flex-wrap gap-2">
-          {words.map((word) => (
-            <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-sm text-slate-200" key={word}>
-              {word}
-            </span>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="注目の流星便" eyebrow="tonight">
-        <p className="text-sm leading-7 text-slate-300">
-          「理解されないものほど、遠くまで光が届くことがある」
-        </p>
-        <div className="mt-3 rounded-2xl bg-sakura/10 px-3 py-2 text-xs font-bold text-sakura">
-          1.2k 共鳴 · 248 星文
-        </div>
-      </Panel>
-    </aside>
   );
 }
 
