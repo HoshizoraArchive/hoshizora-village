@@ -73,7 +73,8 @@ function mapSavedPost(post, authorProfile) {
     time: formatPostTime(post.created_at),
     text: post.body,
     tags: ["#流星便", "#観測待ち"],
-    resonance: "未集計",
+    resonanceCount: 0,
+    hasResonated: false,
     comments: "未集計",
     glow: "from-comet/25 to-sakura/20",
   };
@@ -99,6 +100,10 @@ function App() {
   const [postSaving, setPostSaving] = useState(false);
   const [postMessage, setPostMessage] = useState("");
   const [postError, setPostError] = useState("");
+  const [resonanceSavingPostId, setResonanceSavingPostId] = useState(null);
+  const [resonanceMessage, setResonanceMessage] = useState("");
+  const [resonanceError, setResonanceError] = useState("");
+  const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
 
   useEffect(() => {
     let isMounted = true;
@@ -134,6 +139,61 @@ function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const postIds = postIdsKey ? postIdsKey.split("|") : [];
+    const userId = session?.user?.id;
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readResonances() {
+      setResonanceError("");
+
+      const { data, error } = await supabase
+        .from("resonances")
+        .select("id, post_id, profile_id")
+        .in("post_id", postIds);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setResonanceError(error.message);
+        return;
+      }
+
+      const countsByPost = new Map();
+      const resonatedPostIds = new Set();
+
+      for (const resonance of data ?? []) {
+        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
+
+        if (userId && resonance.profile_id === userId) {
+          resonatedPostIds.add(resonance.post_id);
+        }
+      }
+
+      setSavedPosts((currentPosts) =>
+        currentPosts.map((post) => ({
+          ...post,
+          resonanceCount: countsByPost.get(post.id) ?? 0,
+          hasResonated: userId ? resonatedPostIds.has(post.id) : false,
+        })),
+      );
+    }
+
+    readResonances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [postIdsKey, session?.user?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -415,6 +475,83 @@ function App() {
     setActiveTab("observe");
   }
 
+  async function handleResonance(postId) {
+    setResonanceMessage("");
+    setResonanceError("");
+
+    if (!session?.user?.id) {
+      setResonanceError("ログインすると共鳴できます。");
+      return;
+    }
+
+    if (!profile?.id) {
+      setResonanceError("先にプロフィールを保存すると共鳴できます。");
+      return;
+    }
+
+    const targetPost = savedPosts.find((post) => post.id === postId);
+
+    if (!targetPost) {
+      setResonanceError("流星便が見つかりませんでした。");
+      return;
+    }
+
+    if (targetPost.hasResonated) {
+      setResonanceMessage("この流星便には共鳴済みです。");
+      return;
+    }
+
+    setResonanceSavingPostId(postId);
+
+    const { data: existingResonances, error: existingError } = await supabase
+      .from("resonances")
+      .select("id")
+      .eq("post_id", postId)
+      .eq("profile_id", session.user.id)
+      .limit(1);
+
+    if (existingError) {
+      setResonanceSavingPostId(null);
+      setResonanceError(existingError.message);
+      return;
+    }
+
+    if ((existingResonances ?? []).length > 0) {
+      setSavedPosts((currentPosts) =>
+        currentPosts.map((post) => (post.id === postId ? { ...post, hasResonated: true } : post)),
+      );
+      setResonanceSavingPostId(null);
+      setResonanceMessage("この流星便には共鳴済みです。");
+      return;
+    }
+
+    const { error } = await supabase.from("resonances").insert({
+      post_id: postId,
+      profile_id: session.user.id,
+      resonance_type: "sparkle",
+    });
+
+    setResonanceSavingPostId(null);
+
+    if (error) {
+      setResonanceError(error.message);
+      return;
+    }
+
+    setSavedPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              hasResonated: true,
+              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
+            }
+          : post,
+      ),
+    );
+    setResonanceMessage("共鳴を記録しました。");
+  }
+
   function handleTabChange(tabId) {
     setActiveTab(tabId);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -451,6 +588,12 @@ function App() {
     onSubmit: handlePostSubmit,
     saving: postSaving,
   };
+  const resonance = {
+    error: resonanceError,
+    message: resonanceMessage,
+    onResonate: handleResonance,
+    savingPostId: resonanceSavingPostId,
+  };
   const posts = savedPosts;
   const ownPosts = session?.user?.id ? savedPosts.filter((post) => post.authorId === session.user.id) : [];
 
@@ -470,6 +613,7 @@ function App() {
           postsError={postsError}
           postsLoading={postsLoading}
           profile={profileState}
+          resonance={resonance}
         />
       </div>
 
@@ -508,7 +652,7 @@ function AppHeader({ auth }) {
   );
 }
 
-function TabContent({ activeTab, auth, composer, ownPosts, posts, postsError, postsLoading, profile }) {
+function TabContent({ activeTab, auth, composer, ownPosts, posts, postsError, postsLoading, profile, resonance }) {
   if (activeTab === "rconnect") {
     return (
       <PlaceholderScreen
@@ -536,16 +680,16 @@ function TabContent({ activeTab, auth, composer, ownPosts, posts, postsError, po
   }
 
   if (activeTab === "profile") {
-    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} />;
+    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
   }
 
-  return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} />;
+  return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />;
 }
 
-function ObserveScreen({ posts, postsError, postsLoading }) {
+function ObserveScreen({ posts, postsError, postsLoading, resonance }) {
   return (
     <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
-      <Timeline posts={posts} postsError={postsError} postsLoading={postsLoading} />
+      <Timeline posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />
     </main>
   );
 }
@@ -581,7 +725,7 @@ function PlaceholderScreen({ eyebrow, title, text, note }) {
   );
 }
 
-function ProfileScreen({ auth, ownPosts, profile }) {
+function ProfileScreen({ auth, ownPosts, profile, resonance }) {
   return (
     <main className="grid gap-4 lg:grid-cols-[minmax(0,560px)_minmax(320px,1fr)] lg:items-start">
       <div className="space-y-4">
@@ -589,12 +733,12 @@ function ProfileScreen({ auth, ownPosts, profile }) {
         <SettingsPanel auth={auth} />
       </div>
 
-      <OwnPostsPanel auth={auth} posts={ownPosts} />
+      <OwnPostsPanel auth={auth} posts={ownPosts} resonance={resonance} />
     </main>
   );
 }
 
-function OwnPostsPanel({ auth, posts }) {
+function OwnPostsPanel({ auth, posts, resonance }) {
   return (
     <Panel title="わたしの流星便" eyebrow="my meteor letters">
       {!auth.session ? (
@@ -606,7 +750,7 @@ function OwnPostsPanel({ auth, posts }) {
       ) : (
         <div className="space-y-4">
           {posts.map((post) => (
-            <PostCard key={post.id} post={post} />
+            <PostCard key={post.id} post={post} resonance={resonance} />
           ))}
         </div>
       )}
@@ -961,7 +1105,7 @@ function AuthPanel({ auth }) {
   );
 }
 
-function Timeline({ posts, postsError, postsLoading }) {
+function Timeline({ posts, postsError, postsLoading, resonance }) {
   return (
     <section className="mx-auto max-w-3xl">
       {(postsLoading || postsError) && (
@@ -976,13 +1120,25 @@ function Timeline({ posts, postsError, postsLoading }) {
         </div>
       )}
 
+      {(resonance?.message || resonance?.error) && (
+        <div className="px-3 pt-4 sm:px-5">
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              resonance.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {resonance.error || resonance.message}
+          </p>
+        </div>
+      )}
+
       <div className="space-y-4 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
             まだ流星便はありません。最初の光を放流してみましょう。
           </div>
         ) : (
-          posts.map((post) => <PostCard key={post.id ?? post.handle} post={post} />)
+          posts.map((post) => <PostCard key={post.id ?? post.handle} post={post} resonance={resonance} />)
         )}
       </div>
     </section>
@@ -1042,7 +1198,11 @@ function Composer({ composer }) {
   );
 }
 
-function PostCard({ post }) {
+function PostCard({ post, resonance }) {
+  const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
+  const isResonanceSaving = resonance?.savingPostId === post.id;
+  const resonanceLabel = post.hasResonated ? `共鳴済み · ${resonanceCount} 共鳴` : `${resonanceCount} 共鳴`;
+
   return (
     <article className="glass-panel group overflow-hidden">
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
@@ -1069,7 +1229,13 @@ function PostCard({ post }) {
               ))}
             </div>
             <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
-              <ActionButton label={`${post.resonance} 共鳴`} icon="♡" />
+              <ActionButton
+                active={post.hasResonated}
+                disabled={isResonanceSaving || post.hasResonated || !resonance?.onResonate}
+                icon={post.hasResonated ? "♥" : "♡"}
+                label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
+                onClick={() => resonance?.onResonate?.(post.id)}
+              />
               <ActionButton label={`${post.comments} 星文`} icon="✎" />
               <ActionButton label="Archive" icon="✦" />
             </div>
@@ -1090,9 +1256,18 @@ function Panel({ eyebrow, title, children }) {
   );
 }
 
-function ActionButton({ icon, label }) {
+function ActionButton({ active = false, disabled = false, icon, label, onClick }) {
   return (
-    <button className="flex min-h-9 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white">
+    <button
+      className={`flex min-h-9 items-center gap-2 rounded-full border px-3 transition disabled:cursor-not-allowed disabled:opacity-70 ${
+        active
+          ? "border-comet/40 bg-comet/15 text-white"
+          : "border-white/10 bg-white/5 hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+      }`}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
       <span className="text-comet">{icon}</span>
       <span>{label}</span>
     </button>
