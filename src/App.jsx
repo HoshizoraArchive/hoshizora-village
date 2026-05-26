@@ -118,7 +118,7 @@ function App() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
-  const [profileViewMode, setProfileViewMode] = useState("view");
+  const [profileScreenMode, setProfileScreenMode] = useState("view");
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
   const [savedPosts, setSavedPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
@@ -231,7 +231,7 @@ function App() {
       setProfileSaving(false);
       setProfileMessage("");
       setProfileError("");
-      setProfileViewMode("view");
+      setProfileScreenMode("view");
       setProfileResonanceCount(null);
       return;
     }
@@ -512,7 +512,7 @@ function App() {
     );
     setProfileMessage("");
     setProfileError("");
-    setProfileViewMode("edit");
+    setProfileScreenMode("edit");
   }
 
   function handleCancelProfileEdit() {
@@ -521,19 +521,19 @@ function App() {
     );
     setProfileMessage("");
     setProfileError("");
-    setProfileViewMode("view");
+    setProfileScreenMode("view");
   }
 
   function handleOpenProfileSettings() {
     setProfileMessage("");
     setProfileError("");
-    setProfileViewMode("settings");
+    setProfileScreenMode("settings");
   }
 
   function handleBackToProfile() {
     setProfileMessage("");
     setProfileError("");
-    setProfileViewMode("view");
+    setProfileScreenMode("view");
   }
 
   async function handleProfileSubmit(event) {
@@ -581,7 +581,7 @@ function App() {
     setProfile(data);
     setProfileForm(profileFormFromRecord(data));
     setProfileMessage("プロフィールを保存しました。");
-    setProfileViewMode("view");
+    setProfileScreenMode("view");
   }
 
   async function handlePostSubmit(event) {
@@ -755,7 +755,7 @@ function App() {
     onSubmit: handleProfileSubmit,
     resonanceCount: profileResonanceCount,
     saving: profileSaving,
-    viewMode: profileViewMode,
+    profileScreenMode,
   };
   const composer = {
     canPost: Boolean(session),
@@ -783,7 +783,6 @@ function App() {
     updatingId: notificationUpdatingId,
   };
   const posts = savedPosts;
-  const ownPosts = session?.user?.id ? savedPosts.filter((post) => post.authorId === session.user.id) : [];
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
@@ -796,7 +795,6 @@ function App() {
           activeTab={activeTab}
           auth={auth}
           composer={composer}
-          ownPosts={ownPosts}
           posts={posts}
           postsError={postsError}
           postsLoading={postsLoading}
@@ -850,7 +848,6 @@ function TabContent({
   auth,
   composer,
   notifications,
-  ownPosts,
   posts,
   postsError,
   postsLoading,
@@ -877,7 +874,7 @@ function TabContent({
   }
 
   if (activeTab === "profile") {
-    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
+    return <ProfileScreen auth={auth} profile={profile} />;
   }
 
   return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />;
@@ -1008,43 +1005,27 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ auth, ownPosts, profile, resonance }) {
-  let profilePanel = <ProfileCard profile={profile} />;
-
-  if (profile.viewMode === "edit") {
-    profilePanel = <ProfileEditScreen profile={profile} />;
+function ProfileScreen({ auth, profile }) {
+  if (profile.profileScreenMode === "edit") {
+    return (
+      <main className="mx-auto max-w-2xl">
+        <ProfileEditScreen profile={profile} />
+      </main>
+    );
   }
 
-  if (profile.viewMode === "settings") {
-    profilePanel = <SettingsPanel auth={auth} onBack={profile.onBackToProfile} />;
+  if (profile.profileScreenMode === "settings") {
+    return (
+      <main className="mx-auto max-w-2xl">
+        <SettingsPanel auth={auth} onBack={profile.onBackToProfile} />
+      </main>
+    );
   }
 
   return (
-    <main className="grid gap-4 lg:grid-cols-[minmax(0,560px)_minmax(320px,1fr)] lg:items-start">
-      <div>{profilePanel}</div>
-
-      <OwnPostsPanel auth={auth} posts={ownPosts} resonance={resonance} />
+    <main className="mx-auto max-w-2xl">
+      <ProfileCard profile={profile} />
     </main>
-  );
-}
-
-function OwnPostsPanel({ auth, posts, resonance }) {
-  return (
-    <Panel title="わたしの流星便" eyebrow="my meteor letters">
-      {!auth.session ? (
-        <p className="text-sm leading-7 text-slate-400">ログインすると、自分が放流した流星便をここで確認できます。</p>
-      ) : posts.length === 0 ? (
-        <p className="text-sm leading-7 text-slate-400">
-          まだ自分の流星便はありません。中央の＋から最初の流星便を放流できます。
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} resonance={resonance} />
-          ))}
-        </div>
-      )}
-    </Panel>
   );
 }
 
