@@ -12,6 +12,7 @@ const bottomNavItems = [
 const emptyProfileForm = {
   display_name: "",
   username: "",
+  avatar_url: "",
   bio: "",
   constellation_note: "",
 };
@@ -27,6 +28,7 @@ function profileFormFromRecord(profile) {
   return {
     display_name: profile?.display_name ?? "",
     username: profile?.username ?? "",
+    avatar_url: profile?.avatar_url ?? "",
     bio: profile?.bio ?? "",
     constellation_note: profile?.constellation_note ?? "",
   };
@@ -44,6 +46,14 @@ function optionalUsername(value) {
 
 function getAvatarText(value) {
   return value.trim().charAt(0) || defaultProfileView.avatar;
+}
+
+function formatCount(value) {
+  if (!Number.isFinite(value)) {
+    return "未集計";
+  }
+
+  return value.toLocaleString("ja-JP");
 }
 
 function formatPostTime(createdAt) {
@@ -85,6 +95,7 @@ function mapSavedPost(post, authorProfile) {
     handle: username,
     badge: "流星便",
     avatar: getAvatarText(displayName),
+    avatarUrl: authorProfile?.avatar_url ?? null,
     time: formatPostTime(post.created_at),
     text: post.body,
     tags: ["#流星便", "#観測待ち"],
@@ -107,6 +118,9 @@ function App() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileResonanceCount, setProfileResonanceCount] = useState(null);
   const [savedPosts, setSavedPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState("");
@@ -218,6 +232,9 @@ function App() {
       setProfileSaving(false);
       setProfileMessage("");
       setProfileError("");
+      setProfileEditing(false);
+      setSettingsOpen(false);
+      setProfileResonanceCount(null);
       return;
     }
 
@@ -228,7 +245,7 @@ function App() {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, display_name, username, bio, constellation_note")
+        .select("id, display_name, username, avatar_url, bio, constellation_note")
         .eq("id", userId)
         .maybeSingle();
 
@@ -248,6 +265,58 @@ function App() {
     }
 
     readProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      setProfileResonanceCount(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readProfileResonanceCount() {
+      const { data: ownPostRows, error: ownPostsError } = await supabase
+        .from("posts")
+        .select("id")
+        .eq("author_id", userId);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (ownPostsError) {
+        setProfileResonanceCount(null);
+        return;
+      }
+
+      const ownPostIds = (ownPostRows ?? []).map((post) => post.id).filter(Boolean);
+
+      if (ownPostIds.length === 0) {
+        setProfileResonanceCount(0);
+        return;
+      }
+
+      const { count, error } = await supabase
+        .from("resonances")
+        .select("id", { count: "exact", head: true })
+        .in("post_id", ownPostIds);
+
+      if (!isMounted) {
+        return;
+      }
+
+      setProfileResonanceCount(error ? null : (count ?? 0));
+    }
+
+    readProfileResonanceCount();
 
     return () => {
       isMounted = false;
@@ -332,7 +401,7 @@ function App() {
       if (authorIds.length > 0) {
         const { data: profileRows, error: profileRowsError } = await supabase
           .from("profiles")
-          .select("id, display_name, username")
+          .select("id, display_name, username, avatar_url")
           .in("id", authorIds);
 
         if (!isMounted) {
@@ -439,6 +508,24 @@ function App() {
     }));
   }
 
+  function handleStartProfileEdit() {
+    setProfileForm(
+      profile ? profileFormFromRecord(profile) : { ...emptyProfileForm, display_name: defaultProfileView.display_name },
+    );
+    setProfileMessage("");
+    setProfileError("");
+    setProfileEditing(true);
+  }
+
+  function handleCancelProfileEdit() {
+    setProfileForm(
+      profile ? profileFormFromRecord(profile) : { ...emptyProfileForm, display_name: defaultProfileView.display_name },
+    );
+    setProfileMessage("");
+    setProfileError("");
+    setProfileEditing(false);
+  }
+
   async function handleProfileSubmit(event) {
     event.preventDefault();
 
@@ -465,12 +552,13 @@ function App() {
           id: session.user.id,
           display_name: displayName,
           username: optionalUsername(profileForm.username),
+          avatar_url: optionalText(profileForm.avatar_url),
           bio: optionalText(profileForm.bio),
           constellation_note: optionalText(profileForm.constellation_note),
         },
         { onConflict: "id" },
       )
-      .select("id, display_name, username, bio, constellation_note")
+      .select("id, display_name, username, avatar_url, bio, constellation_note")
       .single();
 
     setProfileSaving(false);
@@ -483,6 +571,7 @@ function App() {
     setProfile(data);
     setProfileForm(profileFormFromRecord(data));
     setProfileMessage("プロフィールを保存しました。");
+    setProfileEditing(false);
   }
 
   async function handlePostSubmit(event) {
@@ -570,6 +659,10 @@ function App() {
       return;
     }
 
+    if (targetPost.authorId === session.user.id) {
+      setProfileResonanceCount((currentCount) => (Number.isFinite(currentCount) ? currentCount + 1 : currentCount));
+    }
+
     setSavedPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === postId
@@ -640,12 +733,16 @@ function App() {
   const profileState = {
     canEdit: Boolean(session),
     data: profile,
+    editing: profileEditing,
     error: profileError,
     form: profileForm,
     loading: profileLoading,
     message: profileMessage,
     onChange: handleProfileFieldChange,
+    onCancelEdit: handleCancelProfileEdit,
+    onStartEdit: handleStartProfileEdit,
     onSubmit: handleProfileSubmit,
+    resonanceCount: profileResonanceCount,
     saving: profileSaving,
   };
   const composer = {
@@ -693,6 +790,8 @@ function App() {
           postsLoading={postsLoading}
           profile={profileState}
           resonance={resonance}
+          settingsOpen={settingsOpen}
+          setSettingsOpen={setSettingsOpen}
           notifications={notificationState}
         />
       </div>
@@ -713,8 +812,22 @@ function SkyBackdrop() {
 }
 
 function AppHeader({ auth }) {
+  if (auth.session) {
+    return (
+      <header className="mb-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-night-950/55 px-3 py-2 backdrop-blur-xl sm:mb-4">
+        <div className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-comet via-aurora to-sakura text-sm font-black text-night-950">
+          星
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold normal-case leading-none text-comet">Re:AiSNS</p>
+          <p className="text-sm font-black leading-tight text-white">星空Village</p>
+        </div>
+      </header>
+    );
+  }
+
   return (
-    <header className="glass-panel mb-4 p-4">
+    <header className="glass-panel mb-4 p-4" data-auth-panel="visible">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-comet via-aurora to-sakura text-lg font-black text-night-950 shadow-glow">
@@ -743,6 +856,8 @@ function TabContent({
   postsLoading,
   profile,
   resonance,
+  settingsOpen,
+  setSettingsOpen,
 }) {
   if (activeTab === "rconnect") {
     return <RConnectScreen notifications={notifications} />;
@@ -764,7 +879,16 @@ function TabContent({
   }
 
   if (activeTab === "profile") {
-    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
+    return (
+      <ProfileScreen
+        auth={auth}
+        ownPosts={ownPosts}
+        profile={profile}
+        resonance={resonance}
+        settingsOpen={settingsOpen}
+        setSettingsOpen={setSettingsOpen}
+      />
+    );
   }
 
   return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />;
@@ -895,12 +1019,16 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ auth, ownPosts, profile, resonance }) {
+function ProfileScreen({ auth, ownPosts, profile, resonance, settingsOpen, setSettingsOpen }) {
   return (
     <main className="grid gap-4 lg:grid-cols-[minmax(0,560px)_minmax(320px,1fr)] lg:items-start">
       <div className="space-y-4">
-        <ProfileCard profile={profile} />
-        <SettingsPanel auth={auth} />
+        <ProfileCard
+          onToggleSettings={() => setSettingsOpen((current) => !current)}
+          profile={profile}
+          settingsOpen={settingsOpen}
+        />
+        {settingsOpen && <SettingsPanel auth={auth} />}
       </div>
 
       <OwnPostsPanel auth={auth} posts={ownPosts} resonance={resonance} />
@@ -952,23 +1080,41 @@ function SettingsPanel({ auth }) {
   );
 }
 
-function ProfileCard({ profile }) {
+function ProfileCard({ onToggleSettings, profile, settingsOpen }) {
   const displayName = profile.data?.display_name || defaultProfileView.display_name;
   const username = profile.data?.username ? `@${profile.data.username}` : defaultProfileView.username;
   const bio = profile.data?.bio || defaultProfileView.bio;
+  const avatarUrl = profile.data?.avatar_url;
   const constellationNote = profile.data?.constellation_note;
   const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
+  const resonanceValue = formatCount(profile.resonanceCount);
 
   return (
     <section className="glass-panel overflow-hidden">
       <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
       <div className="p-4 pt-0">
         <div className="-mt-7 flex items-end justify-between gap-3">
-          <div className="grid h-16 w-16 place-items-center rounded-3xl border border-white/20 bg-gradient-to-br from-night-800 via-aurora/70 to-sakura/70 text-xl font-black shadow-glow">
-            {avatar}
-          </div>
-          <div className="mb-2 rounded-full border border-comet/30 bg-comet/10 px-4 py-1.5 text-xs font-black text-comet">
-            {profile.loading ? "読込中" : "編集"}
+          <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+          <div className="mb-2 flex items-center gap-2">
+            {profile.canEdit && (
+              <button
+                className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+                onClick={onToggleSettings}
+                type="button"
+              >
+                {settingsOpen ? "設定を閉じる" : "⚙"}
+              </button>
+            )}
+            {profile.canEdit && !profile.editing && (
+              <button
+                className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={profile.loading}
+                onClick={profile.onStartEdit}
+                type="button"
+              >
+                {profile.loading ? "読込中" : "編集"}
+              </button>
+            )}
           </div>
         </div>
         <div className="mt-3">
@@ -985,13 +1131,38 @@ function ProfileCard({ profile }) {
         <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
           <Stat label="観測" value="未集計" />
           <Stat label="観測者" value="未集計" />
-          <Stat label="共鳴" value="未集計" />
+          <Stat label="共鳴" value={resonanceValue} />
         </div>
 
-        {profile.canEdit && <ProfileEditor profile={profile} />}
+        {(profile.message || profile.error) && !profile.editing && (
+          <p
+            className={`mt-4 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+              profile.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {profile.error || profile.message}
+          </p>
+        )}
+
+        {profile.canEdit && profile.editing && <ProfileEditor profile={profile} />}
       </div>
     </section>
   );
+}
+
+function AvatarFrame({ avatar, avatarUrl, className = "h-12 w-12 rounded-2xl text-base" }) {
+  const baseClass =
+    "grid flex-none place-items-center overflow-hidden border border-white/20 bg-gradient-to-br from-night-800 via-aurora/70 to-sakura/70 font-black text-white shadow-glow";
+
+  if (avatarUrl) {
+    return (
+      <div className={`${baseClass} ${className}`}>
+        <img alt="" className="h-full w-full object-cover" src={avatarUrl} />
+      </div>
+    );
+  }
+
+  return <div className={`${baseClass} ${className}`}>{avatar}</div>;
 }
 
 function ProfileEditor({ profile }) {
@@ -1028,6 +1199,17 @@ function ProfileEditor({ profile }) {
       </label>
 
       <label className="block text-xs font-bold text-slate-400">
+        アイコン画像URL
+        <input
+          className="mt-1 min-h-10 w-full rounded-2xl border border-white/10 bg-night-950/70 px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+          onChange={(event) => profile.onChange("avatar_url", event.target.value)}
+          placeholder="https://example.com/avatar.png"
+          type="url"
+          value={profile.form.avatar_url}
+        />
+      </label>
+
+      <label className="block text-xs font-bold text-slate-400">
         自己紹介
         <textarea
           className="mt-1 min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
@@ -1047,13 +1229,23 @@ function ProfileEditor({ profile }) {
         />
       </label>
 
-      <button
-        className="min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={profile.loading || profile.saving}
-        type="submit"
-      >
-        {profile.saving ? "保存中..." : "プロフィールを保存する"}
-      </button>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={profile.loading || profile.saving}
+          type="submit"
+        >
+          {profile.saving ? "保存中..." : "保存する"}
+        </button>
+        <button
+          className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={profile.saving}
+          onClick={profile.onCancelEdit}
+          type="button"
+        >
+          キャンセル
+        </button>
+      </div>
 
       {(profile.message || profile.error) && (
         <p
@@ -1378,9 +1570,7 @@ function PostCard({ post, resonance }) {
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
       <div className="p-4 sm:p-5">
         <div className="flex gap-3">
-          <div className="grid h-12 w-12 flex-none place-items-center rounded-2xl bg-gradient-to-br from-comet/70 via-aurora/60 to-sakura/70 font-black text-white shadow-glow">
-            {post.avatar}
-          </div>
+          <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h3 className="font-black text-white">{post.name}</h3>
