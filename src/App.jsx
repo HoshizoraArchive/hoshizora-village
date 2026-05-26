@@ -118,8 +118,7 @@ function App() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
-  const [profileEditing, setProfileEditing] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileViewMode, setProfileViewMode] = useState("view");
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
   const [savedPosts, setSavedPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
@@ -232,8 +231,7 @@ function App() {
       setProfileSaving(false);
       setProfileMessage("");
       setProfileError("");
-      setProfileEditing(false);
-      setSettingsOpen(false);
+      setProfileViewMode("view");
       setProfileResonanceCount(null);
       return;
     }
@@ -514,7 +512,7 @@ function App() {
     );
     setProfileMessage("");
     setProfileError("");
-    setProfileEditing(true);
+    setProfileViewMode("edit");
   }
 
   function handleCancelProfileEdit() {
@@ -523,7 +521,19 @@ function App() {
     );
     setProfileMessage("");
     setProfileError("");
-    setProfileEditing(false);
+    setProfileViewMode("view");
+  }
+
+  function handleOpenProfileSettings() {
+    setProfileMessage("");
+    setProfileError("");
+    setProfileViewMode("settings");
+  }
+
+  function handleBackToProfile() {
+    setProfileMessage("");
+    setProfileError("");
+    setProfileViewMode("view");
   }
 
   async function handleProfileSubmit(event) {
@@ -571,7 +581,7 @@ function App() {
     setProfile(data);
     setProfileForm(profileFormFromRecord(data));
     setProfileMessage("プロフィールを保存しました。");
-    setProfileEditing(false);
+    setProfileViewMode("view");
   }
 
   async function handlePostSubmit(event) {
@@ -733,17 +743,19 @@ function App() {
   const profileState = {
     canEdit: Boolean(session),
     data: profile,
-    editing: profileEditing,
     error: profileError,
     form: profileForm,
     loading: profileLoading,
     message: profileMessage,
     onChange: handleProfileFieldChange,
+    onBackToProfile: handleBackToProfile,
     onCancelEdit: handleCancelProfileEdit,
+    onOpenSettings: handleOpenProfileSettings,
     onStartEdit: handleStartProfileEdit,
     onSubmit: handleProfileSubmit,
     resonanceCount: profileResonanceCount,
     saving: profileSaving,
+    viewMode: profileViewMode,
   };
   const composer = {
     canPost: Boolean(session),
@@ -790,8 +802,6 @@ function App() {
           postsLoading={postsLoading}
           profile={profileState}
           resonance={resonance}
-          settingsOpen={settingsOpen}
-          setSettingsOpen={setSettingsOpen}
           notifications={notificationState}
         />
       </div>
@@ -813,17 +823,7 @@ function SkyBackdrop() {
 
 function AppHeader({ auth }) {
   if (auth.session) {
-    return (
-      <header className="mb-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-night-950/55 px-3 py-2 backdrop-blur-xl sm:mb-4">
-        <div className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-comet via-aurora to-sakura text-sm font-black text-night-950">
-          星
-        </div>
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold normal-case leading-none text-comet">Re:AiSNS</p>
-          <p className="text-sm font-black leading-tight text-white">星空Village</p>
-        </div>
-      </header>
-    );
+    return null;
   }
 
   return (
@@ -856,8 +856,6 @@ function TabContent({
   postsLoading,
   profile,
   resonance,
-  settingsOpen,
-  setSettingsOpen,
 }) {
   if (activeTab === "rconnect") {
     return <RConnectScreen notifications={notifications} />;
@@ -879,16 +877,7 @@ function TabContent({
   }
 
   if (activeTab === "profile") {
-    return (
-      <ProfileScreen
-        auth={auth}
-        ownPosts={ownPosts}
-        profile={profile}
-        resonance={resonance}
-        settingsOpen={settingsOpen}
-        setSettingsOpen={setSettingsOpen}
-      />
-    );
+    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
   }
 
   return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />;
@@ -1019,17 +1008,20 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ auth, ownPosts, profile, resonance, settingsOpen, setSettingsOpen }) {
+function ProfileScreen({ auth, ownPosts, profile, resonance }) {
+  let profilePanel = <ProfileCard profile={profile} />;
+
+  if (profile.viewMode === "edit") {
+    profilePanel = <ProfileEditScreen profile={profile} />;
+  }
+
+  if (profile.viewMode === "settings") {
+    profilePanel = <SettingsPanel auth={auth} onBack={profile.onBackToProfile} />;
+  }
+
   return (
     <main className="grid gap-4 lg:grid-cols-[minmax(0,560px)_minmax(320px,1fr)] lg:items-start">
-      <div className="space-y-4">
-        <ProfileCard
-          onToggleSettings={() => setSettingsOpen((current) => !current)}
-          profile={profile}
-          settingsOpen={settingsOpen}
-        />
-        {settingsOpen && <SettingsPanel auth={auth} />}
-      </div>
+      <div>{profilePanel}</div>
 
       <OwnPostsPanel auth={auth} posts={ownPosts} resonance={resonance} />
     </main>
@@ -1056,10 +1048,17 @@ function OwnPostsPanel({ auth, posts, resonance }) {
   );
 }
 
-function SettingsPanel({ auth }) {
+function SettingsPanel({ auth, onBack }) {
   return (
     <Panel title="設定" eyebrow="settings">
       <div className="space-y-3 text-sm leading-7 text-slate-400">
+        <button
+          className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+          onClick={onBack}
+          type="button"
+        >
+          戻る
+        </button>
         <p>基本設定は今後ここから調整できるようにします。</p>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           <p className="text-xs font-black text-comet">ログイン状態</p>
@@ -1080,7 +1079,7 @@ function SettingsPanel({ auth }) {
   );
 }
 
-function ProfileCard({ onToggleSettings, profile, settingsOpen }) {
+function ProfileCard({ profile }) {
   const displayName = profile.data?.display_name || defaultProfileView.display_name;
   const username = profile.data?.username ? `@${profile.data.username}` : defaultProfileView.username;
   const bio = profile.data?.bio || defaultProfileView.bio;
@@ -1099,13 +1098,13 @@ function ProfileCard({ onToggleSettings, profile, settingsOpen }) {
             {profile.canEdit && (
               <button
                 className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
-                onClick={onToggleSettings}
+                onClick={profile.onOpenSettings}
                 type="button"
               >
-                {settingsOpen ? "設定を閉じる" : "⚙"}
+                ⚙
               </button>
             )}
-            {profile.canEdit && !profile.editing && (
+            {profile.canEdit && (
               <button
                 className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={profile.loading}
@@ -1134,7 +1133,7 @@ function ProfileCard({ onToggleSettings, profile, settingsOpen }) {
           <Stat label="共鳴" value={resonanceValue} />
         </div>
 
-        {(profile.message || profile.error) && !profile.editing && (
+        {(profile.message || profile.error) && (
           <p
             className={`mt-4 rounded-2xl border px-3 py-2 text-xs leading-5 ${
               profile.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
@@ -1144,8 +1143,33 @@ function ProfileCard({ onToggleSettings, profile, settingsOpen }) {
           </p>
         )}
 
-        {profile.canEdit && profile.editing && <ProfileEditor profile={profile} />}
       </div>
+    </section>
+  );
+}
+
+function ProfileEditScreen({ profile }) {
+  return (
+    <section className="glass-panel p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-comet">profile edit</p>
+          <h2 className="mt-1 text-2xl font-black text-white">プロフィール編集</h2>
+          <p className="mt-2 text-sm leading-7 text-slate-400">
+            表示名、アイコン画像URL、わたしの星座を編集できます。
+          </p>
+        </div>
+        <button
+          className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={profile.saving}
+          onClick={profile.onCancelEdit}
+          type="button"
+        >
+          戻る
+        </button>
+      </div>
+
+      <ProfileEditor profile={profile} />
     </section>
   );
 }
