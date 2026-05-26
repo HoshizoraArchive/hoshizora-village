@@ -59,6 +59,21 @@ function formatPostTime(createdAt) {
   });
 }
 
+function formatNotificationTime(createdAt) {
+  const date = new Date(createdAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "日時不明";
+  }
+
+  return date.toLocaleString("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function mapSavedPost(post, authorProfile) {
   const displayName = authorProfile?.display_name || defaultProfileView.display_name;
   const username = authorProfile?.username ? `@${authorProfile.username}` : "@starry_creator";
@@ -102,6 +117,11 @@ function App() {
   const [resonanceSavingPostId, setResonanceSavingPostId] = useState(null);
   const [resonanceMessage, setResonanceMessage] = useState("");
   const [resonanceError, setResonanceError] = useState("");
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState("");
+  const [notificationsMessage, setNotificationsMessage] = useState("");
+  const [notificationUpdatingId, setNotificationUpdatingId] = useState(null);
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
 
   useEffect(() => {
@@ -228,6 +248,53 @@ function App() {
     }
 
     readProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      setNotifications([]);
+      setNotificationsLoading(false);
+      setNotificationsError("");
+      setNotificationsMessage("");
+      setNotificationUpdatingId(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readNotifications() {
+      setNotificationsLoading(true);
+      setNotificationsError("");
+      setNotificationsMessage("");
+
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("id, recipient_id, actor_id, post_id, type, message, is_read, created_at")
+        .eq("recipient_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (!isMounted) {
+        return;
+      }
+
+      setNotificationsLoading(false);
+
+      if (error) {
+        setNotificationsError(error.message);
+        return;
+      }
+
+      setNotifications(data ?? []);
+    }
+
+    readNotifications();
 
     return () => {
       isMounted = false;
@@ -516,6 +583,45 @@ function App() {
     setResonanceMessage("共鳴を記録しました。");
   }
 
+  async function handleMarkNotificationRead(notificationId) {
+    setNotificationsMessage("");
+    setNotificationsError("");
+
+    if (!session?.user?.id) {
+      setNotificationsError("ログインするとR.Connectを確認できます。");
+      return;
+    }
+
+    setNotificationUpdatingId(notificationId);
+
+    const { data, error } = await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("id", notificationId)
+      .eq("recipient_id", session.user.id)
+      .select("id, is_read")
+      .single();
+
+    setNotificationUpdatingId(null);
+
+    if (error) {
+      setNotificationsError(error.message);
+      return;
+    }
+
+    setNotifications((currentNotifications) =>
+      currentNotifications.map((notification) =>
+        notification.id === notificationId
+          ? {
+              ...notification,
+              is_read: data?.is_read ?? true,
+            }
+          : notification,
+      ),
+    );
+    setNotificationsMessage("通知を既読にしました。");
+  }
+
   function handleTabChange(tabId) {
     setActiveTab(tabId);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -558,6 +664,15 @@ function App() {
     onResonate: handleResonance,
     savingPostId: resonanceSavingPostId,
   };
+  const notificationState = {
+    error: notificationsError,
+    items: notifications,
+    loading: notificationsLoading,
+    message: notificationsMessage,
+    onMarkRead: handleMarkNotificationRead,
+    session,
+    updatingId: notificationUpdatingId,
+  };
   const posts = savedPosts;
   const ownPosts = session?.user?.id ? savedPosts.filter((post) => post.authorId === session.user.id) : [];
 
@@ -578,6 +693,7 @@ function App() {
           postsLoading={postsLoading}
           profile={profileState}
           resonance={resonance}
+          notifications={notificationState}
         />
       </div>
 
@@ -616,16 +732,20 @@ function AppHeader({ auth }) {
   );
 }
 
-function TabContent({ activeTab, auth, composer, ownPosts, posts, postsError, postsLoading, profile, resonance }) {
+function TabContent({
+  activeTab,
+  auth,
+  composer,
+  notifications,
+  ownPosts,
+  posts,
+  postsError,
+  postsLoading,
+  profile,
+  resonance,
+}) {
   if (activeTab === "rconnect") {
-    return (
-      <PlaceholderScreen
-        eyebrow="resonance connect"
-        title="R.Connect"
-        text="共鳴・星文・観測通知がここに届きます。"
-        note="現在、新しい通知はありません。"
-      />
-    );
+    return <RConnectScreen notifications={notifications} />;
   }
 
   if (activeTab === "post") {
@@ -686,6 +806,92 @@ function PlaceholderScreen({ eyebrow, title, text, note }) {
         </div>
       </section>
     </main>
+  );
+}
+
+function RConnectScreen({ notifications }) {
+  return (
+    <main className="mx-auto max-w-3xl">
+      <section className="glass-panel p-5 sm:p-6">
+        <p className="text-xs font-bold normal-case text-comet">R.Connect</p>
+        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">R.Connect</h2>
+        <p className="mt-4 text-sm leading-7 text-slate-300">共鳴・星文・観測通知がここに届きます。</p>
+
+        {!notifications.session ? (
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
+            ログインすると、自分宛てのR.Connectを確認できます。
+          </div>
+        ) : (
+          <div className="mt-5 space-y-3">
+            {(notifications.loading || notifications.error || notifications.message) && (
+              <p
+                className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+                  notifications.error
+                    ? "border-sakura/30 bg-sakura/10 text-sakura"
+                    : "border-comet/20 bg-comet/10 text-comet"
+                }`}
+              >
+                {notifications.error || notifications.message || "R.Connectを読み込み中..."}
+              </p>
+            )}
+
+            {!notifications.loading && !notifications.error && notifications.items.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-center text-sm leading-7 text-slate-400">
+                まだ通知はありません。
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {notifications.items.map((notification) => (
+                  <NotificationCard
+                    key={notification.id}
+                    notification={notification}
+                    onMarkRead={notifications.onMarkRead}
+                    updating={notifications.updatingId === notification.id}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function NotificationCard({ notification, onMarkRead, updating }) {
+  const isUnread = !notification.is_read;
+
+  return (
+    <article
+      className={`rounded-2xl border px-4 py-4 ${
+        isUnread ? "border-comet/30 bg-comet/10 shadow-glow" : "border-white/10 bg-white/5"
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span
+          className={`rounded-full px-3 py-1 text-[11px] font-black ${
+            isUnread ? "bg-comet/20 text-comet" : "bg-white/10 text-slate-400"
+          }`}
+        >
+          {isUnread ? "未読" : "既読"}
+        </span>
+        <span className="text-xs text-slate-500">{formatNotificationTime(notification.created_at)}</span>
+      </div>
+
+      <p className="mt-3 text-sm leading-7 text-slate-100">{notification.message}</p>
+      <p className="mt-2 text-[11px] font-bold text-slate-500">type: {notification.type}</p>
+
+      {isUnread && (
+        <button
+          className="mt-4 min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={updating}
+          onClick={() => onMarkRead(notification.id)}
+          type="button"
+        >
+          {updating ? "更新中..." : "既読にする"}
+        </button>
+      )}
+    </article>
   );
 }
 
