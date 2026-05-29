@@ -785,10 +785,11 @@ function App() {
   const posts = savedPosts;
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
+    <div className="relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
       <SkyBackdrop />
+      <StardustForeground />
 
-      <div className="mx-auto min-h-screen w-full max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5">
+      <div className="relative z-10 mx-auto min-h-screen w-full max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5">
         <AppHeader auth={auth} />
 
         <TabContent
@@ -811,12 +812,26 @@ function App() {
 
 function SkyBackdrop() {
   return (
-    <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[radial-gradient(circle_at_20%_8%,rgba(125,223,255,0.20),transparent_26%),radial-gradient(circle_at_84%_14%,rgba(255,139,207,0.18),transparent_30%),linear-gradient(135deg,#030511_0%,#071024_48%,#160826_100%)]">
+    <div className="cosmic-background pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+      <div className="cosmic-haze" />
+      <div className="moon" />
       <div className="stars-layer" />
-      <div className="absolute inset-x-0 bottom-0 h-64 bg-[linear-gradient(to_top,rgba(3,5,17,0.96),transparent)]" />
-      <div className="city-grid absolute inset-x-0 bottom-0 h-44 opacity-50" />
+      <div className="distant-stars" />
+      <div className="shooting-star shooting-star-a" />
+      <div className="shooting-star shooting-star-b" />
+      <div className="distant-village">
+        <span className="village-window village-window-a" />
+        <span className="village-window village-window-b" />
+        <span className="village-window village-window-c" />
+        <span className="village-window village-window-d" />
+        <span className="village-window village-window-e" />
+      </div>
     </div>
   );
+}
+
+function StardustForeground() {
+  return <div className="foreground-stardust pointer-events-none fixed inset-0 z-30" aria-hidden="true" />;
 }
 
 function AppHeader({ auth }) {

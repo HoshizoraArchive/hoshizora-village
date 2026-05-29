@@ -14,7 +14,10 @@
   body {
     margin: 0;
     min-width: 320px;
-    background: #030511;
+    background:
+      radial-gradient(circle at 16% 8%, rgb(125 223 255 / 0.13), transparent 28%),
+      radial-gradient(circle at 86% 12%, rgb(255 139 207 / 0.12), transparent 30%),
+      linear-gradient(145deg, #02030b 0%, #061027 48%, #170822 100%);
     color: #dff7ff;
     font-family:
       "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", system-ui,
@@ -38,23 +41,110 @@
     backdrop-filter: blur(24px);
   }
 
+  .cosmic-background {
+    background:
+      radial-gradient(circle at 18% 10%, rgb(125 223 255 / 0.34), transparent 25%),
+      radial-gradient(circle at 78% 18%, rgb(159 140 255 / 0.28), transparent 31%),
+      radial-gradient(circle at 50% 78%, rgb(255 139 207 / 0.18), transparent 38%),
+      linear-gradient(155deg, #020615 0%, #08163a 42%, #11113c 68%, #260b31 100%);
+    pointer-events: none;
+  }
+
+  .cosmic-haze {
+    position: absolute;
+    inset: -18% -8% 0;
+    background:
+      radial-gradient(ellipse at 28% 22%, rgb(125 223 255 / 0.16), transparent 34%),
+      radial-gradient(ellipse at 70% 16%, rgb(255 139 207 / 0.11), transparent 38%),
+      radial-gradient(ellipse at 50% 52%, rgb(159 140 255 / 0.12), transparent 42%);
+    filter: blur(8px);
+    opacity: 0.88;
+  }
+
+  .moon {
+    position: absolute;
+    left: clamp(18px, 7vw, 104px);
+    top: clamp(18px, 7vh, 80px);
+    z-index: 2;
+    width: clamp(72px, 10vw, 118px);
+    aspect-ratio: 1;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 42% 42%, #fff9cf 0 18%, #dff7ff 48%, transparent 68%);
+    box-shadow:
+      0 0 28px rgb(255 249 207 / 0.45),
+      0 0 86px rgb(125 223 255 / 0.28);
+    opacity: 0.88;
+  }
+
+  .moon::after {
+    content: "";
+    position: absolute;
+    inset: -2% -11% 4% 34%;
+    border-radius: inherit;
+    background: #08163a;
+    box-shadow: inset 14px 0 24px rgb(125 223 255 / 0.10);
+  }
+
   .stars-layer {
     position: absolute;
     inset: 0;
     background-image:
-      radial-gradient(circle, rgb(255 255 255 / 0.9) 0 1px, transparent 1.5px),
-      radial-gradient(circle, rgb(125 223 255 / 0.75) 0 1px, transparent 1.6px),
-      radial-gradient(circle, rgb(255 139 207 / 0.65) 0 1px, transparent 1.5px);
+      radial-gradient(circle, rgb(255 255 255 / 0.96) 0 1.15px, transparent 1.7px),
+      radial-gradient(circle, rgb(125 223 255 / 0.86) 0 1.1px, transparent 1.8px),
+      radial-gradient(circle, rgb(255 139 207 / 0.72) 0 1px, transparent 1.6px);
     background-position:
       0 0,
       44px 72px,
       120px 20px;
     background-size:
-      150px 150px,
-      220px 220px,
-      280px 280px;
+      118px 132px,
+      170px 190px,
+      230px 250px;
     animation: starDrift 28s linear infinite;
-    opacity: 0.7;
+    opacity: 0.9;
+  }
+
+  .distant-stars {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle, rgb(255 255 255 / 0.72) 0 0.9px, transparent 1.3px),
+      radial-gradient(circle, rgb(125 223 255 / 0.58) 0 0.9px, transparent 1.5px);
+    background-position:
+      26px 34px,
+      92px 10px;
+    background-size:
+      98px 132px,
+      172px 188px;
+    opacity: 0.52;
+  }
+
+  .shooting-star {
+    position: absolute;
+    z-index: 3;
+    top: 18%;
+    left: 72%;
+    width: 150px;
+    height: 2px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.86), rgb(125 223 255 / 0.12));
+    box-shadow: 0 0 18px rgb(125 223 255 / 0.46);
+    opacity: 0;
+    transform: rotate(-24deg) translate3d(0, 0, 0);
+    animation: shootingStar 8s ease-in-out infinite;
+  }
+
+  .shooting-star-a {
+    animation-delay: -1.15s;
+  }
+
+  .shooting-star-b {
+    top: 36%;
+    left: 78%;
+    width: 120px;
+    animation-delay: -4.4s;
+    animation-duration: 12s;
+    opacity: 0;
   }
 
   .city-grid {
@@ -63,6 +153,98 @@
       linear-gradient(0deg, rgb(125 223 255 / 0.16) 1px, transparent 1px);
     background-size: 86px 100%, 100% 18px;
     mask-image: linear-gradient(to top, black 0%, transparent 85%);
+  }
+
+  .distant-village {
+    position: absolute;
+    inset-inline: -6%;
+    bottom: 70px;
+    z-index: 4;
+    height: min(26vh, 190px);
+    background:
+      linear-gradient(to top, rgb(1 3 10 / 0.98) 0 34%, transparent 35%),
+      linear-gradient(92deg, transparent 0 3%, rgb(3 7 18 / 0.97) 3% 11%, transparent 11% 13%, rgb(4 8 22 / 0.98) 13% 22%, transparent 22% 24%, rgb(5 10 26 / 0.98) 24% 34%, transparent 34% 37%, rgb(3 7 19 / 0.98) 37% 48%, transparent 48% 52%, rgb(4 9 24 / 0.98) 52% 62%, transparent 62% 65%, rgb(5 8 24 / 0.98) 65% 75%, transparent 75% 79%, rgb(3 7 20 / 0.97) 79% 90%, transparent 90% 100%);
+    opacity: 0.98;
+    filter: drop-shadow(0 -6px 18px rgb(125 223 255 / 0.13));
+    mask-image: linear-gradient(to top, black 0%, black 72%, transparent 100%);
+  }
+
+  .distant-village::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 34%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgb(125 223 255 / 0.38), transparent);
+  }
+
+  .village-window {
+    position: absolute;
+    bottom: 46%;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: rgb(255 239 162 / 0.96);
+    box-shadow: 0 0 14px rgb(255 239 162 / 0.72);
+  }
+
+  .village-window-a {
+    left: 12%;
+  }
+
+  .village-window-b {
+    left: 28%;
+    bottom: 42%;
+  }
+
+  .village-window-c {
+    left: 49%;
+  }
+
+  .village-window-d {
+    left: 68%;
+    bottom: 44%;
+  }
+
+  .village-window-e {
+    left: 84%;
+    bottom: 40%;
+  }
+
+  .foreground-stardust {
+    overflow: hidden;
+    opacity: 0.58;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+
+  .foreground-stardust::before,
+  .foreground-stardust::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle, rgb(255 255 255 / 0.78) 0 1.15px, transparent 1.9px),
+      radial-gradient(circle, rgb(125 223 255 / 0.58) 0 1.1px, transparent 2px);
+    background-size:
+      168px 220px,
+      240px 300px;
+    background-position:
+      18px 14px,
+      calc(100% - 40px) 86px;
+    animation: foregroundStardust 32s linear infinite;
+  }
+
+  .foreground-stardust::after {
+    opacity: 0.44;
+    background-size:
+      380px 420px,
+      460px 520px;
+    background-position:
+      calc(100% - 64px) 28px,
+      36px calc(100% - 120px);
+    animation-duration: 46s;
+    animation-direction: reverse;
   }
 
   header[data-auth-panel="hidden"] > .grid {
@@ -76,5 +258,81 @@
   }
   to {
     transform: translateY(150px);
+  }
+}
+
+@keyframes foregroundStardust {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-32px, 40px, 0);
+  }
+}
+
+@keyframes shootingStar {
+  0%,
+  100% {
+    opacity: 0;
+    transform: rotate(-24deg) translate3d(0, 0, 0);
+  }
+  10% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.95;
+  }
+  30% {
+    opacity: 0;
+    transform: rotate(-24deg) translate3d(-280px, 116px, 0);
+  }
+}
+
+@media (max-width: 640px) {
+  .moon {
+    left: 18px;
+    top: 18px;
+    width: 76px;
+    opacity: 0.82;
+  }
+
+  .foreground-stardust {
+    opacity: 0.42;
+  }
+
+  .shooting-star {
+    width: 118px;
+    top: 16%;
+    left: 70%;
+  }
+
+  .shooting-star-b {
+    top: 31%;
+    left: 78%;
+    width: 98px;
+  }
+
+  .distant-village {
+    bottom: 76px;
+    height: 170px;
+    opacity: 0.95;
+  }
+
+  .village-window {
+    width: 6px;
+    height: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stars-layer,
+  .foreground-stardust::before,
+  .foreground-stardust::after,
+  .shooting-star {
+    animation: none;
+  }
+
+  .shooting-star {
+    display: none;
   }
 }
