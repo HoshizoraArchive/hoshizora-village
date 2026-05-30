@@ -63,26 +63,25 @@
 
   .moon {
     position: absolute;
-    left: clamp(18px, 7vw, 104px);
-    top: clamp(18px, 7vh, 80px);
+    left: clamp(24px, 6vw, 88px);
+    top: clamp(30px, 6vh, 76px);
     z-index: 2;
-    width: clamp(72px, 10vw, 118px);
+    width: clamp(52px, 7vw, 82px);
     aspect-ratio: 1;
     border-radius: 9999px;
-    background: radial-gradient(circle at 42% 42%, #fff9cf 0 18%, #dff7ff 48%, transparent 68%);
-    box-shadow:
-      0 0 28px rgb(255 249 207 / 0.45),
-      0 0 86px rgb(125 223 255 / 0.28);
-    opacity: 0.88;
+    background: radial-gradient(circle at 36% 38%, #fff9d8 0 22%, #e4fbff 48%, rgb(172 226 255 / 0.72) 68%);
+    filter:
+      drop-shadow(0 0 16px rgb(255 249 207 / 0.34))
+      drop-shadow(0 0 46px rgb(125 223 255 / 0.22));
+    opacity: 0.82;
+    transform: rotate(-10deg);
+    -webkit-mask-image: radial-gradient(circle at 67% 45%, transparent 0 42%, #000 43%);
+    mask-image: radial-gradient(circle at 67% 45%, transparent 0 42%, #000 43%);
   }
 
   .moon::after {
     content: "";
-    position: absolute;
-    inset: -2% -11% 4% 34%;
-    border-radius: inherit;
-    background: #08163a;
-    box-shadow: inset 14px 0 24px rgb(125 223 255 / 0.10);
+    display: none;
   }
 
   .stars-layer {
@@ -290,10 +289,10 @@
 
 @media (max-width: 640px) {
   .moon {
-    left: 18px;
-    top: 18px;
-    width: 76px;
-    opacity: 0.82;
+    left: 22px;
+    top: 26px;
+    width: 56px;
+    opacity: 0.78;
   }
 
   .foreground-stardust {
