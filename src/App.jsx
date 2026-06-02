@@ -121,6 +121,9 @@ function App() {
   const [profileScreenMode, setProfileScreenMode] = useState("view");
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
   const [savedPosts, setSavedPosts] = useState([]);
+  const [ownPosts, setOwnPosts] = useState([]);
+  const [ownPostsLoading, setOwnPostsLoading] = useState(false);
+  const [ownPostsError, setOwnPostsError] = useState("");
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState("");
   const [postDraft, setPostDraft] = useState("");
@@ -136,6 +139,7 @@ function App() {
   const [notificationsMessage, setNotificationsMessage] = useState("");
   const [notificationUpdatingId, setNotificationUpdatingId] = useState(null);
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
+  const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
 
   useEffect(() => {
     let isMounted = true;
@@ -222,6 +226,47 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+    const postIds = ownPostIdsKey ? ownPostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readOwnPostResonances() {
+      const { data, error } = await supabase
+        .from("resonances")
+        .select("id, post_id, profile_id")
+        .in("post_id", postIds);
+
+      if (!isMounted || error) {
+        return;
+      }
+
+      const countsByPost = new Map();
+
+      for (const resonance of data ?? []) {
+        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
+      }
+
+      setOwnPosts((currentPosts) =>
+        currentPosts.map((post) => ({
+          ...post,
+          resonanceCount: countsByPost.get(post.id) ?? 0,
+        })),
+      );
+    }
+
+    readOwnPostResonances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [ownPostIdsKey]);
+
+  useEffect(() => {
+    let isMounted = true;
     const userId = session?.user?.id;
 
     if (!userId) {
@@ -268,6 +313,52 @@ function App() {
       isMounted = false;
     };
   }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      setOwnPosts([]);
+      setOwnPostsLoading(false);
+      setOwnPostsError("");
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readOwnPosts() {
+      setOwnPostsLoading(true);
+      setOwnPostsError("");
+
+      const { data, error } = await supabase
+        .from("posts")
+        .select("id, author_id, type, body, visibility, created_at")
+        .eq("author_id", userId)
+        .eq("type", "text")
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (!isMounted) {
+        return;
+      }
+
+      setOwnPostsLoading(false);
+
+      if (error) {
+        setOwnPostsError(error.message);
+        return;
+      }
+
+      setOwnPosts((data ?? []).map((post) => mapSavedPost(post, profile)));
+    }
+
+    readOwnPosts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id, profile?.display_name, profile?.username, profile?.avatar_url]);
 
   useEffect(() => {
     let isMounted = true;
@@ -628,6 +719,7 @@ function App() {
 
     const newPost = mapSavedPost(data, profile);
     setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
+    setOwnPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
     setPostDraft("");
     setPostMessage("流星便を放流しました。");
     setActiveTab("observe");
@@ -647,7 +739,7 @@ function App() {
       return;
     }
 
-    const targetPost = savedPosts.find((post) => post.id === postId);
+    const targetPost = savedPosts.find((post) => post.id === postId) ?? ownPosts.find((post) => post.id === postId);
 
     if (!targetPost) {
       setResonanceError("流星便が見つかりませんでした。");
@@ -674,6 +766,16 @@ function App() {
     }
 
     setSavedPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
+            }
+          : post,
+      ),
+    );
+    setOwnPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === postId
           ? {
@@ -782,6 +884,12 @@ function App() {
     session,
     updatingId: notificationUpdatingId,
   };
+  const ownPostState = {
+    error: ownPostsError,
+    items: ownPosts,
+    loading: ownPostsLoading,
+    session,
+  };
   const posts = savedPosts;
 
   return (
@@ -799,6 +907,7 @@ function App() {
           posts={posts}
           postsError={postsError}
           postsLoading={postsLoading}
+          ownPosts={ownPostState}
           profile={profileState}
           resonance={resonance}
           notifications={notificationState}
@@ -863,6 +972,7 @@ function TabContent({
   auth,
   composer,
   notifications,
+  ownPosts,
   posts,
   postsError,
   postsLoading,
@@ -889,7 +999,7 @@ function TabContent({
   }
 
   if (activeTab === "profile") {
-    return <ProfileScreen auth={auth} profile={profile} />;
+    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
   }
 
   return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />;
@@ -1020,7 +1130,7 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ auth, profile }) {
+function ProfileScreen({ auth, ownPosts, profile, resonance }) {
   if (profile.profileScreenMode === "edit") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -1038,9 +1148,40 @@ function ProfileScreen({ auth, profile }) {
   }
 
   return (
-    <main className="mx-auto max-w-2xl">
+    <main className="mx-auto max-w-2xl space-y-4">
       <ProfileCard profile={profile} />
+      <OwnPostsPanel ownPosts={ownPosts} resonance={resonance} />
     </main>
+  );
+}
+
+function OwnPostsPanel({ ownPosts, resonance }) {
+  if (!ownPosts.session) {
+    return null;
+  }
+
+  return (
+    <Panel title="わたしの流星便" eyebrow="my meteor letters">
+      {ownPosts.loading || ownPosts.error ? (
+        <p
+          className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+            ownPosts.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+          }`}
+        >
+          {ownPosts.error || "わたしの流星便を読み込み中..."}
+        </p>
+      ) : ownPosts.items.length === 0 ? (
+        <p className="text-sm leading-7 text-slate-400">
+          まだ流星便はありません。中央の＋から最初の流星便を放流できます。
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {ownPosts.items.map((post) => (
+            <PostCard key={post.id ?? post.handle} post={post} resonance={resonance} />
+          ))}
+        </div>
+      )}
+    </Panel>
   );
 }
 
