@@ -105,6 +105,15 @@ function mapSavedPost(post, authorProfile) {
   };
 }
 
+function mapArchivedPost(archive, post, authorProfile) {
+  return {
+    ...mapSavedPost(post, authorProfile),
+    archiveId: archive.id,
+    archivedAt: archive.created_at,
+    archivedTime: formatNotificationTime(archive.created_at),
+  };
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("observe");
   const [session, setSession] = useState(null);
@@ -133,6 +142,11 @@ function App() {
   const [resonanceSavingPostId, setResonanceSavingPostId] = useState(null);
   const [resonanceMessage, setResonanceMessage] = useState("");
   const [resonanceError, setResonanceError] = useState("");
+  const [archivedPosts, setArchivedPosts] = useState([]);
+  const [archivesLoading, setArchivesLoading] = useState(false);
+  const [archivesError, setArchivesError] = useState("");
+  const [archivesMessage, setArchivesMessage] = useState("");
+  const [archiveSavingPostId, setArchiveSavingPostId] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsError, setNotificationsError] = useState("");
@@ -140,6 +154,7 @@ function App() {
   const [notificationUpdatingId, setNotificationUpdatingId] = useState(null);
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
+  const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
 
   useEffect(() => {
     let isMounted = true;
@@ -267,6 +282,47 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+    const postIds = archivedPostIdsKey ? archivedPostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readArchivedPostResonances() {
+      const { data, error } = await supabase
+        .from("resonances")
+        .select("id, post_id, profile_id")
+        .in("post_id", postIds);
+
+      if (!isMounted || error) {
+        return;
+      }
+
+      const countsByPost = new Map();
+
+      for (const resonance of data ?? []) {
+        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
+      }
+
+      setArchivedPosts((currentPosts) =>
+        currentPosts.map((post) => ({
+          ...post,
+          resonanceCount: countsByPost.get(post.id) ?? 0,
+        })),
+      );
+    }
+
+    readArchivedPostResonances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [archivedPostIdsKey]);
+
+  useEffect(() => {
+    let isMounted = true;
     const userId = session?.user?.id;
 
     if (!userId) {
@@ -359,6 +415,112 @@ function App() {
       isMounted = false;
     };
   }, [session?.user?.id, profile?.display_name, profile?.username, profile?.avatar_url]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      setArchivedPosts([]);
+      setArchivesLoading(false);
+      setArchivesError("");
+      setArchivesMessage("");
+      setArchiveSavingPostId(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readArchivedPosts() {
+      setArchivesLoading(true);
+      setArchivesError("");
+
+      const { data: archiveRows, error: archiveError } = await supabase
+        .from("archives")
+        .select("id, profile_id, post_id, created_at")
+        .eq("profile_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (archiveError) {
+        setArchivesLoading(false);
+        setArchivesError(archiveError.message);
+        return;
+      }
+
+      const postIds = (archiveRows ?? []).map((archive) => archive.post_id).filter(Boolean);
+
+      if (postIds.length === 0) {
+        setArchivedPosts([]);
+        setArchivesLoading(false);
+        return;
+      }
+
+      const { data: postRows, error: postsError } = await supabase
+        .from("posts")
+        .select("id, author_id, type, body, visibility, created_at")
+        .in("id", postIds)
+        .eq("type", "text");
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (postsError) {
+        setArchivesLoading(false);
+        setArchivesError(postsError.message);
+        return;
+      }
+
+      const authorIds = [...new Set((postRows ?? []).map((post) => post.author_id).filter(Boolean))];
+      const profilesById = new Map();
+
+      if (authorIds.length > 0) {
+        const { data: profileRows, error: profileRowsError } = await supabase
+          .from("profiles")
+          .select("id, display_name, username, avatar_url")
+          .in("id", authorIds);
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (profileRowsError) {
+          setArchivesLoading(false);
+          setArchivesError(profileRowsError.message);
+          return;
+        }
+
+        for (const profileRow of profileRows ?? []) {
+          profilesById.set(profileRow.id, profileRow);
+        }
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      const postsById = new Map((postRows ?? []).map((post) => [post.id, post]));
+      const mappedArchives = (archiveRows ?? [])
+        .map((archive) => {
+          const post = postsById.get(archive.post_id);
+          return post ? mapArchivedPost(archive, post, profilesById.get(post.author_id)) : null;
+        })
+        .filter(Boolean);
+
+      setArchivedPosts(mappedArchives);
+      setArchivesLoading(false);
+    }
+
+    readArchivedPosts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -739,7 +901,10 @@ function App() {
       return;
     }
 
-    const targetPost = savedPosts.find((post) => post.id === postId) ?? ownPosts.find((post) => post.id === postId);
+    const targetPost =
+      savedPosts.find((post) => post.id === postId) ??
+      ownPosts.find((post) => post.id === postId) ??
+      archivedPosts.find((post) => post.id === postId);
 
     if (!targetPost) {
       setResonanceError("流星便が見つかりませんでした。");
@@ -785,7 +950,97 @@ function App() {
           : post,
       ),
     );
+    setArchivedPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
+            }
+          : post,
+      ),
+    );
     setResonanceMessage("共鳴を記録しました。");
+  }
+
+  async function handleToggleArchive(postId) {
+    setArchivesMessage("");
+    setArchivesError("");
+
+    if (!session?.user?.id) {
+      setArchivesError("ログインすると流星便をArchiveできます。");
+      return;
+    }
+
+    if (!profile?.id) {
+      setArchivesError("先にプロフィールを保存するとArchiveできます。");
+      return;
+    }
+
+    const archivedPost = archivedPosts.find((post) => post.id === postId);
+
+    setArchiveSavingPostId(postId);
+
+    if (archivedPost?.archiveId) {
+      const { error } = await supabase
+        .from("archives")
+        .delete()
+        .eq("id", archivedPost.archiveId)
+        .eq("profile_id", session.user.id);
+
+      setArchiveSavingPostId(null);
+
+      if (error) {
+        setArchivesError(error.message);
+        return;
+      }
+
+      setArchivedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+      setArchivesMessage("Archiveから外しました。");
+      return;
+    }
+
+    const targetPost =
+      savedPosts.find((post) => post.id === postId) ??
+      ownPosts.find((post) => post.id === postId) ??
+      archivedPosts.find((post) => post.id === postId);
+
+    if (!targetPost) {
+      setArchiveSavingPostId(null);
+      setArchivesError("Archiveする流星便が見つかりませんでした。");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("archives")
+      .insert({
+        profile_id: session.user.id,
+        post_id: postId,
+      })
+      .select("id, profile_id, post_id, created_at")
+      .single();
+
+    setArchiveSavingPostId(null);
+
+    if (error) {
+      if (error.code === "23505") {
+        setArchivesMessage("この流星便はすでにArchive済みです。");
+        return;
+      }
+
+      setArchivesError(error.message);
+      return;
+    }
+
+    const archivedTargetPost = {
+      ...targetPost,
+      archiveId: data.id,
+      archivedAt: data.created_at,
+      archivedTime: formatNotificationTime(data.created_at),
+    };
+
+    setArchivedPosts((currentPosts) => [archivedTargetPost, ...currentPosts.filter((post) => post.id !== postId)]);
+    setArchivesMessage("流星便をArchiveしました。");
   }
 
   async function handleMarkNotificationRead(notificationId) {
@@ -875,6 +1130,16 @@ function App() {
     onResonate: handleResonance,
     savingPostId: resonanceSavingPostId,
   };
+  const archiveState = {
+    archivedPostIds: archivedPosts.map((post) => post.id),
+    error: archivesError,
+    items: archivedPosts,
+    loading: archivesLoading,
+    message: archivesMessage,
+    onToggleArchive: handleToggleArchive,
+    savingPostId: archiveSavingPostId,
+    session,
+  };
   const notificationState = {
     error: notificationsError,
     items: notifications,
@@ -909,6 +1174,7 @@ function App() {
           postsLoading={postsLoading}
           ownPosts={ownPostState}
           profile={profileState}
+          archive={archiveState}
           resonance={resonance}
           notifications={notificationState}
         />
@@ -969,6 +1235,7 @@ function AppHeader({ auth }) {
 
 function TabContent({
   activeTab,
+  archive,
   auth,
   composer,
   notifications,
@@ -988,27 +1255,28 @@ function TabContent({
   }
 
   if (activeTab === "archive") {
-    return (
-      <PlaceholderScreen
-        eyebrow="private archive"
-        title="Archive"
-        text="保存した流星便がここに集まります。"
-        note="Archive機能は今後実装予定です。"
-      />
-    );
+    return <ArchiveScreen archive={archive} resonance={resonance} />;
   }
 
   if (activeTab === "profile") {
-    return <ProfileScreen auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
+    return <ProfileScreen archive={archive} auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
   }
 
-  return <ObserveScreen posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />;
+  return (
+    <ObserveScreen
+      archive={archive}
+      posts={posts}
+      postsError={postsError}
+      postsLoading={postsLoading}
+      resonance={resonance}
+    />
+  );
 }
 
-function ObserveScreen({ posts, postsError, postsLoading, resonance }) {
+function ObserveScreen({ archive, posts, postsError, postsLoading, resonance }) {
   return (
     <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
-      <Timeline posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />
+      <Timeline archive={archive} posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />
     </main>
   );
 }
@@ -1130,7 +1398,7 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ auth, ownPosts, profile, resonance }) {
+function ProfileScreen({ archive, auth, ownPosts, profile, resonance }) {
   if (profile.profileScreenMode === "edit") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -1150,12 +1418,12 @@ function ProfileScreen({ auth, ownPosts, profile, resonance }) {
   return (
     <main className="mx-auto max-w-2xl space-y-4">
       <ProfileCard profile={profile} />
-      <OwnPostsPanel ownPosts={ownPosts} resonance={resonance} />
+      <OwnPostsPanel archive={archive} ownPosts={ownPosts} resonance={resonance} />
     </main>
   );
 }
 
-function OwnPostsPanel({ ownPosts, resonance }) {
+function OwnPostsPanel({ archive, ownPosts, resonance }) {
   if (!ownPosts.session) {
     return null;
   }
@@ -1177,11 +1445,53 @@ function OwnPostsPanel({ ownPosts, resonance }) {
       ) : (
         <div className="space-y-4">
           {ownPosts.items.map((post) => (
-            <PostCard key={post.id ?? post.handle} post={post} resonance={resonance} />
+            <PostCard archive={archive} key={post.id ?? post.handle} post={post} resonance={resonance} />
           ))}
         </div>
       )}
     </Panel>
+  );
+}
+
+function ArchiveScreen({ archive, resonance }) {
+  return (
+    <main className="mx-auto max-w-3xl">
+      <section className="glass-panel mb-4 p-5 sm:p-6">
+        <p className="text-xs font-bold normal-case text-comet">Archive</p>
+        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">Archive</h2>
+        <p className="mt-4 text-sm leading-7 text-slate-300">
+          自分の星空に残しておきたい流星便を集めます。
+        </p>
+      </section>
+
+      {!archive.session ? (
+        <section className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+          ログインすると、Archiveした流星便を確認できます。
+        </section>
+      ) : (
+        <section className="space-y-4 px-3 pb-10 sm:px-5">
+          {(archive.loading || archive.error || archive.message) && (
+            <p
+              className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+                archive.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+              }`}
+            >
+              {archive.error || archive.message || "Archiveを読み込み中..."}
+            </p>
+          )}
+
+          {!archive.loading && !archive.error && archive.items.length === 0 ? (
+            <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+              まだArchiveされた流星便はありません。
+            </div>
+          ) : (
+            archive.items.map((post) => (
+              <PostCard archive={archive} key={post.archiveId ?? post.id} post={post} resonance={resonance} />
+            ))
+          )}
+        </section>
+      )}
+    </main>
   );
 }
 
@@ -1628,7 +1938,7 @@ function AuthPanel({ auth }) {
   );
 }
 
-function Timeline({ posts, postsError, postsLoading, resonance }) {
+function Timeline({ archive, posts, postsError, postsLoading, resonance }) {
   return (
     <section className="mx-auto max-w-3xl">
       {(postsLoading || postsError) && (
@@ -1655,13 +1965,25 @@ function Timeline({ posts, postsError, postsLoading, resonance }) {
         </div>
       )}
 
+      {(archive?.message || archive?.error) && (
+        <div className="px-3 pt-4 sm:px-5">
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              archive.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {archive.error || archive.message}
+          </p>
+        </div>
+      )}
+
       <div className="space-y-4 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
             まだ流星便はありません。最初の光を放流してみましょう。
           </div>
         ) : (
-          posts.map((post) => <PostCard key={post.id ?? post.handle} post={post} resonance={resonance} />)
+          posts.map((post) => <PostCard archive={archive} key={post.id ?? post.handle} post={post} resonance={resonance} />)
         )}
       </div>
     </section>
@@ -1721,9 +2043,11 @@ function Composer({ composer }) {
   );
 }
 
-function PostCard({ post, resonance }) {
+function PostCard({ archive, post, resonance }) {
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
+  const isArchiveSaving = archive?.savingPostId === post.id;
+  const isArchived = archive?.archivedPostIds?.includes(post.id);
   const resonanceLabel = `${resonanceCount} 共鳴`;
 
   return (
@@ -1741,6 +2065,9 @@ function PostCard({ post, resonance }) {
               <span className="text-sm text-slate-500">{post.handle}</span>
               <span className="text-sm text-slate-500">· {post.time}</span>
             </div>
+            {post.archivedTime && (
+              <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
+            )}
             <p className="mt-3 text-[15px] leading-8 text-slate-100">{post.text}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {post.tags.map((tag) => (
@@ -1757,7 +2084,13 @@ function PostCard({ post, resonance }) {
                 onClick={() => resonance?.onResonate?.(post.id)}
               />
               <ActionButton label={`${post.comments} 星文`} icon="✎" />
-              <ActionButton label="Archive" icon="✦" />
+              <ActionButton
+                active={isArchived}
+                disabled={isArchiveSaving || !archive?.onToggleArchive}
+                icon="✦"
+                label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
+                onClick={() => archive?.onToggleArchive?.(post.id)}
+              />
             </div>
           </div>
         </div>
