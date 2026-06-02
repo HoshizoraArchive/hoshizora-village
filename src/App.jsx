@@ -15,6 +15,7 @@ const emptyProfileForm = {
   avatar_url: "",
   bio: "",
   constellation_note: "",
+  notify_authors_when_i_archive: true,
 };
 
 const defaultProfileView = {
@@ -31,6 +32,7 @@ function profileFormFromRecord(profile) {
     avatar_url: profile?.avatar_url ?? "",
     bio: profile?.bio ?? "",
     constellation_note: profile?.constellation_note ?? "",
+    notify_authors_when_i_archive: profile?.notify_authors_when_i_archive ?? true,
   };
 }
 
@@ -82,6 +84,38 @@ function formatNotificationTime(createdAt) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getNotificationActorName(notification) {
+  const actorProfile = notification.actorProfile;
+
+  if (actorProfile?.display_name) {
+    return actorProfile.display_name;
+  }
+
+  if (actorProfile?.username) {
+    return actorProfile.username;
+  }
+
+  return "誰か";
+}
+
+function formatNotificationMessage(notification) {
+  const actorName = getNotificationActorName(notification);
+
+  if (notification.type === "resonance") {
+    return `${actorName}さんがあなたの流星便に共鳴しました。`;
+  }
+
+  if (notification.type === "archive") {
+    return `${actorName}さんがあなたの流星便をArchiveしました。`;
+  }
+
+  if (notification.type === "star_letter") {
+    return `${actorName}さんがあなたに星文を送りました。`;
+  }
+
+  return notification.message;
 }
 
 function mapSavedPost(post, authorProfile) {
@@ -344,7 +378,7 @@ function App() {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, display_name, username, avatar_url, bio, constellation_note")
+        .select("id, display_name, username, avatar_url, bio, constellation_note, notify_authors_when_i_archive")
         .eq("id", userId)
         .maybeSingle();
 
@@ -611,7 +645,30 @@ function App() {
         return;
       }
 
-      setNotifications(data ?? []);
+      const actorIds = [...new Set((data ?? []).map((notification) => notification.actor_id).filter(Boolean))];
+      const profilesById = new Map();
+
+      if (actorIds.length > 0) {
+        const { data: profileRows } = await supabase
+          .from("profiles")
+          .select("id, display_name, username")
+          .in("id", actorIds);
+
+        if (!isMounted) {
+          return;
+        }
+
+        for (const profileRow of profileRows ?? []) {
+          profilesById.set(profileRow.id, profileRow);
+        }
+      }
+
+      setNotifications(
+        (data ?? []).map((notification) => ({
+          ...notification,
+          actorProfile: profilesById.get(notification.actor_id) ?? null,
+        })),
+      );
     }
 
     readNotifications();
@@ -818,10 +875,11 @@ function App() {
           avatar_url: optionalText(profileForm.avatar_url),
           bio: optionalText(profileForm.bio),
           constellation_note: optionalText(profileForm.constellation_note),
+          notify_authors_when_i_archive: profileForm.notify_authors_when_i_archive,
         },
         { onConflict: "id" },
       )
-      .select("id, display_name, username, avatar_url, bio, constellation_note")
+      .select("id, display_name, username, avatar_url, bio, constellation_note, notify_authors_when_i_archive")
       .single();
 
     setProfileSaving(false);
@@ -1381,7 +1439,7 @@ function NotificationCard({ notification, onMarkRead, updating }) {
         <span className="text-xs text-slate-500">{formatNotificationTime(notification.created_at)}</span>
       </div>
 
-      <p className="mt-3 text-sm leading-7 text-slate-100">{notification.message}</p>
+      <p className="mt-3 text-sm leading-7 text-slate-100">{formatNotificationMessage(notification)}</p>
       <p className="mt-2 text-[11px] font-bold text-slate-500">type: {notification.type}</p>
 
       {isUnread && (
@@ -1410,7 +1468,7 @@ function ProfileScreen({ archive, auth, ownPosts, profile, resonance }) {
   if (profile.profileScreenMode === "settings") {
     return (
       <main className="mx-auto max-w-2xl">
-        <SettingsPanel auth={auth} onBack={profile.onBackToProfile} />
+        <SettingsPanel auth={auth} onBack={profile.onBackToProfile} profile={profile} />
       </main>
     );
   }
@@ -1495,7 +1553,7 @@ function ArchiveScreen({ archive, resonance }) {
   );
 }
 
-function SettingsPanel({ auth, onBack }) {
+function SettingsPanel({ auth, onBack, profile }) {
   return (
     <Panel title="設定" eyebrow="settings">
       <div className="space-y-3 text-sm leading-7 text-slate-400">
@@ -1511,6 +1569,41 @@ function SettingsPanel({ auth, onBack }) {
           <p className="text-xs font-black text-comet">ログイン状態</p>
           <p className="mt-1 text-slate-300">{auth.status}</p>
         </div>
+        {auth.session && (
+          <form className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4" onSubmit={profile.onSubmit}>
+            <label className="flex items-start gap-3">
+              <input
+                checked={Boolean(profile.form.notify_authors_when_i_archive)}
+                className="mt-1 h-5 w-5 rounded border-white/20 bg-night-950 text-comet focus:ring-comet/30"
+                disabled={profile.loading || profile.saving}
+                onChange={(event) => profile.onChange("notify_authors_when_i_archive", event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <span className="block text-sm font-black text-white">自分のArchiveを相手に通知する</span>
+                <span className="mt-1 block text-xs leading-6 text-slate-400">
+                  ONにすると、あなたが誰かの流星便をArchiveした時、相手に通知が届きます。OFFにすると、Archiveしても相手には通知されません。
+                </span>
+              </span>
+            </label>
+            <button
+              className="mt-4 min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={profile.loading || profile.saving}
+              type="submit"
+            >
+              {profile.saving ? "保存中..." : "設定を保存"}
+            </button>
+            {(profile.message || profile.error) && (
+              <p
+                className={`mt-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+                  profile.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+                }`}
+              >
+                {profile.error || profile.message}
+              </p>
+            )}
+          </form>
+        )}
         {auth.session && (
           <button
             className="min-h-10 w-full rounded-2xl border border-sakura/30 bg-sakura/10 px-4 text-xs font-black text-sakura transition hover:bg-sakura/15 disabled:cursor-not-allowed disabled:opacity-60"
