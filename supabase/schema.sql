@@ -28,12 +28,16 @@ create table if not exists public.profiles (
   bio text,
   avatar_url text,
   constellation_note text,
+  notify_authors_when_i_archive boolean not null default true,
+  notify_authors_when_i_resonate boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 comment on table public.profiles is 'ユーザープロフィール。表示名、自己紹介、アイコン、わたしの星座を保存する。';
 comment on column public.profiles.constellation_note is 'わたしの星座を説明する自由記述。';
+comment on column public.profiles.notify_authors_when_i_archive is '自分が誰かの流星便をArchiveした時、相手にR.Connect通知を送るかどうか。デフォルトON。';
+comment on column public.profiles.notify_authors_when_i_resonate is '自分が誰かの流星便に共鳴した時、相手にR.Connect通知を送るかどうか。デフォルトON。';
 
 -- posts: 流星便.
 -- MVP supports text/image/audio/video/youtube.
@@ -116,16 +120,16 @@ create table if not exists public.notifications (
   recipient_id uuid not null references public.profiles(id) on delete cascade,
   actor_id uuid references public.profiles(id) on delete set null,
   post_id uuid references public.posts(id) on delete cascade,
-  type text not null check (type in ('resonance')),
+  type text not null check (type in ('resonance', 'archive')),
   message text not null check (char_length(trim(message)) > 0),
   is_read boolean not null default false,
   created_at timestamptz not null default now()
 );
 
-comment on table public.notifications is 'R.Connect通知。共鳴、星文、Archiveなどの通知を保存する。MVPでは共鳴通知のみ。';
+comment on table public.notifications is 'R.Connect通知。共鳴、Archiveなどの通知を保存する。MVPでは共鳴通知とArchive通知を扱う。';
 comment on column public.notifications.recipient_id is '通知を受け取るユーザー。本人だけが閲覧できる。';
 comment on column public.notifications.actor_id is '通知のきっかけを作ったユーザー。削除された場合はnullになる。';
-comment on column public.notifications.type is '通知タイプ。MVPでは resonance のみ。';
+comment on column public.notifications.type is '通知タイプ。MVPでは resonance と archive を許可する。';
 comment on column public.notifications.is_read is '既読状態。本人だけが更新できる。';
 
 -- star_letters: 星文.
@@ -219,6 +223,7 @@ set search_path = ''
 as $$
 declare
   target_author_id uuid;
+  should_notify boolean;
 begin
   select p.author_id
     into target_author_id
@@ -230,6 +235,15 @@ begin
   end if;
 
   if target_author_id = new.profile_id then
+    return new;
+  end if;
+
+  select coalesce(pr.notify_authors_when_i_resonate, true)
+    into should_notify
+  from public.profiles pr
+  where pr.id = new.profile_id;
+
+  if should_notify is not true then
     return new;
   end if;
 
@@ -258,6 +272,66 @@ drop trigger if exists resonances_create_notification on public.resonances;
 create trigger resonances_create_notification
 after insert on public.resonances
 for each row execute function app_private.create_resonance_notification();
+
+-- Create an Archive notification for the 流星便 author.
+-- The actor can opt out from notifying authors through profiles.notify_authors_when_i_archive.
+create or replace function app_private.create_archive_notification()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  target_author_id uuid;
+  should_notify boolean;
+begin
+  select p.author_id
+    into target_author_id
+  from public.posts p
+  where p.id = new.post_id;
+
+  if target_author_id is null then
+    return new;
+  end if;
+
+  if target_author_id = new.profile_id then
+    return new;
+  end if;
+
+  select coalesce(pr.notify_authors_when_i_archive, true)
+    into should_notify
+  from public.profiles pr
+  where pr.id = new.profile_id;
+
+  if should_notify is not true then
+    return new;
+  end if;
+
+  insert into public.notifications (
+    recipient_id,
+    actor_id,
+    post_id,
+    type,
+    message
+  )
+  values (
+    target_author_id,
+    new.profile_id,
+    new.post_id,
+    'archive',
+    'あなたの流星便がArchiveされました。'
+  );
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.create_archive_notification() from public, anon, authenticated;
+
+drop trigger if exists archives_create_notification on public.archives;
+create trigger archives_create_notification
+after insert on public.archives
+for each row execute function app_private.create_archive_notification();
 
 -- Indexes for MVP queries.
 create index if not exists profiles_username_idx on public.profiles(username);

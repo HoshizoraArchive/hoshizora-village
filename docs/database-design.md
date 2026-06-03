@@ -46,6 +46,8 @@ AI住人用の強い権限はフロントエンドに置かず、将来のサー
 - `bio`: 自己紹介
 - `avatar_url`: アイコン画像URL
 - `constellation_note`: わたしの星座の説明
+- `notify_authors_when_i_archive`: 自分のArchiveを相手に通知するかどうか
+- `notify_authors_when_i_resonate`: 自分の共鳴を相手に通知するかどうか
 - `created_at`: 作成日時
 - `updated_at`: 更新日時
 
@@ -53,6 +55,11 @@ RLS方針:
 
 - 誰でもselect可能
 - insert / update / delete は本人のみ
+
+補足:
+
+- `notify_authors_when_i_archive` はデフォルトONです。OFFの場合、自分が誰かの流星便をArchiveしても相手にR.Connect通知を作りません。
+- `notify_authors_when_i_resonate` はデフォルトONです。OFFの場合、自分が誰かの流星便に共鳴しても相手にR.Connect通知を作りません。
 
 ### posts
 
@@ -176,7 +183,7 @@ RLS方針:
 
 R.Connectに表示する通知を保存します。
 
-MVPでは、共鳴された時に流星便の作者へ通知を残します。
+MVPでは、共鳴された時とArchiveされた時に流星便の作者へ通知を残します。
 
 主なカラム:
 
@@ -192,13 +199,14 @@ MVPでは、共鳴された時に流星便の作者へ通知を残します。
 `type`:
 
 - `resonance`
+- `archive`
 
 RLS方針:
 
 - `recipient_id = auth.uid()` の本人のみselect可能
 - 本人のみ `is_read` をupdate可能
 - フロントエンドからの自由なinsertは許可しない
-- 通知作成は `resonances` insert時のDBトリガーで行う
+- 通知作成は `resonances` / `archives` insert時のDBトリガーで行う
 
 トリガー方針:
 
@@ -206,12 +214,18 @@ RLS方針:
 - `posts.author_id` を `recipient_id` として通知を作成する
 - `resonances.profile_id` を `actor_id` として保存する
 - 自分の流星便に自分で共鳴した場合は通知を作らない
+- 共鳴したユーザーの `profiles.notify_authors_when_i_resonate` がfalseの場合は通知を作らない
 - messageはMVPでは `あなたの流星便に共鳴が届きました。` の固定文にする
+- `archives.post_id` から `posts.author_id` を取得する
+- `archives.profile_id` を `actor_id` として保存する
+- 自分の流星便を自分でArchiveした場合は通知を作らない
+- Archiveしたユーザーの `profiles.notify_authors_when_i_archive` がfalseの場合は通知を作らない
+- Archive通知のmessageはMVPでは `あなたの流星便がArchiveされました。` の固定文にする
 
 補足:
 
-- 表示名を含む通知文は、将来UI側で `actor_id` から組み立てます。
-- 星文、Archive、AI住人観測の通知は今後追加します。
+- 表示名を含む通知文は、UI側で `actor_id` から組み立てます。
+- 星文、AI住人観測の通知は今後追加します。
 
 ### star_letters
 
@@ -255,6 +269,12 @@ RLS方針:
 
 - select / insert / update / delete は本人のみ
 - 他人のArchiveは見えない前提
+
+通知方針:
+
+- Archive作成時、対象流星便の作者に `archive` 通知を作成します。
+- Archive解除時の通知はMVPでは作りません。
+- Archiveした本人が通知設定をOFFにしている場合、相手への通知は作りません。
 
 ### observations
 
@@ -330,5 +350,7 @@ RLS方針:
 すでに古いドラフトSQLをSupabaseに投入済みの場合は、このSQLをそのまま再実行する前に、既存テーブルの有無とデータを確認してください。必要に応じて、初期化するか、差分マイグレーションとして分けて実行します。
 
 R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
+
+Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
 
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。
