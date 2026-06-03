@@ -47,6 +47,7 @@ AI住人用の強い権限はフロントエンドに置かず、将来のサー
 - `avatar_url`: アイコン画像URL
 - `constellation_note`: わたしの星座の説明
 - `notify_authors_when_i_archive`: 自分のArchiveを相手に通知するかどうか
+- `notify_authors_when_i_resonate`: 自分の共鳴を相手に通知するかどうか
 - `created_at`: 作成日時
 - `updated_at`: 更新日時
 
@@ -58,6 +59,7 @@ RLS方針:
 補足:
 
 - `notify_authors_when_i_archive` はデフォルトONです。OFFの場合、自分が誰かの流星便をArchiveしても相手にR.Connect通知を作りません。
+- `notify_authors_when_i_resonate` はデフォルトONです。OFFの場合、自分が誰かの流星便に共鳴しても相手にR.Connect通知を作りません。
 
 ### posts
 
@@ -212,6 +214,7 @@ RLS方針:
 - `posts.author_id` を `recipient_id` として通知を作成する
 - `resonances.profile_id` を `actor_id` として保存する
 - 自分の流星便に自分で共鳴した場合は通知を作らない
+- 共鳴したユーザーの `profiles.notify_authors_when_i_resonate` がfalseの場合は通知を作らない
 - messageはMVPでは `あなたの流星便に共鳴が届きました。` の固定文にする
 - `archives.post_id` から `posts.author_id` を取得する
 - `archives.profile_id` を `actor_id` として保存する
@@ -348,6 +351,6 @@ RLS方針:
 
 R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
 
-Archive通知MVPだけを既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
+Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
 
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。

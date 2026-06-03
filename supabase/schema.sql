@@ -29,6 +29,7 @@ create table if not exists public.profiles (
   avatar_url text,
   constellation_note text,
   notify_authors_when_i_archive boolean not null default true,
+  notify_authors_when_i_resonate boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -36,6 +37,7 @@ create table if not exists public.profiles (
 comment on table public.profiles is 'ユーザープロフィール。表示名、自己紹介、アイコン、わたしの星座を保存する。';
 comment on column public.profiles.constellation_note is 'わたしの星座を説明する自由記述。';
 comment on column public.profiles.notify_authors_when_i_archive is '自分が誰かの流星便をArchiveした時、相手にR.Connect通知を送るかどうか。デフォルトON。';
+comment on column public.profiles.notify_authors_when_i_resonate is '自分が誰かの流星便に共鳴した時、相手にR.Connect通知を送るかどうか。デフォルトON。';
 
 -- posts: 流星便.
 -- MVP supports text/image/audio/video/youtube.
@@ -221,6 +223,7 @@ set search_path = ''
 as $$
 declare
   target_author_id uuid;
+  should_notify boolean;
 begin
   select p.author_id
     into target_author_id
@@ -232,6 +235,15 @@ begin
   end if;
 
   if target_author_id = new.profile_id then
+    return new;
+  end if;
+
+  select coalesce(pr.notify_authors_when_i_resonate, true)
+    into should_notify
+  from public.profiles pr
+  where pr.id = new.profile_id;
+
+  if should_notify is not true then
     return new;
   end if;
 

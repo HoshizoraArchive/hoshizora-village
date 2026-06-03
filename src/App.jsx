@@ -16,6 +16,7 @@ const emptyProfileForm = {
   bio: "",
   constellation_note: "",
   notify_authors_when_i_archive: true,
+  notify_authors_when_i_resonate: true,
 };
 
 const defaultProfileView = {
@@ -33,6 +34,7 @@ function profileFormFromRecord(profile) {
     bio: profile?.bio ?? "",
     constellation_note: profile?.constellation_note ?? "",
     notify_authors_when_i_archive: profile?.notify_authors_when_i_archive ?? true,
+    notify_authors_when_i_resonate: profile?.notify_authors_when_i_resonate ?? true,
   };
 }
 
@@ -393,10 +395,16 @@ function App() {
         return;
       }
 
-      let nextProfile = data ? { ...data, notify_authors_when_i_archive: true } : data;
+      let nextProfile = data
+        ? {
+            ...data,
+            notify_authors_when_i_archive: true,
+            notify_authors_when_i_resonate: true,
+          }
+        : data;
 
       if (data?.id) {
-        const { data: settingsData, error: settingsError } = await supabase
+        const { data: archiveSettingsData, error: archiveSettingsError } = await supabase
           .from("profiles")
           .select("notify_authors_when_i_archive")
           .eq("id", userId)
@@ -406,10 +414,27 @@ function App() {
           return;
         }
 
-        if (!settingsError && typeof settingsData?.notify_authors_when_i_archive === "boolean") {
+        if (!archiveSettingsError && typeof archiveSettingsData?.notify_authors_when_i_archive === "boolean") {
           nextProfile = {
-            ...data,
-            notify_authors_when_i_archive: settingsData.notify_authors_when_i_archive,
+            ...nextProfile,
+            notify_authors_when_i_archive: archiveSettingsData.notify_authors_when_i_archive,
+          };
+        }
+
+        const { data: resonanceSettingsData, error: resonanceSettingsError } = await supabase
+          .from("profiles")
+          .select("notify_authors_when_i_resonate")
+          .eq("id", userId)
+          .maybeSingle();
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (!resonanceSettingsError && typeof resonanceSettingsData?.notify_authors_when_i_resonate === "boolean") {
+          nextProfile = {
+            ...nextProfile,
+            notify_authors_when_i_resonate: resonanceSettingsData.notify_authors_when_i_resonate,
           };
         }
       }
@@ -916,6 +941,7 @@ function App() {
     const nextProfile = {
       ...data,
       notify_authors_when_i_archive: profileForm.notify_authors_when_i_archive ?? true,
+      notify_authors_when_i_resonate: profileForm.notify_authors_when_i_resonate ?? true,
     };
 
     setProfile(nextProfile);
@@ -924,9 +950,7 @@ function App() {
     setProfileScreenMode("view");
   }
 
-  async function handleArchiveNotificationSettingSubmit(event) {
-    event.preventDefault();
-
+  async function saveProfileNotificationSetting(field, nextSetting, label) {
     if (!session?.user?.id) {
       setProfileError("設定保存にはログインが必要です。");
       return;
@@ -937,17 +961,15 @@ function App() {
       return;
     }
 
-    const nextSetting = Boolean(profileForm.notify_authors_when_i_archive);
-
     setProfileSaving(true);
     setProfileMessage("");
     setProfileError("");
 
     const { data, error } = await supabase
       .from("profiles")
-      .update({ notify_authors_when_i_archive: nextSetting })
+      .update({ [field]: nextSetting })
       .eq("id", session.user.id)
-      .select("id, notify_authors_when_i_archive")
+      .select(`id, ${field}`)
       .maybeSingle();
 
     setProfileSaving(false);
@@ -955,29 +977,47 @@ function App() {
     if (error) {
       setProfileForm((currentForm) => ({
         ...currentForm,
-        notify_authors_when_i_archive: profile?.notify_authors_when_i_archive ?? true,
+        [field]: profile?.[field] ?? true,
       }));
       setProfileError(
-        "Archive通知設定は、Supabase SQL Editorでmigrationを実行した後に保存できます。既存のプロフィール表示とArchive機能はそのまま使えます。",
+        `${label}設定は、Supabase SQL Editorでmigrationを実行した後に保存できます。既存のプロフィール表示、Archive、共鳴機能はそのまま使えます。`,
       );
       return;
     }
 
-    const savedSetting = data?.notify_authors_when_i_archive ?? nextSetting;
+    const savedSetting = data?.[field] ?? nextSetting;
 
     setProfile((currentProfile) =>
       currentProfile
         ? {
             ...currentProfile,
-            notify_authors_when_i_archive: savedSetting,
+            [field]: savedSetting,
           }
         : currentProfile,
     );
     setProfileForm((currentForm) => ({
       ...currentForm,
-      notify_authors_when_i_archive: savedSetting,
+      [field]: savedSetting,
     }));
-    setProfileMessage("Archive通知設定を保存しました。");
+    setProfileMessage(`${label}設定を保存しました。`);
+  }
+
+  async function handleArchiveNotificationSettingSubmit(event) {
+    event.preventDefault();
+    await saveProfileNotificationSetting(
+      "notify_authors_when_i_archive",
+      Boolean(profileForm.notify_authors_when_i_archive),
+      "Archive通知",
+    );
+  }
+
+  async function handleResonanceNotificationSettingSubmit(event) {
+    event.preventDefault();
+    await saveProfileNotificationSetting(
+      "notify_authors_when_i_resonate",
+      Boolean(profileForm.notify_authors_when_i_resonate),
+      "共鳴通知",
+    );
   }
 
   async function handlePostSubmit(event) {
@@ -1252,6 +1292,7 @@ function App() {
     onBackToProfile: handleBackToProfile,
     onCancelEdit: handleCancelProfileEdit,
     onOpenSettings: handleOpenProfileSettings,
+    onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
     onStartEdit: handleStartProfileEdit,
     onSubmit: handleProfileSubmit,
     resonanceCount: profileResonanceCount,
@@ -1639,6 +1680,33 @@ function ArchiveScreen({ archive, resonance }) {
   );
 }
 
+function NotificationSettingForm({ checked, description, disabled, label, name, onChange, onSubmit, saving }) {
+  return (
+    <form className="rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3" onSubmit={onSubmit}>
+      <label className="flex items-start gap-3">
+        <input
+          checked={checked}
+          className="mt-1 h-5 w-5 rounded border-white/20 bg-night-950 text-comet focus:ring-comet/30"
+          disabled={disabled}
+          onChange={(event) => onChange(name, event.target.checked)}
+          type="checkbox"
+        />
+        <span>
+          <span className="block text-sm font-black text-white">{label}</span>
+          <span className="mt-1 block text-xs leading-6 text-slate-400">{description}</span>
+        </span>
+      </label>
+      <button
+        className="mt-4 min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled}
+        type="submit"
+      >
+        {saving ? "保存中..." : "設定を保存"}
+      </button>
+    </form>
+  );
+}
+
 function SettingsPanel({ auth, onBack, profile }) {
   return (
     <Panel title="設定" eyebrow="settings">
@@ -1656,42 +1724,37 @@ function SettingsPanel({ auth, onBack, profile }) {
           <p className="mt-1 text-slate-300">{auth.status}</p>
         </div>
         {auth.session && (
-          <form
-            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4"
-            onSubmit={profile.onArchiveNotificationSettingSubmit}
-          >
-            <label className="flex items-start gap-3">
-              <input
-                checked={Boolean(profile.form.notify_authors_when_i_archive)}
-                className="mt-1 h-5 w-5 rounded border-white/20 bg-night-950 text-comet focus:ring-comet/30"
-                disabled={profile.loading || profile.saving}
-                onChange={(event) => profile.onChange("notify_authors_when_i_archive", event.target.checked)}
-                type="checkbox"
-              />
-              <span>
-                <span className="block text-sm font-black text-white">自分のArchiveを相手に通知する</span>
-                <span className="mt-1 block text-xs leading-6 text-slate-400">
-                  ONにすると、あなたが誰かの流星便をArchiveした時、相手に通知が届きます。OFFにすると、Archiveしても相手には通知されません。
-                </span>
-              </span>
-            </label>
-            <button
-              className="mt-4 min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+          <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+            <NotificationSettingForm
+              checked={Boolean(profile.form.notify_authors_when_i_resonate)}
+              description="ONにすると、あなたが誰かの流星便に共鳴した時、相手に通知が届きます。OFFにすると、共鳴しても相手には通知されません。"
               disabled={profile.loading || profile.saving}
-              type="submit"
-            >
-              {profile.saving ? "保存中..." : "設定を保存"}
-            </button>
+              label="自分の共鳴を相手に通知する"
+              name="notify_authors_when_i_resonate"
+              onChange={profile.onChange}
+              onSubmit={profile.onResonanceNotificationSettingSubmit}
+              saving={profile.saving}
+            />
+            <NotificationSettingForm
+              checked={Boolean(profile.form.notify_authors_when_i_archive)}
+              description="ONにすると、あなたが誰かの流星便をArchiveした時、相手に通知が届きます。OFFにすると、Archiveしても相手には通知されません。"
+              disabled={profile.loading || profile.saving}
+              label="自分のArchiveを相手に通知する"
+              name="notify_authors_when_i_archive"
+              onChange={profile.onChange}
+              onSubmit={profile.onArchiveNotificationSettingSubmit}
+              saving={profile.saving}
+            />
             {(profile.message || profile.error) && (
               <p
-                className={`mt-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+                className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${
                   profile.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
                 }`}
               >
                 {profile.error || profile.message}
               </p>
             )}
-          </form>
+          </div>
         )}
         {auth.session && (
           <button
