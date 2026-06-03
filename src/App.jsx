@@ -378,7 +378,7 @@ function App() {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, display_name, username, avatar_url, bio, constellation_note, notify_authors_when_i_archive")
+        .select("id, display_name, username, avatar_url, bio, constellation_note")
         .eq("id", userId)
         .maybeSingle();
 
@@ -393,8 +393,33 @@ function App() {
         return;
       }
 
-      setProfile(data);
-      setProfileForm(data ? profileFormFromRecord(data) : { ...emptyProfileForm, display_name: defaultProfileView.display_name });
+      let nextProfile = data ? { ...data, notify_authors_when_i_archive: true } : data;
+
+      if (data?.id) {
+        const { data: settingsData, error: settingsError } = await supabase
+          .from("profiles")
+          .select("notify_authors_when_i_archive")
+          .eq("id", userId)
+          .maybeSingle();
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (!settingsError && typeof settingsData?.notify_authors_when_i_archive === "boolean") {
+          nextProfile = {
+            ...data,
+            notify_authors_when_i_archive: settingsData.notify_authors_when_i_archive,
+          };
+        }
+      }
+
+      setProfile(nextProfile);
+      setProfileForm(
+        nextProfile
+          ? profileFormFromRecord(nextProfile)
+          : { ...emptyProfileForm, display_name: defaultProfileView.display_name },
+      );
     }
 
     readProfile();
@@ -875,11 +900,10 @@ function App() {
           avatar_url: optionalText(profileForm.avatar_url),
           bio: optionalText(profileForm.bio),
           constellation_note: optionalText(profileForm.constellation_note),
-          notify_authors_when_i_archive: profileForm.notify_authors_when_i_archive,
         },
         { onConflict: "id" },
       )
-      .select("id, display_name, username, avatar_url, bio, constellation_note, notify_authors_when_i_archive")
+      .select("id, display_name, username, avatar_url, bio, constellation_note")
       .single();
 
     setProfileSaving(false);
@@ -889,10 +913,71 @@ function App() {
       return;
     }
 
-    setProfile(data);
-    setProfileForm(profileFormFromRecord(data));
+    const nextProfile = {
+      ...data,
+      notify_authors_when_i_archive: profileForm.notify_authors_when_i_archive ?? true,
+    };
+
+    setProfile(nextProfile);
+    setProfileForm(profileFormFromRecord(nextProfile));
     setProfileMessage("プロフィールを保存しました。");
     setProfileScreenMode("view");
+  }
+
+  async function handleArchiveNotificationSettingSubmit(event) {
+    event.preventDefault();
+
+    if (!session?.user?.id) {
+      setProfileError("設定保存にはログインが必要です。");
+      return;
+    }
+
+    if (!profile?.id) {
+      setProfileError("先にプロフィールを保存してください。");
+      return;
+    }
+
+    const nextSetting = Boolean(profileForm.notify_authors_when_i_archive);
+
+    setProfileSaving(true);
+    setProfileMessage("");
+    setProfileError("");
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .update({ notify_authors_when_i_archive: nextSetting })
+      .eq("id", session.user.id)
+      .select("id, notify_authors_when_i_archive")
+      .maybeSingle();
+
+    setProfileSaving(false);
+
+    if (error) {
+      setProfileForm((currentForm) => ({
+        ...currentForm,
+        notify_authors_when_i_archive: profile?.notify_authors_when_i_archive ?? true,
+      }));
+      setProfileError(
+        "Archive通知設定は、Supabase SQL Editorでmigrationを実行した後に保存できます。既存のプロフィール表示とArchive機能はそのまま使えます。",
+      );
+      return;
+    }
+
+    const savedSetting = data?.notify_authors_when_i_archive ?? nextSetting;
+
+    setProfile((currentProfile) =>
+      currentProfile
+        ? {
+            ...currentProfile,
+            notify_authors_when_i_archive: savedSetting,
+          }
+        : currentProfile,
+    );
+    setProfileForm((currentForm) => ({
+      ...currentForm,
+      notify_authors_when_i_archive: savedSetting,
+    }));
+    setProfileMessage("Archive通知設定を保存しました。");
   }
 
   async function handlePostSubmit(event) {
@@ -1162,6 +1247,7 @@ function App() {
     form: profileForm,
     loading: profileLoading,
     message: profileMessage,
+    onArchiveNotificationSettingSubmit: handleArchiveNotificationSettingSubmit,
     onChange: handleProfileFieldChange,
     onBackToProfile: handleBackToProfile,
     onCancelEdit: handleCancelProfileEdit,
@@ -1570,7 +1656,10 @@ function SettingsPanel({ auth, onBack, profile }) {
           <p className="mt-1 text-slate-300">{auth.status}</p>
         </div>
         {auth.session && (
-          <form className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4" onSubmit={profile.onSubmit}>
+          <form
+            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4"
+            onSubmit={profile.onArchiveNotificationSettingSubmit}
+          >
             <label className="flex items-start gap-3">
               <input
                 checked={Boolean(profile.form.notify_authors_when_i_archive)}
