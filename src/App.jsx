@@ -55,7 +55,7 @@ function getTrimmedCharacterLength(value) {
 }
 
 function getRouteFromLocation() {
-  const match = window.location.pathname.match(/^\/meteor\/([^/?#]+)/);
+  const match = window.location.pathname.match(/^\/meteor\/([^/?#]+)\/?$/);
 
   if (match?.[1]) {
     return {
@@ -256,6 +256,7 @@ function App() {
   const allPostIdsKey = [
     ...new Set(
       [...savedPosts, ...ownPosts, ...archivedPosts, detailPost]
+        .filter(Boolean)
         .map((post) => post.id)
         .filter(Boolean),
     ),
@@ -616,7 +617,7 @@ function App() {
 
       if (error) {
         setDetailPostLoading(false);
-        setDetailPostError(error.message);
+        setDetailPostError("流星便の読み込みに失敗しました。");
         return;
       }
 
@@ -637,13 +638,7 @@ function App() {
         return;
       }
 
-      if (profileRowsError) {
-        setDetailPostLoading(false);
-        setDetailPostError(profileRowsError.message);
-        return;
-      }
-
-      setDetailPost(mapSavedPost(post, authorProfile));
+      setDetailPost(mapSavedPost(post, profileRowsError ? null : authorProfile));
       setDetailPostLoading(false);
     }
 
