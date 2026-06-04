@@ -244,7 +244,6 @@ function App() {
   const [starLettersMessage, setStarLettersMessage] = useState("");
   const [starLetterSavingPostId, setStarLetterSavingPostId] = useState(null);
   const [openStarLetterPostId, setOpenStarLetterPostId] = useState(null);
-  const [openStarLetterFormPostId, setOpenStarLetterFormPostId] = useState(null);
   const [starLetterDrafts, setStarLetterDrafts] = useState({});
   const [editingStarLetterId, setEditingStarLetterId] = useState(null);
   const [starLetterEditDrafts, setStarLetterEditDrafts] = useState({});
@@ -1543,21 +1542,7 @@ function App() {
   function handleToggleStarLetters(postId) {
     setStarLettersMessage("");
     setStarLettersError("");
-    setOpenStarLetterFormPostId(null);
     setOpenStarLetterPostId((currentPostId) => (currentPostId === postId ? null : postId));
-  }
-
-  function handleOpenStarLetterForm(postId) {
-    setStarLettersMessage("");
-    setStarLettersError("");
-    setOpenStarLetterPostId(postId);
-    setOpenStarLetterFormPostId(postId);
-  }
-
-  function handleCloseStarLetterForm() {
-    setStarLettersMessage("");
-    setStarLettersError("");
-    setOpenStarLetterFormPostId(null);
   }
 
   function handleStarLetterDraftChange(postId, value) {
@@ -1663,7 +1648,6 @@ function App() {
       [postId]: "",
     }));
     setOpenStarLetterPostId(postId);
-    setOpenStarLetterFormPostId(null);
     setStarLettersMessage("星文を送りました。");
   }
 
@@ -1929,12 +1913,9 @@ function App() {
     onDelete: handleStarLetterDelete,
     onEditChange: handleStarLetterEditDraftChange,
     onStartEdit: handleStartStarLetterEdit,
-    onCloseForm: handleCloseStarLetterForm,
-    onOpenForm: handleOpenStarLetterForm,
     onSubmit: handleStarLetterSubmit,
     onToggle: handleToggleStarLetters,
     onUpdate: handleStarLetterUpdate,
-    openFormPostId: openStarLetterFormPostId,
     openPostId: openStarLetterPostId,
     session,
     deletingId: starLetterDeletingId,
@@ -3103,7 +3084,7 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
       tabIndex={canOpenDetail ? 0 : undefined}
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
-      <div className="p-3 sm:p-3.5">
+      <div className="p-3.5 sm:p-4">
         <div className="flex gap-3">
           <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
           <div className="min-w-0 flex-1">
@@ -3157,7 +3138,6 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
                 loading={starLetters?.loading}
                 onChange={(value) => starLetters?.onChange?.(post.id, value)}
                 onSubmit={(event) => starLetters?.onSubmit?.(event, post.id)}
-                postId={post.id}
                 saving={isStarLetterSaving}
                 starLetters={starLetters}
               />
@@ -3169,10 +3149,9 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
   );
 }
 
-function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, postId, saving, starLetters }) {
+function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving, starLetters }) {
   const trimmedLength = getTrimmedCharacterLength(draft);
   const isOverLimit = trimmedLength > STAR_LETTER_MAX_LENGTH;
-  const isFormOpen = starLetters?.openFormPostId === postId;
   const helperText = !starLetters?.canWrite
     ? "ログインすると星文を送れます。"
     : !starLetters?.hasProfile
@@ -3182,14 +3161,14 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, postId,
 
   return (
     <div
-      className="star-letters-panel mt-3 rounded-2xl border p-2 sm:p-2.5"
+      className="star-letters-panel mt-4 rounded-2xl border border-white/10 bg-night-950/30 p-2.5 sm:p-3"
       data-card-action="true"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
       {(starLetters?.message || starLetters?.error) && (
         <p
-          className={`mb-2 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+          className={`mb-2.5 rounded-2xl border px-3 py-2 text-xs leading-5 ${
             starLetters.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
           }`}
         >
@@ -3197,7 +3176,7 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, postId,
         </p>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {loading ? (
           <p className="text-xs leading-6 text-slate-400">星文を読み込み中...</p>
         ) : letters.length === 0 ? (
@@ -3207,60 +3186,35 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, postId,
         )}
       </div>
 
-      {!isFormOpen ? (
-        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2.5">
+      <form className="mt-3 border-t border-white/10 pt-3" onSubmit={onSubmit}>
+        <textarea
+          className="min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/55 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!starLetters?.canWrite || !starLetters?.hasProfile || saving}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="この流星便に星文を残す"
+          value={draft}
+        />
+        {isOverLimit && (
+          <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+            星文は500文字以内で送ってください
+          </p>
+        )}
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2.5">
+          <p className="text-xs leading-5 text-slate-500">
+            {helperText}{" "}
+            <span className={isOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+              {trimmedLength}/{STAR_LETTER_MAX_LENGTH}
+            </span>
+          </p>
           <button
-            className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!starLetters?.canWrite || !starLetters?.hasProfile}
-            onClick={() => starLetters?.onOpenForm?.(postId)}
-            type="button"
+            className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canSubmit}
+            type="submit"
           >
-            星文を書く
+            {saving ? "送信中..." : "星文を送る"}
           </button>
-          {(!starLetters?.canWrite || !starLetters?.hasProfile) && (
-            <p className="text-xs leading-5 text-slate-500">{helperText}</p>
-          )}
         </div>
-      ) : (
-        <form className="star-letter-form mt-2.5 border-t border-white/10 pt-2.5" onSubmit={onSubmit}>
-          <textarea
-            className="min-h-16 w-full resize-none rounded-2xl border border-white/10 bg-night-950/30 p-2.5 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!starLetters?.canWrite || !starLetters?.hasProfile || saving}
-            onChange={(event) => onChange(event.target.value)}
-            placeholder="この流星便に星文を残す"
-            value={draft}
-          />
-          {isOverLimit && (
-            <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
-              星文は500文字以内で送ってください
-            </p>
-          )}
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs leading-5 text-slate-500">
-              <span className={isOverLimit ? "font-black text-sakura" : "text-slate-600"}>
-                {trimmedLength}/{STAR_LETTER_MAX_LENGTH}
-              </span>
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={saving}
-                onClick={starLetters?.onCloseForm}
-                type="button"
-              >
-                閉じる
-              </button>
-              <button
-                className="min-h-9 rounded-full bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canSubmit}
-                type="submit"
-              >
-                {saving ? "送信中..." : "星文を送る"}
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
+      </form>
     </div>
   );
 }
@@ -3275,9 +3229,9 @@ function StarLetterItem({ letter, starLetters }) {
   const isDeleting = starLetters?.deletingId === letter.id;
 
   return (
-    <article className="star-letter-item rounded-2xl border px-2.5 py-2 sm:px-3">
+    <article className="star-letter-item rounded-2xl border border-white/10 bg-white/5 px-2.5 py-2.5 sm:px-3">
       <div className="flex gap-2.5">
-        <AvatarFrame avatar={letter.avatar} avatarUrl={letter.avatarUrl} className="h-8 w-8 rounded-2xl text-xs" />
+        <AvatarFrame avatar={letter.avatar} avatarUrl={letter.avatarUrl} className="h-9 w-9 rounded-2xl text-xs" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-sm font-black text-white">{letter.name}</span>
@@ -3287,7 +3241,7 @@ function StarLetterItem({ letter, starLetters }) {
           {isEditing ? (
             <form className="mt-2.5" onSubmit={(event) => starLetters?.onUpdate?.(event, letter)}>
               <textarea
-                className="min-h-16 w-full resize-none rounded-2xl border border-white/10 bg-night-950/40 p-2.5 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/60 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={starLetters?.updatingId === letter.id}
                 onChange={(event) => starLetters?.onEditChange?.(letter.id, event.target.value)}
                 value={editDraft}
@@ -3297,7 +3251,7 @@ function StarLetterItem({ letter, starLetters }) {
                   星文は500文字以内で送ってください
                 </p>
               )}
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2.5">
                 <p className="text-xs leading-5 text-slate-500">
                   <span className={isEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
                     {editTrimmedLength}/{STAR_LETTER_MAX_LENGTH}
@@ -3326,7 +3280,7 @@ function StarLetterItem({ letter, starLetters }) {
             <>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">{letter.body}</p>
               {isOwner && (
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-2.5 flex flex-wrap gap-2">
                   <button
                     className="min-h-8 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
                     onClick={() => starLetters?.onStartEdit?.(letter)}
