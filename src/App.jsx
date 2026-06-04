@@ -54,6 +54,26 @@ function getTrimmedCharacterLength(value) {
   return Array.from(value.trim()).length;
 }
 
+function getRouteFromLocation() {
+  const match = window.location.pathname.match(/^\/meteor\/([^/?#]+)\/?$/);
+
+  if (match?.[1]) {
+    return {
+      name: "meteor",
+      postId: decodeURIComponent(match[1]),
+    };
+  }
+
+  return {
+    name: "home",
+    postId: null,
+  };
+}
+
+function buildMeteorPath(postId) {
+  return `/meteor/${encodeURIComponent(postId)}`;
+}
+
 function getAvatarText(value) {
   return value.trim().charAt(0) || defaultProfileView.avatar;
 }
@@ -176,6 +196,12 @@ function mapStarLetter(letter, authorProfile) {
 
 function App() {
   const [activeTab, setActiveTab] = useState("observe");
+  const [route, setRoute] = useState(() => getRouteFromLocation());
+  const [detailPost, setDetailPost] = useState(null);
+  const [detailPostLoading, setDetailPostLoading] = useState(false);
+  const [detailPostError, setDetailPostError] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
+  const [shareError, setShareError] = useState("");
   const [session, setSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("確認中");
   const [authLoading, setAuthLoading] = useState(false);
@@ -223,16 +249,32 @@ function App() {
   const [starLetterEditDrafts, setStarLetterEditDrafts] = useState({});
   const [starLetterUpdatingId, setStarLetterUpdatingId] = useState(null);
   const [starLetterDeletingId, setStarLetterDeletingId] = useState(null);
+  const detailPostId = route.name === "meteor" ? route.postId : null;
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
   const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
   const allPostIdsKey = [
     ...new Set(
-      [...savedPosts, ...ownPosts, ...archivedPosts]
+      [...savedPosts, ...ownPosts, ...archivedPosts, detailPost]
+        .filter(Boolean)
         .map((post) => post.id)
         .filter(Boolean),
     ),
   ].join("|");
+
+  useEffect(() => {
+    function handlePopState() {
+      setRoute(getRouteFromLocation());
+      setShareMessage("");
+      setShareError("");
+    }
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -401,6 +443,42 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+
+    if (!detailPost?.id) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readDetailPostResonances() {
+      const { count, error } = await supabase
+        .from("resonances")
+        .select("id", { count: "exact", head: true })
+        .eq("post_id", detailPost.id);
+
+      if (!isMounted || error) {
+        return;
+      }
+
+      setDetailPost((currentPost) =>
+        currentPost?.id === detailPost.id
+          ? {
+              ...currentPost,
+              resonanceCount: count ?? 0,
+            }
+          : currentPost,
+      );
+    }
+
+    readDetailPostResonances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [detailPost?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
     const userId = session?.user?.id;
 
     if (!userId) {
@@ -495,6 +573,81 @@ function App() {
       isMounted = false;
     };
   }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!detailPostId) {
+      setDetailPost(null);
+      setDetailPostLoading(false);
+      setDetailPostError("");
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const existingPost =
+      savedPosts.find((post) => post.id === detailPostId) ??
+      ownPosts.find((post) => post.id === detailPostId) ??
+      archivedPosts.find((post) => post.id === detailPostId);
+
+    if (existingPost) {
+      setDetailPost(existingPost);
+      setDetailPostLoading(false);
+      setDetailPostError("");
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readDetailPost() {
+      setDetailPostLoading(true);
+      setDetailPostError("");
+
+      const { data: post, error } = await supabase
+        .from("posts")
+        .select("id, author_id, type, body, visibility, created_at")
+        .eq("id", detailPostId)
+        .eq("type", "text")
+        .maybeSingle();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setDetailPostLoading(false);
+        setDetailPostError("流星便の読み込みに失敗しました。");
+        return;
+      }
+
+      if (!post) {
+        setDetailPost(null);
+        setDetailPostLoading(false);
+        setDetailPostError("流星便が見つかりませんでした。");
+        return;
+      }
+
+      const { data: authorProfile, error: profileRowsError } = await supabase
+        .from("profiles")
+        .select("id, display_name, username, avatar_url")
+        .eq("id", post.author_id)
+        .maybeSingle();
+
+      if (!isMounted) {
+        return;
+      }
+
+      setDetailPost(mapSavedPost(post, profileRowsError ? null : authorProfile));
+      setDetailPostLoading(false);
+    }
+
+    readDetailPost();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [detailPostId, savedPosts, ownPosts, archivedPosts]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1198,7 +1351,8 @@ function App() {
     const targetPost =
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
-      archivedPosts.find((post) => post.id === postId);
+      archivedPosts.find((post) => post.id === postId) ??
+      (detailPost?.id === postId ? detailPost : null);
 
     if (!targetPost) {
       setResonanceError("流星便が見つかりませんでした。");
@@ -1254,6 +1408,14 @@ function App() {
           : post,
       ),
     );
+    setDetailPost((currentPost) =>
+      currentPost?.id === postId
+        ? {
+            ...currentPost,
+            resonanceCount: (Number(currentPost.resonanceCount) || 0) + 1,
+          }
+        : currentPost,
+    );
     setResonanceMessage("共鳴を記録しました。");
   }
 
@@ -1297,7 +1459,8 @@ function App() {
     const targetPost =
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
-      archivedPosts.find((post) => post.id === postId);
+      archivedPosts.find((post) => post.id === postId) ??
+      (detailPost?.id === postId ? detailPost : null);
 
     if (!targetPost) {
       setArchiveSavingPostId(null);
@@ -1447,7 +1610,8 @@ function App() {
     const targetPost =
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
-      archivedPosts.find((post) => post.id === postId);
+      archivedPosts.find((post) => post.id === postId) ??
+      (detailPost?.id === postId ? detailPost : null);
 
     if (!targetPost) {
       setStarLettersError("星文を送る流星便が見つかりませんでした。");
@@ -1598,7 +1762,74 @@ function App() {
     setStarLettersMessage("星文を削除しました。");
   }
 
+  function handleOpenMeteorDetail(postId) {
+    if (!postId) {
+      return;
+    }
+
+    const nextPath = buildMeteorPath(postId);
+
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ hoshizoraRoute: "meteor" }, "", nextPath);
+    }
+
+    setRoute({ name: "meteor", postId });
+    setShareMessage("");
+    setShareError("");
+    setOpenStarLetterPostId(postId);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleBackFromMeteorDetail() {
+    setShareMessage("");
+    setShareError("");
+
+    if (window.history.state?.hoshizoraRoute === "meteor") {
+      window.history.back();
+      return;
+    }
+
+    window.history.replaceState({}, "", "/");
+    setRoute({ name: "home", postId: null });
+    setActiveTab("observe");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleShareMeteor(postId) {
+    setShareMessage("");
+    setShareError("");
+
+    if (!postId) {
+      setShareError("URLのコピーに失敗しました。");
+      return;
+    }
+
+    const meteorUrl = `${window.location.origin}${buildMeteorPath(postId)}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "星空Villageの流星便",
+          text: "星空Villageで流星便を観測する",
+          url: meteorUrl,
+        });
+        setShareMessage("流星便のURLをコピーしました。");
+        return;
+      }
+
+      await navigator.clipboard.writeText(meteorUrl);
+      setShareMessage("流星便のURLをコピーしました。");
+    } catch (_error) {
+      setShareError("URLのコピーに失敗しました。");
+    }
+  }
+
   function handleTabChange(tabId) {
+    if (route.name === "meteor") {
+      window.history.pushState({}, "", "/");
+      setRoute({ name: "home", postId: null });
+    }
+
     setActiveTab(tabId);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1698,6 +1929,23 @@ function App() {
     session,
   };
   const posts = savedPosts;
+  const detailPostForScreen =
+    detailPostId
+      ? savedPosts.find((post) => post.id === detailPostId) ??
+        ownPosts.find((post) => post.id === detailPostId) ??
+        archivedPosts.find((post) => post.id === detailPostId) ??
+        detailPost
+      : null;
+  const meteorDetail = {
+    error: detailPostError,
+    loading: detailPostLoading,
+    onBack: handleBackFromMeteorDetail,
+    onShare: handleShareMeteor,
+    post: detailPostForScreen,
+    postId: detailPostId,
+    shareError,
+    shareMessage,
+  };
 
   return (
     <div className="relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
@@ -1720,6 +1968,9 @@ function App() {
           resonance={resonance}
           notifications={notificationState}
           starLetters={starLetters}
+          meteorDetail={meteorDetail}
+          route={route}
+          onOpenMeteorDetail={handleOpenMeteorDetail}
         />
       </div>
 
@@ -1781,15 +2032,29 @@ function TabContent({
   archive,
   auth,
   composer,
+  meteorDetail,
   notifications,
+  onOpenMeteorDetail,
   ownPosts,
   posts,
   postsError,
   postsLoading,
   profile,
   resonance,
+  route,
   starLetters,
 }) {
+  if (route.name === "meteor") {
+    return (
+      <MeteorDetailScreen
+        archive={archive}
+        detail={meteorDetail}
+        resonance={resonance}
+        starLetters={starLetters}
+      />
+    );
+  }
+
   if (activeTab === "rconnect") {
     return <RConnectScreen notifications={notifications} />;
   }
@@ -1799,7 +2064,14 @@ function TabContent({
   }
 
   if (activeTab === "archive") {
-    return <ArchiveScreen archive={archive} resonance={resonance} starLetters={starLetters} />;
+    return (
+      <ArchiveScreen
+        archive={archive}
+        onOpenMeteorDetail={onOpenMeteorDetail}
+        resonance={resonance}
+        starLetters={starLetters}
+      />
+    );
   }
 
   if (activeTab === "profile") {
@@ -1808,6 +2080,7 @@ function TabContent({
         archive={archive}
         auth={auth}
         ownPosts={ownPosts}
+        onOpenMeteorDetail={onOpenMeteorDetail}
         profile={profile}
         resonance={resonance}
         starLetters={starLetters}
@@ -1821,17 +2094,19 @@ function TabContent({
       posts={posts}
       postsError={postsError}
       postsLoading={postsLoading}
+      onOpenMeteorDetail={onOpenMeteorDetail}
       resonance={resonance}
       starLetters={starLetters}
     />
   );
 }
 
-function ObserveScreen({ archive, posts, postsError, postsLoading, resonance, starLetters }) {
+function ObserveScreen({ archive, onOpenMeteorDetail, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
       <Timeline
         archive={archive}
+        onOpenMeteorDetail={onOpenMeteorDetail}
         posts={posts}
         postsError={postsError}
         postsLoading={postsLoading}
@@ -1868,6 +2143,63 @@ function PlaceholderScreen({ eyebrow, title, text, note }) {
         <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
           {note}
         </div>
+      </section>
+    </main>
+  );
+}
+
+function MeteorDetailScreen({ archive, detail, resonance, starLetters }) {
+  const post = detail.post;
+
+  return (
+    <main className="mx-auto max-w-3xl">
+      <section className="mb-4 flex flex-wrap items-center justify-between gap-3 px-3 sm:px-5">
+        <button
+          className="min-h-10 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+          onClick={detail.onBack}
+          type="button"
+        >
+          戻る
+        </button>
+        <button
+          className="min-h-10 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!post}
+          onClick={() => detail.onShare(post?.id)}
+          type="button"
+        >
+          共有
+        </button>
+      </section>
+
+      <section className="space-y-4 px-3 pb-10 sm:px-5">
+        {(detail.loading || detail.error || detail.shareMessage || detail.shareError) && (
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              detail.error || detail.shareError
+                ? "border-sakura/30 bg-sakura/10 text-sakura"
+                : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {detail.error || detail.shareError || detail.shareMessage || "流星便を読み込み中..."}
+          </p>
+        )}
+
+        {!detail.loading && !detail.error && !post ? (
+          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+            流星便が見つかりませんでした。
+          </div>
+        ) : null}
+
+        {post ? (
+          <PostCard
+            archive={archive}
+            detailMode
+            post={post}
+            resonance={resonance}
+            showStarLetters
+            starLetters={starLetters}
+          />
+        ) : null}
       </section>
     </main>
   );
@@ -1959,7 +2291,7 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ archive, auth, ownPosts, profile, resonance, starLetters }) {
+function ProfileScreen({ archive, auth, onOpenMeteorDetail, ownPosts, profile, resonance, starLetters }) {
   if (profile.profileScreenMode === "edit") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -1979,12 +2311,18 @@ function ProfileScreen({ archive, auth, ownPosts, profile, resonance, starLetter
   return (
     <main className="mx-auto max-w-2xl space-y-4">
       <ProfileCard profile={profile} />
-      <OwnPostsPanel archive={archive} ownPosts={ownPosts} resonance={resonance} starLetters={starLetters} />
+      <OwnPostsPanel
+        archive={archive}
+        onOpenMeteorDetail={onOpenMeteorDetail}
+        ownPosts={ownPosts}
+        resonance={resonance}
+        starLetters={starLetters}
+      />
     </main>
   );
 }
 
-function OwnPostsPanel({ archive, ownPosts, resonance, starLetters }) {
+function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, resonance, starLetters }) {
   if (!ownPosts.session) {
     return null;
   }
@@ -2004,11 +2342,12 @@ function OwnPostsPanel({ archive, ownPosts, resonance, starLetters }) {
           まだ流星便はありません。中央の＋から最初の流星便を放流できます。
         </p>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {ownPosts.items.map((post) => (
             <PostCard
               archive={archive}
               key={post.id ?? post.handle}
+              onOpenDetail={onOpenMeteorDetail}
               post={post}
               resonance={resonance}
               starLetters={starLetters}
@@ -2020,7 +2359,7 @@ function OwnPostsPanel({ archive, ownPosts, resonance, starLetters }) {
   );
 }
 
-function ArchiveScreen({ archive, resonance, starLetters }) {
+function ArchiveScreen({ archive, onOpenMeteorDetail, resonance, starLetters }) {
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel mb-4 p-5 sm:p-6">
@@ -2036,7 +2375,7 @@ function ArchiveScreen({ archive, resonance, starLetters }) {
           ログインすると、Archiveした流星便を確認できます。
         </section>
       ) : (
-        <section className="space-y-4 px-3 pb-10 sm:px-5">
+        <section className="space-y-5 px-3 pb-10 sm:px-5">
           {(archive.loading || archive.error || archive.message) && (
             <p
               className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
@@ -2056,6 +2395,7 @@ function ArchiveScreen({ archive, resonance, starLetters }) {
               <PostCard
                 archive={archive}
                 key={post.archiveId ?? post.id}
+                onOpenDetail={onOpenMeteorDetail}
                 post={post}
                 resonance={resonance}
                 starLetters={starLetters}
@@ -2571,7 +2911,7 @@ function AuthPanel({ auth }) {
   );
 }
 
-function Timeline({ archive, posts, postsError, postsLoading, resonance, starLetters }) {
+function Timeline({ archive, onOpenMeteorDetail, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <section className="mx-auto max-w-3xl">
       {(postsLoading || postsError) && (
@@ -2622,7 +2962,7 @@ function Timeline({ archive, posts, postsError, postsLoading, resonance, starLet
         </div>
       )}
 
-      <div className="space-y-4 px-3 pb-10 pt-4 sm:px-5">
+      <div className="space-y-5 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
             まだ流星便はありません。最初の光を放流してみましょう。
@@ -2632,6 +2972,7 @@ function Timeline({ archive, posts, postsError, postsLoading, resonance, starLet
             <PostCard
               archive={archive}
               key={post.id ?? post.handle}
+              onOpenDetail={onOpenMeteorDetail}
               post={post}
               resonance={resonance}
               starLetters={starLetters}
@@ -2696,19 +3037,52 @@ function Composer({ composer }) {
   );
 }
 
-function PostCard({ archive, post, resonance, starLetters }) {
+function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, showStarLetters = false, starLetters }) {
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
   const isArchiveSaving = archive?.savingPostId === post.id;
   const isArchived = archive?.archivedPostIds?.includes(post.id);
   const postStarLetters = starLetters?.itemsByPostId?.[post.id] ?? [];
-  const isStarLettersOpen = starLetters?.openPostId === post.id;
+  const isStarLettersOpen = showStarLetters || starLetters?.openPostId === post.id;
   const isStarLetterSaving = starLetters?.savingPostId === post.id;
   const resonanceLabel = `${resonanceCount} 共鳴`;
   const starLetterLabel = `星文 ${postStarLetters.length}`;
+  const canOpenDetail = Boolean(onOpenDetail && post.id && !detailMode);
+
+  function isCardActionTarget(target) {
+    return Boolean(
+      target?.closest?.("button, a, input, textarea, select, label, [data-card-action='true']"),
+    );
+  }
+
+  function handleOpenDetail(event) {
+    if (canOpenDetail && !isCardActionTarget(event.target)) {
+      onOpenDetail(post.id);
+    }
+  }
+
+  function handleOpenDetailKeyDown(event) {
+    if (!canOpenDetail || event.target !== event.currentTarget) {
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onOpenDetail(post.id);
+    }
+  }
 
   return (
-    <article className="glass-panel group overflow-hidden">
+    <article
+      aria-label={canOpenDetail ? `${post.name}の流星便を開く` : undefined}
+      className={`glass-panel post-card-panel group overflow-hidden ${
+        canOpenDetail ? "is-clickable" : ""
+      }`}
+      onClick={handleOpenDetail}
+      onKeyDown={handleOpenDetailKeyDown}
+      role={canOpenDetail ? "link" : undefined}
+      tabIndex={canOpenDetail ? 0 : undefined}
+    >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
       <div className="p-4 sm:p-5">
         <div className="flex gap-3">
@@ -2725,7 +3099,9 @@ function PostCard({ archive, post, resonance, starLetters }) {
             {post.archivedTime && (
               <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
             )}
-            <p className="mt-3 text-[15px] leading-8 text-slate-100">{post.text}</p>
+            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 leading-8 text-slate-100`}>
+              {post.text}
+            </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {post.tags.map((tag) => (
                 <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
@@ -2784,7 +3160,12 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
   const canSubmit = starLetters?.canWrite && starLetters?.hasProfile && draft.trim() && !isOverLimit && !saving;
 
   return (
-    <div className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4">
+    <div
+      className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4"
+      data-card-action="true"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
       {(starLetters?.message || starLetters?.error) && (
         <p
           className={`mb-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
@@ -2936,6 +3317,11 @@ function Panel({ eyebrow, title, children }) {
 }
 
 function ActionButton({ active = false, disabled = false, icon, label, onClick }) {
+  function handleClick(event) {
+    event.stopPropagation();
+    onClick?.(event);
+  }
+
   return (
     <button
       className={`flex min-h-9 items-center gap-2 rounded-full border px-3 transition disabled:cursor-not-allowed disabled:opacity-70 ${
@@ -2944,7 +3330,7 @@ function ActionButton({ active = false, disabled = false, icon, label, onClick }
           : "border-white/10 bg-white/5 hover:border-comet/30 hover:bg-comet/10 hover:text-white"
       }`}
       disabled={disabled}
-      onClick={onClick}
+      onClick={handleClick}
       type="button"
     >
       <span className="text-comet">{icon}</span>

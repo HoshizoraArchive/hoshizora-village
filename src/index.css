@@ -41,6 +41,41 @@
     backdrop-filter: blur(24px);
   }
 
+  .post-card-panel {
+    background:
+      linear-gradient(135deg, rgb(255 255 255 / 0.105), rgb(255 255 255 / 0.034)),
+      rgb(7 16 36 / 0.64);
+    box-shadow:
+      0 24px 78px rgb(0 0 0 / 0.3),
+      inset 0 1px 0 rgb(255 255 255 / 0.045);
+    transition:
+      background 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      filter 160ms ease;
+  }
+
+  .post-card-panel.is-clickable {
+    cursor: pointer;
+    outline: none;
+  }
+
+  .post-card-panel.is-clickable:hover,
+  .post-card-panel.is-clickable:focus-visible {
+    border-color: rgb(125 223 255 / 0.25);
+    background:
+      linear-gradient(135deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.05)),
+      rgb(9 20 45 / 0.7);
+    box-shadow:
+      0 26px 84px rgb(0 0 0 / 0.32),
+      0 0 0 1px rgb(125 223 255 / 0.08),
+      inset 0 1px 0 rgb(255 255 255 / 0.06);
+  }
+
+  .post-card-panel.is-clickable:active {
+    filter: brightness(1.06);
+  }
+
   .cosmic-background {
     background:
       radial-gradient(circle at 18% 10%, rgb(125 223 255 / 0.34), transparent 25%),
