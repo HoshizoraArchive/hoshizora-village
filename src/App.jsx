@@ -170,6 +170,7 @@ function mapStarLetter(letter, authorProfile) {
     avatarUrl: authorProfile?.avatar_url ?? null,
     time: formatNotificationTime(letter.created_at),
     createdAt: letter.created_at,
+    updatedAt: letter.updated_at ?? null,
   };
 }
 
@@ -218,6 +219,10 @@ function App() {
   const [starLetterSavingPostId, setStarLetterSavingPostId] = useState(null);
   const [openStarLetterPostId, setOpenStarLetterPostId] = useState(null);
   const [starLetterDrafts, setStarLetterDrafts] = useState({});
+  const [editingStarLetterId, setEditingStarLetterId] = useState(null);
+  const [starLetterEditDrafts, setStarLetterEditDrafts] = useState({});
+  const [starLetterUpdatingId, setStarLetterUpdatingId] = useState(null);
+  const [starLetterDeletingId, setStarLetterDeletingId] = useState(null);
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
   const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
@@ -510,7 +515,7 @@ function App() {
 
       const { data, error } = await supabase
         .from("star_letters")
-        .select("id, post_id, author_id, body, created_at")
+        .select("id, post_id, author_id, body, created_at, updated_at")
         .in("post_id", postIds)
         .order("created_at", { ascending: true });
 
@@ -1384,6 +1389,34 @@ function App() {
     }));
   }
 
+  function handleStartStarLetterEdit(letter) {
+    setStarLettersMessage("");
+    setStarLettersError("");
+    setEditingStarLetterId(letter.id);
+    setStarLetterEditDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [letter.id]: letter.body,
+    }));
+  }
+
+  function handleCancelStarLetterEdit(letterId) {
+    setStarLettersMessage("");
+    setStarLettersError("");
+    setEditingStarLetterId(null);
+    setStarLetterEditDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+      delete nextDrafts[letterId];
+      return nextDrafts;
+    });
+  }
+
+  function handleStarLetterEditDraftChange(letterId, value) {
+    setStarLetterEditDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [letterId]: value,
+    }));
+  }
+
   async function handleStarLetterSubmit(event, postId) {
     event.preventDefault();
     setStarLettersMessage("");
@@ -1430,7 +1463,7 @@ function App() {
         author_id: session.user.id,
         body,
       })
-      .select("id, post_id, author_id, body, created_at")
+      .select("id, post_id, author_id, body, created_at, updated_at")
       .single();
 
     setStarLetterSavingPostId(null);
@@ -1452,6 +1485,117 @@ function App() {
     }));
     setOpenStarLetterPostId(postId);
     setStarLettersMessage("星文を送りました。");
+  }
+
+  async function handleStarLetterUpdate(event, letter) {
+    event.preventDefault();
+    setStarLettersMessage("");
+    setStarLettersError("");
+
+    if (!session?.user?.id) {
+      setStarLettersError("ログインすると星文を編集できます。");
+      return;
+    }
+
+    if (letter.authorId !== session.user.id) {
+      setStarLettersError("自分の星文だけ編集できます。");
+      return;
+    }
+
+    const body = (starLetterEditDrafts[letter.id] ?? "").trim();
+
+    if (!body) {
+      setStarLettersError("星文の本文を入力してください。");
+      return;
+    }
+
+    if (getTrimmedCharacterLength(body) > STAR_LETTER_MAX_LENGTH) {
+      setStarLettersError("星文は500文字以内で送ってください。");
+      return;
+    }
+
+    setStarLetterUpdatingId(letter.id);
+
+    const { data, error } = await supabase
+      .from("star_letters")
+      .update({
+        body,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", letter.id)
+      .eq("author_id", session.user.id)
+      .select("id, post_id, author_id, body, created_at, updated_at")
+      .single();
+
+    setStarLetterUpdatingId(null);
+
+    if (error) {
+      setStarLettersError(error.message);
+      return;
+    }
+
+    setStarLettersByPostId((currentLetters) => ({
+      ...currentLetters,
+      [letter.postId]: (currentLetters[letter.postId] ?? []).map((currentLetter) =>
+        currentLetter.id === letter.id
+          ? {
+              ...currentLetter,
+              body: data?.body ?? body,
+              updatedAt: data?.updated_at ?? currentLetter.updatedAt,
+            }
+          : currentLetter,
+      ),
+    }));
+    handleCancelStarLetterEdit(letter.id);
+    setStarLettersMessage("星文を保存しました。");
+  }
+
+  async function handleStarLetterDelete(letter) {
+    setStarLettersMessage("");
+    setStarLettersError("");
+
+    if (!session?.user?.id) {
+      setStarLettersError("ログインすると星文を削除できます。");
+      return;
+    }
+
+    if (letter.authorId !== session.user.id) {
+      setStarLettersError("自分の星文だけ削除できます。");
+      return;
+    }
+
+    const confirmed = window.confirm("この星文を削除しますか？");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setStarLetterDeletingId(letter.id);
+
+    const { error } = await supabase
+      .from("star_letters")
+      .delete()
+      .eq("id", letter.id)
+      .eq("author_id", session.user.id);
+
+    setStarLetterDeletingId(null);
+
+    if (error) {
+      setStarLettersError(error.message);
+      return;
+    }
+
+    setStarLettersByPostId((currentLetters) => ({
+      ...currentLetters,
+      [letter.postId]: (currentLetters[letter.postId] ?? []).filter((currentLetter) => currentLetter.id !== letter.id),
+    }));
+    setStarLetterEditDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+      delete nextDrafts[letter.id];
+      return nextDrafts;
+    });
+    setEditingStarLetterId((currentId) => (currentId === letter.id ? null : currentId));
+    setStarLettersMessage("星文を削除しました。");
   }
 
   function handleTabChange(tabId) {
@@ -1526,16 +1670,26 @@ function App() {
   const starLetters = {
     canWrite: Boolean(session),
     drafts: starLetterDrafts,
+    editingId: editingStarLetterId,
+    editDrafts: starLetterEditDrafts,
     error: starLettersError,
     hasProfile: Boolean(profile?.id),
     itemsByPostId: starLettersByPostId,
     loading: starLettersLoading,
     message: starLettersMessage,
     onChange: handleStarLetterDraftChange,
+    onCancelEdit: handleCancelStarLetterEdit,
+    onDelete: handleStarLetterDelete,
+    onEditChange: handleStarLetterEditDraftChange,
+    onStartEdit: handleStartStarLetterEdit,
     onSubmit: handleStarLetterSubmit,
     onToggle: handleToggleStarLetters,
+    onUpdate: handleStarLetterUpdate,
     openPostId: openStarLetterPostId,
+    session,
+    deletingId: starLetterDeletingId,
     savingPostId: starLetterSavingPostId,
+    updatingId: starLetterUpdatingId,
   };
   const ownPostState = {
     error: ownPostsError,
@@ -2647,7 +2801,7 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
         ) : letters.length === 0 ? (
           <p className="text-xs leading-6 text-slate-500">まだ星文はありません。</p>
         ) : (
-          letters.map((letter) => <StarLetterItem key={letter.id} letter={letter} />)
+          letters.map((letter) => <StarLetterItem key={letter.id} letter={letter} starLetters={starLetters} />)
         )}
       </div>
 
@@ -2684,7 +2838,15 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
   );
 }
 
-function StarLetterItem({ letter }) {
+function StarLetterItem({ letter, starLetters }) {
+  const isOwner = starLetters?.session?.user?.id === letter.authorId;
+  const isEditing = starLetters?.editingId === letter.id;
+  const editDraft = starLetters?.editDrafts?.[letter.id] ?? letter.body;
+  const editTrimmedLength = getTrimmedCharacterLength(editDraft);
+  const isEditOverLimit = editTrimmedLength > STAR_LETTER_MAX_LENGTH;
+  const canSaveEdit = Boolean(editDraft.trim()) && !isEditOverLimit && starLetters?.updatingId !== letter.id;
+  const isDeleting = starLetters?.deletingId === letter.id;
+
   return (
     <article className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
       <div className="flex gap-3">
@@ -2695,7 +2857,68 @@ function StarLetterItem({ letter }) {
             <span className="text-xs text-slate-500">{letter.handle}</span>
             <span className="text-xs text-slate-500">· {letter.time}</span>
           </div>
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">{letter.body}</p>
+          {isEditing ? (
+            <form className="mt-3" onSubmit={(event) => starLetters?.onUpdate?.(event, letter)}>
+              <textarea
+                className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={starLetters?.updatingId === letter.id}
+                onChange={(event) => starLetters?.onEditChange?.(letter.id, event.target.value)}
+                value={editDraft}
+              />
+              {isEditOverLimit && (
+                <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+                  星文は500文字以内で送ってください
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs leading-5 text-slate-500">
+                  <span className={isEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+                    {editTrimmedLength}/{STAR_LETTER_MAX_LENGTH}
+                  </span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={starLetters?.updatingId === letter.id}
+                    onClick={() => starLetters?.onCancelEdit?.(letter.id)}
+                    type="button"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!canSaveEdit}
+                    type="submit"
+                  >
+                    {starLetters?.updatingId === letter.id ? "保存中..." : "保存"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : (
+            <>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">{letter.body}</p>
+              {isOwner && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="min-h-8 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+                    onClick={() => starLetters?.onStartEdit?.(letter)}
+                    type="button"
+                  >
+                    編集
+                  </button>
+                  <button
+                    className="min-h-8 rounded-full border border-sakura/30 bg-sakura/10 px-3 text-[11px] font-black text-sakura transition hover:bg-sakura/15 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isDeleting}
+                    onClick={() => starLetters?.onDelete?.(letter)}
+                    type="button"
+                  >
+                    {isDeleting ? "削除中..." : "削除"}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </article>
