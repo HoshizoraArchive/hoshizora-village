@@ -3084,7 +3084,7 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
       tabIndex={canOpenDetail ? 0 : undefined}
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
-      <div className="p-3.5 sm:p-4">
+      <div className="p-4 sm:p-5">
         <div className="flex gap-3">
           <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
           <div className="min-w-0 flex-1">
@@ -3099,17 +3099,17 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
             {post.archivedTime && (
               <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
             )}
-            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-2.5 leading-8 text-slate-100`}>
+            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 leading-8 text-slate-100`}>
               {post.text}
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               {post.tags.map((tag) => (
                 <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
                   {tag}
                 </span>
               ))}
             </div>
-            <div className="mt-4 flex flex-wrap gap-2.5 text-sm text-slate-400">
+            <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
               <ActionButton
                 disabled={isResonanceSaving || !resonance?.onResonate}
                 icon="♡"
@@ -3161,14 +3161,14 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
 
   return (
     <div
-      className="star-letters-panel mt-4 rounded-2xl border border-white/10 bg-night-950/30 p-2.5 sm:p-3"
+      className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4"
       data-card-action="true"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
       {(starLetters?.message || starLetters?.error) && (
         <p
-          className={`mb-2.5 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+          className={`mb-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
             starLetters.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
           }`}
         >
@@ -3176,7 +3176,7 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
         </p>
       )}
 
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         {loading ? (
           <p className="text-xs leading-6 text-slate-400">星文を読み込み中...</p>
         ) : letters.length === 0 ? (
@@ -3186,9 +3186,9 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
         )}
       </div>
 
-      <form className="mt-3 border-t border-white/10 pt-3" onSubmit={onSubmit}>
+      <form className="mt-4 border-t border-white/10 pt-4" onSubmit={onSubmit}>
         <textarea
-          className="min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/55 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/60 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={!starLetters?.canWrite || !starLetters?.hasProfile || saving}
           onChange={(event) => onChange(event.target.value)}
           placeholder="この流星便に星文を残す"
@@ -3199,7 +3199,7 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
             星文は500文字以内で送ってください
           </p>
         )}
-        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs leading-5 text-slate-500">
             {helperText}{" "}
             <span className={isOverLimit ? "font-black text-sakura" : "text-slate-600"}>
@@ -3229,8 +3229,8 @@ function StarLetterItem({ letter, starLetters }) {
   const isDeleting = starLetters?.deletingId === letter.id;
 
   return (
-    <article className="star-letter-item rounded-2xl border border-white/10 bg-white/5 px-2.5 py-2.5 sm:px-3">
-      <div className="flex gap-2.5">
+    <article className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+      <div className="flex gap-3">
         <AvatarFrame avatar={letter.avatar} avatarUrl={letter.avatarUrl} className="h-9 w-9 rounded-2xl text-xs" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -3239,9 +3239,9 @@ function StarLetterItem({ letter, starLetters }) {
             <span className="text-xs text-slate-500">· {letter.time}</span>
           </div>
           {isEditing ? (
-            <form className="mt-2.5" onSubmit={(event) => starLetters?.onUpdate?.(event, letter)}>
+            <form className="mt-3" onSubmit={(event) => starLetters?.onUpdate?.(event, letter)}>
               <textarea
-                className="min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/60 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={starLetters?.updatingId === letter.id}
                 onChange={(event) => starLetters?.onEditChange?.(letter.id, event.target.value)}
                 value={editDraft}
@@ -3251,7 +3251,7 @@ function StarLetterItem({ letter, starLetters }) {
                   星文は500文字以内で送ってください
                 </p>
               )}
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs leading-5 text-slate-500">
                   <span className={isEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
                     {editTrimmedLength}/{STAR_LETTER_MAX_LENGTH}
@@ -3280,7 +3280,7 @@ function StarLetterItem({ letter, starLetters }) {
             <>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">{letter.body}</p>
               {isOwner && (
-                <div className="mt-2.5 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     className="min-h-8 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
                     onClick={() => starLetters?.onStartEdit?.(letter)}
