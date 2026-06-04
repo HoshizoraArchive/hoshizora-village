@@ -9,6 +9,8 @@ const bottomNavItems = [
   { id: "profile", label: "わたしの星座", icon: "constellation" },
 ];
 
+const STAR_LETTER_MAX_LENGTH = 500;
+
 const emptyProfileForm = {
   display_name: "",
   username: "",
@@ -46,6 +48,10 @@ function optionalText(value) {
 function optionalUsername(value) {
   const trimmed = value.trim().replace(/^@/, "");
   return trimmed ? trimmed : null;
+}
+
+function getTrimmedCharacterLength(value) {
+  return Array.from(value.trim()).length;
 }
 
 function getAvatarText(value) {
@@ -1400,7 +1406,7 @@ function App() {
       return;
     }
 
-    if (body.length > 500) {
+    if (getTrimmedCharacterLength(body) > STAR_LETTER_MAX_LENGTH) {
       setStarLettersError("星文は500文字以内で送ってください。");
       return;
     }
@@ -2614,12 +2620,14 @@ function PostCard({ archive, post, resonance, starLetters }) {
 }
 
 function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving, starLetters }) {
+  const trimmedLength = getTrimmedCharacterLength(draft);
+  const isOverLimit = trimmedLength > STAR_LETTER_MAX_LENGTH;
   const helperText = !starLetters?.canWrite
     ? "ログインすると星文を送れます。"
     : !starLetters?.hasProfile
       ? "先にプロフィールを保存すると星文を送れます。"
       : "500文字以内で、この流星便に言葉を残せます。";
-  const canSubmit = starLetters?.canWrite && starLetters?.hasProfile && draft.trim() && draft.trim().length <= 500 && !saving;
+  const canSubmit = starLetters?.canWrite && starLetters?.hasProfile && draft.trim() && !isOverLimit && !saving;
 
   return (
     <div className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4">
@@ -2647,14 +2655,21 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
         <textarea
           className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/60 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={!starLetters?.canWrite || !starLetters?.hasProfile || saving}
-          maxLength={500}
           onChange={(event) => onChange(event.target.value)}
           placeholder="この流星便に星文を残す"
           value={draft}
         />
+        {isOverLimit && (
+          <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+            星文は500文字以内で送ってください
+          </p>
+        )}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs leading-5 text-slate-500">
-            {helperText} <span className="text-slate-600">{draft.trim().length}/500</span>
+            {helperText}{" "}
+            <span className={isOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+              {trimmedLength}/{STAR_LETTER_MAX_LENGTH}
+            </span>
           </p>
           <button
             className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
