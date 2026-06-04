@@ -2342,7 +2342,7 @@ function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, resonance, starL
           まだ流星便はありません。中央の＋から最初の流星便を放流できます。
         </p>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {ownPosts.items.map((post) => (
             <PostCard
               archive={archive}
@@ -2375,7 +2375,7 @@ function ArchiveScreen({ archive, onOpenMeteorDetail, resonance, starLetters }) 
           ログインすると、Archiveした流星便を確認できます。
         </section>
       ) : (
-        <section className="space-y-4 px-3 pb-10 sm:px-5">
+        <section className="space-y-5 px-3 pb-10 sm:px-5">
           {(archive.loading || archive.error || archive.message) && (
             <p
               className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
@@ -2962,7 +2962,7 @@ function Timeline({ archive, onOpenMeteorDetail, posts, postsError, postsLoading
         </div>
       )}
 
-      <div className="space-y-4 px-3 pb-10 pt-4 sm:px-5">
+      <div className="space-y-5 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
             まだ流星便はありません。最初の光を放流してみましょう。
@@ -3049,14 +3049,20 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
   const starLetterLabel = `星文 ${postStarLetters.length}`;
   const canOpenDetail = Boolean(onOpenDetail && post.id && !detailMode);
 
-  function handleOpenDetail() {
-    if (canOpenDetail) {
+  function isCardActionTarget(target) {
+    return Boolean(
+      target?.closest?.("button, a, input, textarea, select, label, [data-card-action='true']"),
+    );
+  }
+
+  function handleOpenDetail(event) {
+    if (canOpenDetail && !isCardActionTarget(event.target)) {
       onOpenDetail(post.id);
     }
   }
 
   function handleOpenDetailKeyDown(event) {
-    if (!canOpenDetail) {
+    if (!canOpenDetail || event.target !== event.currentTarget) {
       return;
     }
 
@@ -3067,42 +3073,41 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
   }
 
   return (
-    <article className="glass-panel group overflow-hidden">
+    <article
+      aria-label={canOpenDetail ? `${post.name}の流星便を開く` : undefined}
+      className={`glass-panel post-card-panel group overflow-hidden ${
+        canOpenDetail ? "is-clickable" : ""
+      }`}
+      onClick={handleOpenDetail}
+      onKeyDown={handleOpenDetailKeyDown}
+      role={canOpenDetail ? "link" : undefined}
+      tabIndex={canOpenDetail ? 0 : undefined}
+    >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
       <div className="p-4 sm:p-5">
         <div className="flex gap-3">
           <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
           <div className="min-w-0 flex-1">
-            <div
-              className={canOpenDetail ? "cursor-pointer rounded-2xl outline-none transition hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-comet/40" : ""}
-              onClick={handleOpenDetail}
-              onKeyDown={handleOpenDetailKeyDown}
-              role={canOpenDetail ? "button" : undefined}
-              tabIndex={canOpenDetail ? 0 : undefined}
-            >
-              <div className={canOpenDetail ? "p-1" : ""}>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <h3 className="font-black text-white">{post.name}</h3>
-                  <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
-                    {post.badge}
-                  </span>
-                  <span className="text-sm text-slate-500">{post.handle}</span>
-                  <span className="text-sm text-slate-500">· {post.time}</span>
-                </div>
-                {post.archivedTime && (
-                  <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
-                )}
-                <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 leading-8 text-slate-100`}>
-                  {post.text}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {post.tags.map((tag) => (
-                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h3 className="font-black text-white">{post.name}</h3>
+              <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
+                {post.badge}
+              </span>
+              <span className="text-sm text-slate-500">{post.handle}</span>
+              <span className="text-sm text-slate-500">· {post.time}</span>
+            </div>
+            {post.archivedTime && (
+              <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
+            )}
+            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 leading-8 text-slate-100`}>
+              {post.text}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {post.tags.map((tag) => (
+                <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
+                  {tag}
+                </span>
+              ))}
             </div>
             <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
               <ActionButton
@@ -3155,7 +3160,12 @@ function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving,
   const canSubmit = starLetters?.canWrite && starLetters?.hasProfile && draft.trim() && !isOverLimit && !saving;
 
   return (
-    <div className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4">
+    <div
+      className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4"
+      data-card-action="true"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
       {(starLetters?.message || starLetters?.error) && (
         <p
           className={`mb-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
@@ -3307,6 +3317,11 @@ function Panel({ eyebrow, title, children }) {
 }
 
 function ActionButton({ active = false, disabled = false, icon, label, onClick }) {
+  function handleClick(event) {
+    event.stopPropagation();
+    onClick?.(event);
+  }
+
   return (
     <button
       className={`flex min-h-9 items-center gap-2 rounded-full border px-3 transition disabled:cursor-not-allowed disabled:opacity-70 ${
@@ -3315,7 +3330,7 @@ function ActionButton({ active = false, disabled = false, icon, label, onClick }
           : "border-white/10 bg-white/5 hover:border-comet/30 hover:bg-comet/10 hover:text-white"
       }`}
       disabled={disabled}
-      onClick={onClick}
+      onClick={handleClick}
       type="button"
     >
       <span className="text-comet">{icon}</span>
