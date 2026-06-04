@@ -9,6 +9,8 @@ const bottomNavItems = [
   { id: "profile", label: "わたしの星座", icon: "constellation" },
 ];
 
+const STAR_LETTER_MAX_LENGTH = 500;
+
 const emptyProfileForm = {
   display_name: "",
   username: "",
@@ -46,6 +48,10 @@ function optionalText(value) {
 function optionalUsername(value) {
   const trimmed = value.trim().replace(/^@/, "");
   return trimmed ? trimmed : null;
+}
+
+function getTrimmedCharacterLength(value) {
+  return Array.from(value.trim()).length;
 }
 
 function getAvatarText(value) {
@@ -150,6 +156,23 @@ function mapArchivedPost(archive, post, authorProfile) {
   };
 }
 
+function mapStarLetter(letter, authorProfile) {
+  const displayName = authorProfile?.display_name || "誰か";
+
+  return {
+    id: letter.id,
+    postId: letter.post_id,
+    authorId: letter.author_id,
+    body: letter.body,
+    name: displayName,
+    handle: authorProfile?.username ? `@${authorProfile.username}` : "@star_letter",
+    avatar: getAvatarText(displayName),
+    avatarUrl: authorProfile?.avatar_url ?? null,
+    time: formatNotificationTime(letter.created_at),
+    createdAt: letter.created_at,
+  };
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("observe");
   const [session, setSession] = useState(null);
@@ -188,9 +211,23 @@ function App() {
   const [notificationsError, setNotificationsError] = useState("");
   const [notificationsMessage, setNotificationsMessage] = useState("");
   const [notificationUpdatingId, setNotificationUpdatingId] = useState(null);
+  const [starLettersByPostId, setStarLettersByPostId] = useState({});
+  const [starLettersLoading, setStarLettersLoading] = useState(false);
+  const [starLettersError, setStarLettersError] = useState("");
+  const [starLettersMessage, setStarLettersMessage] = useState("");
+  const [starLetterSavingPostId, setStarLetterSavingPostId] = useState(null);
+  const [openStarLetterPostId, setOpenStarLetterPostId] = useState(null);
+  const [starLetterDrafts, setStarLetterDrafts] = useState({});
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
   const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
+  const allPostIdsKey = [
+    ...new Set(
+      [...savedPosts, ...ownPosts, ...archivedPosts]
+        .map((post) => post.id)
+        .filter(Boolean),
+    ),
+  ].join("|");
 
   useEffect(() => {
     let isMounted = true;
@@ -453,6 +490,75 @@ function App() {
       isMounted = false;
     };
   }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const postIds = allPostIdsKey ? allPostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      setStarLettersByPostId({});
+      setStarLettersLoading(false);
+      setStarLettersError("");
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readStarLetters() {
+      setStarLettersLoading(true);
+      setStarLettersError("");
+
+      const { data, error } = await supabase
+        .from("star_letters")
+        .select("id, post_id, author_id, body, created_at")
+        .in("post_id", postIds)
+        .order("created_at", { ascending: true });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        setStarLettersLoading(false);
+        setStarLettersError(error.message);
+        return;
+      }
+
+      const authorIds = [...new Set((data ?? []).map((letter) => letter.author_id).filter(Boolean))];
+      const profilesById = new Map();
+
+      if (authorIds.length > 0) {
+        const { data: profileRows } = await supabase
+          .from("profiles")
+          .select("id, display_name, username, avatar_url")
+          .in("id", authorIds);
+
+        if (!isMounted) {
+          return;
+        }
+
+        for (const profileRow of profileRows ?? []) {
+          profilesById.set(profileRow.id, profileRow);
+        }
+      }
+
+      const nextLettersByPostId = {};
+
+      for (const letter of data ?? []) {
+        const mappedLetter = mapStarLetter(letter, profilesById.get(letter.author_id));
+        nextLettersByPostId[letter.post_id] = [...(nextLettersByPostId[letter.post_id] ?? []), mappedLetter];
+      }
+
+      setStarLettersByPostId(nextLettersByPostId);
+      setStarLettersLoading(false);
+    }
+
+    readStarLetters();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [allPostIdsKey]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1265,6 +1371,89 @@ function App() {
     setNotificationsMessage("通知を既読にしました。");
   }
 
+  function handleToggleStarLetters(postId) {
+    setStarLettersMessage("");
+    setStarLettersError("");
+    setOpenStarLetterPostId((currentPostId) => (currentPostId === postId ? null : postId));
+  }
+
+  function handleStarLetterDraftChange(postId, value) {
+    setStarLetterDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [postId]: value,
+    }));
+  }
+
+  async function handleStarLetterSubmit(event, postId) {
+    event.preventDefault();
+    setStarLettersMessage("");
+    setStarLettersError("");
+
+    if (!session?.user?.id) {
+      setStarLettersError("ログインすると星文を送れます。");
+      return;
+    }
+
+    if (!profile?.id) {
+      setStarLettersError("先にプロフィールを保存すると星文を送れます。");
+      return;
+    }
+
+    const body = (starLetterDrafts[postId] ?? "").trim();
+
+    if (!body) {
+      setStarLettersError("星文の本文を入力してください。");
+      return;
+    }
+
+    if (getTrimmedCharacterLength(body) > STAR_LETTER_MAX_LENGTH) {
+      setStarLettersError("星文は500文字以内で送ってください。");
+      return;
+    }
+
+    const targetPost =
+      savedPosts.find((post) => post.id === postId) ??
+      ownPosts.find((post) => post.id === postId) ??
+      archivedPosts.find((post) => post.id === postId);
+
+    if (!targetPost) {
+      setStarLettersError("星文を送る流星便が見つかりませんでした。");
+      return;
+    }
+
+    setStarLetterSavingPostId(postId);
+
+    const { data, error } = await supabase
+      .from("star_letters")
+      .insert({
+        post_id: postId,
+        author_id: session.user.id,
+        body,
+      })
+      .select("id, post_id, author_id, body, created_at")
+      .single();
+
+    setStarLetterSavingPostId(null);
+
+    if (error) {
+      setStarLettersError(error.message);
+      return;
+    }
+
+    const mappedLetter = mapStarLetter(data, profile);
+
+    setStarLettersByPostId((currentLetters) => ({
+      ...currentLetters,
+      [postId]: [...(currentLetters[postId] ?? []), mappedLetter],
+    }));
+    setStarLetterDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [postId]: "",
+    }));
+    setOpenStarLetterPostId(postId);
+    setStarLettersMessage("星文を送りました。");
+  }
+
   function handleTabChange(tabId) {
     setActiveTab(tabId);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1334,6 +1523,20 @@ function App() {
     session,
     updatingId: notificationUpdatingId,
   };
+  const starLetters = {
+    canWrite: Boolean(session),
+    drafts: starLetterDrafts,
+    error: starLettersError,
+    hasProfile: Boolean(profile?.id),
+    itemsByPostId: starLettersByPostId,
+    loading: starLettersLoading,
+    message: starLettersMessage,
+    onChange: handleStarLetterDraftChange,
+    onSubmit: handleStarLetterSubmit,
+    onToggle: handleToggleStarLetters,
+    openPostId: openStarLetterPostId,
+    savingPostId: starLetterSavingPostId,
+  };
   const ownPostState = {
     error: ownPostsError,
     items: ownPosts,
@@ -1362,6 +1565,7 @@ function App() {
           archive={archiveState}
           resonance={resonance}
           notifications={notificationState}
+          starLetters={starLetters}
         />
       </div>
 
@@ -1430,6 +1634,7 @@ function TabContent({
   postsLoading,
   profile,
   resonance,
+  starLetters,
 }) {
   if (activeTab === "rconnect") {
     return <RConnectScreen notifications={notifications} />;
@@ -1440,11 +1645,20 @@ function TabContent({
   }
 
   if (activeTab === "archive") {
-    return <ArchiveScreen archive={archive} resonance={resonance} />;
+    return <ArchiveScreen archive={archive} resonance={resonance} starLetters={starLetters} />;
   }
 
   if (activeTab === "profile") {
-    return <ProfileScreen archive={archive} auth={auth} ownPosts={ownPosts} profile={profile} resonance={resonance} />;
+    return (
+      <ProfileScreen
+        archive={archive}
+        auth={auth}
+        ownPosts={ownPosts}
+        profile={profile}
+        resonance={resonance}
+        starLetters={starLetters}
+      />
+    );
   }
 
   return (
@@ -1454,14 +1668,22 @@ function TabContent({
       postsError={postsError}
       postsLoading={postsLoading}
       resonance={resonance}
+      starLetters={starLetters}
     />
   );
 }
 
-function ObserveScreen({ archive, posts, postsError, postsLoading, resonance }) {
+function ObserveScreen({ archive, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
-      <Timeline archive={archive} posts={posts} postsError={postsError} postsLoading={postsLoading} resonance={resonance} />
+      <Timeline
+        archive={archive}
+        posts={posts}
+        postsError={postsError}
+        postsLoading={postsLoading}
+        resonance={resonance}
+        starLetters={starLetters}
+      />
     </main>
   );
 }
@@ -1583,7 +1805,7 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ archive, auth, ownPosts, profile, resonance }) {
+function ProfileScreen({ archive, auth, ownPosts, profile, resonance, starLetters }) {
   if (profile.profileScreenMode === "edit") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -1603,12 +1825,12 @@ function ProfileScreen({ archive, auth, ownPosts, profile, resonance }) {
   return (
     <main className="mx-auto max-w-2xl space-y-4">
       <ProfileCard profile={profile} />
-      <OwnPostsPanel archive={archive} ownPosts={ownPosts} resonance={resonance} />
+      <OwnPostsPanel archive={archive} ownPosts={ownPosts} resonance={resonance} starLetters={starLetters} />
     </main>
   );
 }
 
-function OwnPostsPanel({ archive, ownPosts, resonance }) {
+function OwnPostsPanel({ archive, ownPosts, resonance, starLetters }) {
   if (!ownPosts.session) {
     return null;
   }
@@ -1630,7 +1852,13 @@ function OwnPostsPanel({ archive, ownPosts, resonance }) {
       ) : (
         <div className="space-y-4">
           {ownPosts.items.map((post) => (
-            <PostCard archive={archive} key={post.id ?? post.handle} post={post} resonance={resonance} />
+            <PostCard
+              archive={archive}
+              key={post.id ?? post.handle}
+              post={post}
+              resonance={resonance}
+              starLetters={starLetters}
+            />
           ))}
         </div>
       )}
@@ -1638,7 +1866,7 @@ function OwnPostsPanel({ archive, ownPosts, resonance }) {
   );
 }
 
-function ArchiveScreen({ archive, resonance }) {
+function ArchiveScreen({ archive, resonance, starLetters }) {
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel mb-4 p-5 sm:p-6">
@@ -1671,7 +1899,13 @@ function ArchiveScreen({ archive, resonance }) {
             </div>
           ) : (
             archive.items.map((post) => (
-              <PostCard archive={archive} key={post.archiveId ?? post.id} post={post} resonance={resonance} />
+              <PostCard
+                archive={archive}
+                key={post.archiveId ?? post.id}
+                post={post}
+                resonance={resonance}
+                starLetters={starLetters}
+              />
             ))
           )}
         </section>
@@ -2183,7 +2417,7 @@ function AuthPanel({ auth }) {
   );
 }
 
-function Timeline({ archive, posts, postsError, postsLoading, resonance }) {
+function Timeline({ archive, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <section className="mx-auto max-w-3xl">
       {(postsLoading || postsError) && (
@@ -2222,13 +2456,33 @@ function Timeline({ archive, posts, postsError, postsLoading, resonance }) {
         </div>
       )}
 
+      {(starLetters?.message || starLetters?.error) && (
+        <div className="px-3 pt-4 sm:px-5">
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              starLetters.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {starLetters.error || starLetters.message}
+          </p>
+        </div>
+      )}
+
       <div className="space-y-4 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
             まだ流星便はありません。最初の光を放流してみましょう。
           </div>
         ) : (
-          posts.map((post) => <PostCard archive={archive} key={post.id ?? post.handle} post={post} resonance={resonance} />)
+          posts.map((post) => (
+            <PostCard
+              archive={archive}
+              key={post.id ?? post.handle}
+              post={post}
+              resonance={resonance}
+              starLetters={starLetters}
+            />
+          ))
         )}
       </div>
     </section>
@@ -2288,12 +2542,16 @@ function Composer({ composer }) {
   );
 }
 
-function PostCard({ archive, post, resonance }) {
+function PostCard({ archive, post, resonance, starLetters }) {
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
   const isArchiveSaving = archive?.savingPostId === post.id;
   const isArchived = archive?.archivedPostIds?.includes(post.id);
+  const postStarLetters = starLetters?.itemsByPostId?.[post.id] ?? [];
+  const isStarLettersOpen = starLetters?.openPostId === post.id;
+  const isStarLetterSaving = starLetters?.savingPostId === post.id;
   const resonanceLabel = `${resonanceCount} 共鳴`;
+  const starLetterLabel = `星文 ${postStarLetters.length}`;
 
   return (
     <article className="glass-panel group overflow-hidden">
@@ -2328,7 +2586,13 @@ function PostCard({ archive, post, resonance }) {
                 label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
                 onClick={() => resonance?.onResonate?.(post.id)}
               />
-              <ActionButton label={`${post.comments} 星文`} icon="✎" />
+              <ActionButton
+                active={isStarLettersOpen}
+                disabled={!starLetters?.onToggle}
+                icon="✎"
+                label={starLetterLabel}
+                onClick={() => starLetters?.onToggle?.(post.id)}
+              />
               <ActionButton
                 active={isArchived}
                 disabled={isArchiveSaving || !archive?.onToggleArchive}
@@ -2337,7 +2601,101 @@ function PostCard({ archive, post, resonance }) {
                 onClick={() => archive?.onToggleArchive?.(post.id)}
               />
             </div>
+            {isStarLettersOpen && (
+              <StarLettersPanel
+                draft={starLetters?.drafts?.[post.id] ?? ""}
+                letters={postStarLetters}
+                loading={starLetters?.loading}
+                onChange={(value) => starLetters?.onChange?.(post.id, value)}
+                onSubmit={(event) => starLetters?.onSubmit?.(event, post.id)}
+                saving={isStarLetterSaving}
+                starLetters={starLetters}
+              />
+            )}
           </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function StarLettersPanel({ draft, letters, loading, onChange, onSubmit, saving, starLetters }) {
+  const trimmedLength = getTrimmedCharacterLength(draft);
+  const isOverLimit = trimmedLength > STAR_LETTER_MAX_LENGTH;
+  const helperText = !starLetters?.canWrite
+    ? "ログインすると星文を送れます。"
+    : !starLetters?.hasProfile
+      ? "先にプロフィールを保存すると星文を送れます。"
+      : "500文字以内で、この流星便に言葉を残せます。";
+  const canSubmit = starLetters?.canWrite && starLetters?.hasProfile && draft.trim() && !isOverLimit && !saving;
+
+  return (
+    <div className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4">
+      {(starLetters?.message || starLetters?.error) && (
+        <p
+          className={`mb-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+            starLetters.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+          }`}
+        >
+          {starLetters.error || starLetters.message}
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {loading ? (
+          <p className="text-xs leading-6 text-slate-400">星文を読み込み中...</p>
+        ) : letters.length === 0 ? (
+          <p className="text-xs leading-6 text-slate-500">まだ星文はありません。</p>
+        ) : (
+          letters.map((letter) => <StarLetterItem key={letter.id} letter={letter} />)
+        )}
+      </div>
+
+      <form className="mt-4 border-t border-white/10 pt-4" onSubmit={onSubmit}>
+        <textarea
+          className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/60 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!starLetters?.canWrite || !starLetters?.hasProfile || saving}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="この流星便に星文を残す"
+          value={draft}
+        />
+        {isOverLimit && (
+          <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+            星文は500文字以内で送ってください
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs leading-5 text-slate-500">
+            {helperText}{" "}
+            <span className={isOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+              {trimmedLength}/{STAR_LETTER_MAX_LENGTH}
+            </span>
+          </p>
+          <button
+            className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canSubmit}
+            type="submit"
+          >
+            {saving ? "送信中..." : "星文を送る"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function StarLetterItem({ letter }) {
+  return (
+    <article className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+      <div className="flex gap-3">
+        <AvatarFrame avatar={letter.avatar} avatarUrl={letter.avatarUrl} className="h-9 w-9 rounded-2xl text-xs" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-sm font-black text-white">{letter.name}</span>
+            <span className="text-xs text-slate-500">{letter.handle}</span>
+            <span className="text-xs text-slate-500">· {letter.time}</span>
+          </div>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">{letter.body}</p>
         </div>
       </div>
     </article>
