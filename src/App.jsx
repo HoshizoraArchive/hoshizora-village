@@ -3493,12 +3493,14 @@ function PostCard({
                     icon="✐"
                     label={isPostEditing ? "編集中" : "編集"}
                     onClick={() => postActions?.onStartEdit?.(post)}
+                    variant="edit"
                   />
                   <ActionButton
                     disabled={isPostDeleting || isPostUpdating || !postActions?.onDelete}
                     icon="×"
                     label={isPostDeleting ? "削除中..." : "削除"}
                     onClick={() => postActions?.onDelete?.(post)}
+                    variant="danger"
                   />
                 </>
               )}
@@ -3654,14 +3656,14 @@ function StarLetterItem({ letter, starLetters }) {
               {isOwner && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
-                    className="min-h-8 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+                    className={`min-h-8 rounded-full border px-3 text-[11px] font-black transition ${getActionButtonTone("edit")}`}
                     onClick={() => starLetters?.onStartEdit?.(letter)}
                     type="button"
                   >
                     編集
                   </button>
                   <button
-                    className="min-h-8 rounded-full border border-sakura/30 bg-sakura/10 px-3 text-[11px] font-black text-sakura transition hover:bg-sakura/15 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={`min-h-8 rounded-full border px-3 text-[11px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${getActionButtonTone("danger")}`}
                     disabled={isDeleting}
                     onClick={() => starLetters?.onDelete?.(letter)}
                     type="button"
@@ -3688,7 +3690,25 @@ function Panel({ eyebrow, title, children }) {
   );
 }
 
-function ActionButton({ active = false, disabled = false, icon, label, onClick }) {
+function getActionButtonTone(variant = "default", active = false) {
+  if (variant === "edit") {
+    return active
+      ? "border-amber-200/60 bg-amber-300/20 text-amber-50 shadow-[0_0_18px_rgba(251,191,36,0.18)]"
+      : "border-amber-300/35 bg-amber-300/10 text-amber-100 shadow-[0_0_14px_rgba(251,191,36,0.08)] hover:border-amber-200/55 hover:bg-amber-300/18 hover:text-white";
+  }
+
+  if (variant === "danger") {
+    return active
+      ? "border-sakura/55 bg-sakura/20 text-rose-50 shadow-[0_0_18px_rgba(255,120,168,0.16)]"
+      : "border-sakura/35 bg-sakura/10 text-sakura shadow-[0_0_14px_rgba(255,120,168,0.08)] hover:border-sakura/55 hover:bg-sakura/16 hover:text-rose-50";
+  }
+
+  return active
+    ? "border-comet/40 bg-comet/15 text-white"
+    : "border-white/10 bg-white/5 hover:border-comet/30 hover:bg-comet/10 hover:text-white";
+}
+
+function ActionButton({ active = false, disabled = false, icon, label, onClick, variant = "default" }) {
   function handleClick(event) {
     event.stopPropagation();
     onClick?.(event);
@@ -3696,11 +3716,10 @@ function ActionButton({ active = false, disabled = false, icon, label, onClick }
 
   return (
     <button
-      className={`flex min-h-9 items-center gap-2 rounded-full border px-3 transition disabled:cursor-not-allowed disabled:opacity-70 ${
-        active
-          ? "border-comet/40 bg-comet/15 text-white"
-          : "border-white/10 bg-white/5 hover:border-comet/30 hover:bg-comet/10 hover:text-white"
-      }`}
+      className={`flex min-h-9 items-center gap-2 rounded-full border px-3 transition disabled:cursor-not-allowed disabled:opacity-70 ${getActionButtonTone(
+        variant,
+        active,
+      )}`}
       disabled={disabled}
       onClick={handleClick}
       type="button"
