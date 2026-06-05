@@ -620,20 +620,6 @@ function App() {
       };
     }
 
-    const existingPost =
-      savedPosts.find((post) => post.id === detailPostId) ??
-      ownPosts.find((post) => post.id === detailPostId) ??
-      archivedPosts.find((post) => post.id === detailPostId);
-
-    if (existingPost) {
-      setDetailPost(existingPost);
-      setDetailPostLoading(false);
-      setDetailPostError("");
-      return () => {
-        isMounted = false;
-      };
-    }
-
     async function readDetailPost() {
       setDetailPostLoading(true);
       setDetailPostError("");
@@ -678,7 +664,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [detailPostId, savedPosts, ownPosts, archivedPosts]);
+  }, [detailPostId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2176,10 +2162,10 @@ function App() {
   const posts = savedPosts;
   const detailPostForScreen =
     detailPostId
-      ? savedPosts.find((post) => post.id === detailPostId) ??
+      ? detailPost ??
+        savedPosts.find((post) => post.id === detailPostId) ??
         ownPosts.find((post) => post.id === detailPostId) ??
-        archivedPosts.find((post) => post.id === detailPostId) ??
-        detailPost
+        archivedPosts.find((post) => post.id === detailPostId)
       : null;
   const meteorDetail = {
     error: detailPostError,
