@@ -86,6 +86,7 @@ MVPの投稿タイプ:
 - `visibility`: `public` または `private`
 - `created_at`: 作成日時
 - `updated_at`: 更新日時
+- `deleted_at`: ソフト削除時刻。通常の一覧では `null` の流星便だけ表示する
 
 RLS方針:
 
@@ -98,6 +99,7 @@ RLS方針:
 - `followers` 公開は初期MVPでは使いません。将来の観測者機能で検討します。
 - `image/audio/video` は `media_url` を必須にしています。
 - `youtube` は `youtube_url` と `youtube_video_id` を必須にしています。
+- 流星便削除MVPでは物理削除せず、`deleted_at` を入れて画面上から非表示にします。共鳴、Archive、星文、通知は保持します。
 
 ### 30秒制限
 
@@ -352,5 +354,7 @@ RLS方針:
 R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
 
 Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
+
+流星便編集・削除MVPでソフト削除を有効にする場合は、`supabase/migrations/20260605_add_post_soft_delete.sql` をSupabase SQL Editorで実行してください。
 
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。
