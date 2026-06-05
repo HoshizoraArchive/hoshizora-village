@@ -10,6 +10,9 @@ const bottomNavItems = [
 ];
 
 const STAR_LETTER_MAX_LENGTH = 500;
+const POST_MAX_LENGTH = 500;
+const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
+const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
 
 const emptyProfileForm = {
   display_name: "",
@@ -52,6 +55,27 @@ function optionalUsername(value) {
 
 function getTrimmedCharacterLength(value) {
   return Array.from(value.trim()).length;
+}
+
+function isMissingDeletedAtError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return error?.code === "42703" || error?.code === "PGRST204" || message.includes("deleted_at");
+}
+
+async function runPostQuery(buildQuery) {
+  const result = await buildQuery(POST_SELECT_COLUMNS_WITH_DELETED_AT, true);
+
+  if (result.error && isMissingDeletedAtError(result.error)) {
+    return {
+      ...(await buildQuery(POST_SELECT_COLUMNS, false)),
+      supportsSoftDelete: false,
+    };
+  }
+
+  return {
+    ...result,
+    supportsSoftDelete: true,
+  };
 }
 
 function getRouteFromLocation() {
@@ -158,8 +182,12 @@ function mapSavedPost(post, authorProfile) {
     badge: "流星便",
     avatar: getAvatarText(displayName),
     avatarUrl: authorProfile?.avatar_url ?? null,
+    createdAt: post.created_at,
+    deletedAt: post.deleted_at ?? null,
     time: formatPostTime(post.created_at),
+    type: post.type,
     text: post.body,
+    visibility: post.visibility,
     tags: ["#流星便", "#観測待ち"],
     resonanceCount: 0,
     comments: "未集計",
@@ -225,6 +253,12 @@ function App() {
   const [postSaving, setPostSaving] = useState(false);
   const [postMessage, setPostMessage] = useState("");
   const [postError, setPostError] = useState("");
+  const [editingPostId, setEditingPostId] = useState(null);
+  const [postEditDrafts, setPostEditDrafts] = useState({});
+  const [postUpdatingId, setPostUpdatingId] = useState(null);
+  const [postDeletingId, setPostDeletingId] = useState(null);
+  const [postActionMessage, setPostActionMessage] = useState("");
+  const [postActionError, setPostActionError] = useState("");
   const [resonanceSavingPostId, setResonanceSavingPostId] = useState(null);
   const [resonanceMessage, setResonanceMessage] = useState("");
   const [resonanceError, setResonanceError] = useState("");
@@ -604,12 +638,9 @@ function App() {
       setDetailPostLoading(true);
       setDetailPostError("");
 
-      const { data: post, error } = await supabase
-        .from("posts")
-        .select("id, author_id, type, body, visibility, created_at")
-        .eq("id", detailPostId)
-        .eq("type", "text")
-        .maybeSingle();
+      const { data: post, error } = await runPostQuery((columns) =>
+        supabase.from("posts").select(columns).eq("id", detailPostId).eq("type", "text").maybeSingle(),
+      );
 
       if (!isMounted) {
         return;
@@ -624,7 +655,7 @@ function App() {
       if (!post) {
         setDetailPost(null);
         setDetailPostLoading(false);
-        setDetailPostError("流星便が見つかりませんでした。");
+        setDetailPostError("この流星便は見つかりませんでした。");
         return;
       }
 
@@ -735,13 +766,15 @@ function App() {
       setOwnPostsLoading(true);
       setOwnPostsError("");
 
-      const { data, error } = await supabase
-        .from("posts")
-        .select("id, author_id, type, body, visibility, created_at")
-        .eq("author_id", userId)
-        .eq("type", "text")
-        .order("created_at", { ascending: false })
-        .limit(30);
+      const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = supabase.from("posts").select(columns).eq("author_id", userId).eq("type", "text");
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query.order("created_at", { ascending: false }).limit(30);
+      });
 
       if (!isMounted) {
         return;
@@ -807,11 +840,15 @@ function App() {
         return;
       }
 
-      const { data: postRows, error: postsError } = await supabase
-        .from("posts")
-        .select("id, author_id, type, body, visibility, created_at")
-        .in("id", postIds)
-        .eq("type", "text");
+      const { data: postRows, error: postsError } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = supabase.from("posts").select(columns).in("id", postIds).eq("type", "text");
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query;
+      });
 
       if (!isMounted) {
         return;
@@ -882,10 +919,15 @@ function App() {
     }
 
     async function readProfileResonanceCount() {
-      const { data: ownPostRows, error: ownPostsError } = await supabase
-        .from("posts")
-        .select("id")
-        .eq("author_id", userId);
+      const { data: ownPostRows, error: ownPostsError } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = supabase.from("posts").select(columns).eq("author_id", userId);
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query;
+      });
 
       if (!isMounted) {
         return;
@@ -999,13 +1041,15 @@ function App() {
       setPostsLoading(true);
       setPostsError("");
 
-      const { data, error } = await supabase
-        .from("posts")
-        .select("id, author_id, type, body, visibility, created_at")
-        .eq("visibility", "public")
-        .eq("type", "text")
-        .order("created_at", { ascending: false })
-        .limit(20);
+      const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = supabase.from("posts").select(columns).eq("visibility", "public").eq("type", "text");
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query.order("created_at", { ascending: false }).limit(20);
+      });
 
       if (!isMounted) {
         return;
@@ -1332,6 +1376,193 @@ function App() {
     setPostDraft("");
     setPostMessage("流星便を放流しました。");
     setActiveTab("observe");
+  }
+
+  function updatePostEverywhere(postId, updater) {
+    setSavedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
+    setOwnPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
+    setArchivedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
+    setDetailPost((currentPost) => (currentPost?.id === postId ? updater(currentPost) : currentPost));
+  }
+
+  function removePostFromVisibleLists(postId) {
+    setSavedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+    setOwnPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+    setArchivedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+  }
+
+  function handleStartPostEdit(post) {
+    setPostActionMessage("");
+    setPostActionError("");
+
+    if (!session?.user?.id) {
+      setPostActionError("ログインすると流星便を編集できます。");
+      return;
+    }
+
+    if (post.authorId !== session.user.id) {
+      setPostActionError("自分の流星便だけ編集できます。");
+      return;
+    }
+
+    if (post.type !== "text") {
+      setPostActionError("MVPではテキスト流星便だけ編集できます。");
+      return;
+    }
+
+    if (post.deletedAt) {
+      setPostActionError("削除済みの流星便は編集できません。");
+      return;
+    }
+
+    setEditingPostId(post.id);
+    setPostEditDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [post.id]: post.text,
+    }));
+  }
+
+  function handleCancelPostEdit(postId) {
+    setPostActionMessage("");
+    setPostActionError("");
+    setEditingPostId(null);
+    setPostEditDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+      delete nextDrafts[postId];
+      return nextDrafts;
+    });
+  }
+
+  function handlePostEditDraftChange(postId, value) {
+    setPostEditDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [postId]: value,
+    }));
+  }
+
+  async function handlePostUpdate(event, post) {
+    event.preventDefault();
+    setPostActionMessage("");
+    setPostActionError("");
+
+    if (!session?.user?.id) {
+      setPostActionError("ログインすると流星便を編集できます。");
+      return;
+    }
+
+    if (post.authorId !== session.user.id) {
+      setPostActionError("自分の流星便だけ編集できます。");
+      return;
+    }
+
+    if (post.type !== "text") {
+      setPostActionError("MVPではテキスト流星便だけ編集できます。");
+      return;
+    }
+
+    if (post.deletedAt) {
+      setPostActionError("削除済みの流星便は編集できません。");
+      return;
+    }
+
+    const body = (postEditDrafts[post.id] ?? "").trim();
+
+    if (!body) {
+      setPostActionError("流星便の本文を入力してください。");
+      return;
+    }
+
+    if (getTrimmedCharacterLength(body) > POST_MAX_LENGTH) {
+      setPostActionError("流星便は500文字以内で放流してください。");
+      return;
+    }
+
+    setPostUpdatingId(post.id);
+
+    const { data, error } = await supabase
+      .from("posts")
+      .update({ body })
+      .eq("id", post.id)
+      .eq("author_id", session.user.id)
+      .select(POST_SELECT_COLUMNS)
+      .single();
+
+    setPostUpdatingId(null);
+
+    if (error) {
+      setPostActionError(error.message);
+      return;
+    }
+
+    const nextBody = data?.body ?? body;
+    updatePostEverywhere(post.id, (currentPost) => ({
+      ...currentPost,
+      text: nextBody,
+    }));
+    handleCancelPostEdit(post.id);
+    setPostActionMessage("流星便を保存しました。");
+  }
+
+  async function handlePostDelete(post) {
+    setPostActionMessage("");
+    setPostActionError("");
+
+    if (!session?.user?.id) {
+      setPostActionError("ログインすると流星便を削除できます。");
+      return;
+    }
+
+    if (post.authorId !== session.user.id) {
+      setPostActionError("自分の流星便だけ削除できます。");
+      return;
+    }
+
+    if (post.deletedAt) {
+      setPostActionError("この流星便はすでに削除されています。");
+      return;
+    }
+
+    const confirmed = window.confirm("この流星便を削除しますか？");
+
+    if (!confirmed) {
+      return;
+    }
+
+    const deletedAt = new Date().toISOString();
+    setPostDeletingId(post.id);
+
+    const { data, error } = await supabase
+      .from("posts")
+      .update({ deleted_at: deletedAt })
+      .eq("id", post.id)
+      .eq("author_id", session.user.id)
+      .select("id, author_id, deleted_at")
+      .single();
+
+    setPostDeletingId(null);
+
+    if (error) {
+      if (isMissingDeletedAtError(error)) {
+        setPostActionError("流星便削除には、Supabase SQL Editorで soft delete migration の実行が必要です。");
+        return;
+      }
+
+      setPostActionError(error.message);
+      return;
+    }
+
+    removePostFromVisibleLists(post.id);
+    setDetailPost((currentPost) =>
+      currentPost?.id === post.id
+        ? {
+            ...currentPost,
+            deletedAt: data?.deleted_at ?? deletedAt,
+          }
+        : currentPost,
+    );
+    setOpenStarLetterPostId((currentPostId) => (currentPostId === post.id ? null : currentPostId));
+    handleCancelPostEdit(post.id);
+    setPostActionMessage("流星便を削除しました。");
   }
 
   async function handleResonance(postId) {
@@ -1889,6 +2120,20 @@ function App() {
     savingPostId: archiveSavingPostId,
     session,
   };
+  const postActions = {
+    deletingId: postDeletingId,
+    editingId: editingPostId,
+    editDrafts: postEditDrafts,
+    error: postActionError,
+    message: postActionMessage,
+    onCancelEdit: handleCancelPostEdit,
+    onDelete: handlePostDelete,
+    onEditChange: handlePostEditDraftChange,
+    onStartEdit: handleStartPostEdit,
+    onUpdate: handlePostUpdate,
+    session,
+    updatingId: postUpdatingId,
+  };
   const notificationState = {
     error: notificationsError,
     items: notifications,
@@ -1965,6 +2210,7 @@ function App() {
           ownPosts={ownPostState}
           profile={profileState}
           archive={archiveState}
+          postActions={postActions}
           resonance={resonance}
           notifications={notificationState}
           starLetters={starLetters}
@@ -2036,6 +2282,7 @@ function TabContent({
   notifications,
   onOpenMeteorDetail,
   ownPosts,
+  postActions,
   posts,
   postsError,
   postsLoading,
@@ -2049,6 +2296,7 @@ function TabContent({
       <MeteorDetailScreen
         archive={archive}
         detail={meteorDetail}
+        postActions={postActions}
         resonance={resonance}
         starLetters={starLetters}
       />
@@ -2068,6 +2316,7 @@ function TabContent({
       <ArchiveScreen
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        postActions={postActions}
         resonance={resonance}
         starLetters={starLetters}
       />
@@ -2081,6 +2330,7 @@ function TabContent({
         auth={auth}
         ownPosts={ownPosts}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        postActions={postActions}
         profile={profile}
         resonance={resonance}
         starLetters={starLetters}
@@ -2091,6 +2341,7 @@ function TabContent({
   return (
     <ObserveScreen
       archive={archive}
+      postActions={postActions}
       posts={posts}
       postsError={postsError}
       postsLoading={postsLoading}
@@ -2101,12 +2352,13 @@ function TabContent({
   );
 }
 
-function ObserveScreen({ archive, onOpenMeteorDetail, posts, postsError, postsLoading, resonance, starLetters }) {
+function ObserveScreen({ archive, onOpenMeteorDetail, postActions, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
       <Timeline
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        postActions={postActions}
         posts={posts}
         postsError={postsError}
         postsLoading={postsLoading}
@@ -2148,8 +2400,9 @@ function PlaceholderScreen({ eyebrow, title, text, note }) {
   );
 }
 
-function MeteorDetailScreen({ archive, detail, resonance, starLetters }) {
+function MeteorDetailScreen({ archive, detail, postActions, resonance, starLetters }) {
   const post = detail.post;
+  const isDeleted = Boolean(post?.deletedAt);
 
   return (
     <main className="mx-auto max-w-3xl">
@@ -2184,16 +2437,33 @@ function MeteorDetailScreen({ archive, detail, resonance, starLetters }) {
           </p>
         )}
 
-        {!detail.loading && !detail.error && !post ? (
+        {postActions?.message || postActions?.error ? (
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              postActions.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {postActions.error || postActions.message}
+          </p>
+        ) : null}
+
+        {isDeleted ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
-            流星便が見つかりませんでした。
+            この流星便は削除されました。
           </div>
         ) : null}
 
-        {post ? (
+        {!detail.loading && !detail.error && !post ? (
+          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+            この流星便は見つかりませんでした。
+          </div>
+        ) : null}
+
+        {post && !isDeleted ? (
           <PostCard
             archive={archive}
             detailMode
+            postActions={postActions}
             post={post}
             resonance={resonance}
             showStarLetters
@@ -2291,7 +2561,7 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ archive, auth, onOpenMeteorDetail, ownPosts, profile, resonance, starLetters }) {
+function ProfileScreen({ archive, auth, onOpenMeteorDetail, ownPosts, postActions, profile, resonance, starLetters }) {
   if (profile.profileScreenMode === "edit") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -2315,6 +2585,7 @@ function ProfileScreen({ archive, auth, onOpenMeteorDetail, ownPosts, profile, r
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
         ownPosts={ownPosts}
+        postActions={postActions}
         resonance={resonance}
         starLetters={starLetters}
       />
@@ -2322,13 +2593,23 @@ function ProfileScreen({ archive, auth, onOpenMeteorDetail, ownPosts, profile, r
   );
 }
 
-function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, resonance, starLetters }) {
+function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, postActions, resonance, starLetters }) {
   if (!ownPosts.session) {
     return null;
   }
 
   return (
     <Panel title="わたしの流星便" eyebrow="my meteor letters">
+      {postActions?.message || postActions?.error ? (
+        <p
+          className={`mb-3 rounded-2xl border px-4 py-3 text-xs leading-5 ${
+            postActions.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+          }`}
+        >
+          {postActions.error || postActions.message}
+        </p>
+      ) : null}
+
       {ownPosts.loading || ownPosts.error ? (
         <p
           className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
@@ -2348,6 +2629,7 @@ function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, resonance, starL
               archive={archive}
               key={post.id ?? post.handle}
               onOpenDetail={onOpenMeteorDetail}
+              postActions={postActions}
               post={post}
               resonance={resonance}
               starLetters={starLetters}
@@ -2359,7 +2641,7 @@ function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, resonance, starL
   );
 }
 
-function ArchiveScreen({ archive, onOpenMeteorDetail, resonance, starLetters }) {
+function ArchiveScreen({ archive, onOpenMeteorDetail, postActions, resonance, starLetters }) {
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel mb-4 p-5 sm:p-6">
@@ -2386,6 +2668,16 @@ function ArchiveScreen({ archive, onOpenMeteorDetail, resonance, starLetters }) 
             </p>
           )}
 
+          {postActions?.message || postActions?.error ? (
+            <p
+              className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+                postActions.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+              }`}
+            >
+              {postActions.error || postActions.message}
+            </p>
+          ) : null}
+
           {!archive.loading && !archive.error && archive.items.length === 0 ? (
             <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
               まだArchiveされた流星便はありません。
@@ -2396,6 +2688,7 @@ function ArchiveScreen({ archive, onOpenMeteorDetail, resonance, starLetters }) 
                 archive={archive}
                 key={post.archiveId ?? post.id}
                 onOpenDetail={onOpenMeteorDetail}
+                postActions={postActions}
                 post={post}
                 resonance={resonance}
                 starLetters={starLetters}
@@ -2911,7 +3204,7 @@ function AuthPanel({ auth }) {
   );
 }
 
-function Timeline({ archive, onOpenMeteorDetail, posts, postsError, postsLoading, resonance, starLetters }) {
+function Timeline({ archive, onOpenMeteorDetail, postActions, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <section className="mx-auto max-w-3xl">
       {(postsLoading || postsError) && (
@@ -2962,6 +3255,18 @@ function Timeline({ archive, onOpenMeteorDetail, posts, postsError, postsLoading
         </div>
       )}
 
+      {(postActions?.message || postActions?.error) && (
+        <div className="px-3 pt-4 sm:px-5">
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              postActions.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {postActions.error || postActions.message}
+          </p>
+        </div>
+      )}
+
       <div className="space-y-5 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
@@ -2973,6 +3278,7 @@ function Timeline({ archive, onOpenMeteorDetail, posts, postsError, postsLoading
               archive={archive}
               key={post.id ?? post.handle}
               onOpenDetail={onOpenMeteorDetail}
+              postActions={postActions}
               post={post}
               resonance={resonance}
               starLetters={starLetters}
@@ -3037,11 +3343,28 @@ function Composer({ composer }) {
   );
 }
 
-function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, showStarLetters = false, starLetters }) {
+function PostCard({
+  archive,
+  detailMode = false,
+  onOpenDetail,
+  post,
+  postActions,
+  resonance,
+  showStarLetters = false,
+  starLetters,
+}) {
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
   const isArchiveSaving = archive?.savingPostId === post.id;
   const isArchived = archive?.archivedPostIds?.includes(post.id);
+  const isOwnPost = postActions?.session?.user?.id === post.authorId;
+  const isPostEditing = postActions?.editingId === post.id;
+  const postEditDraft = postActions?.editDrafts?.[post.id] ?? post.text;
+  const postEditLength = getTrimmedCharacterLength(postEditDraft);
+  const isPostEditOverLimit = postEditLength > POST_MAX_LENGTH;
+  const isPostUpdating = postActions?.updatingId === post.id;
+  const isPostDeleting = postActions?.deletingId === post.id;
+  const canSavePostEdit = Boolean(postEditDraft.trim()) && !isPostEditOverLimit && !isPostUpdating;
   const postStarLetters = starLetters?.itemsByPostId?.[post.id] ?? [];
   const isStarLettersOpen = showStarLetters || starLetters?.openPostId === post.id;
   const isStarLetterSaving = starLetters?.savingPostId === post.id;
@@ -3099,9 +3422,55 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
             {post.archivedTime && (
               <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
             )}
-            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 leading-8 text-slate-100`}>
-              {post.text}
-            </p>
+            {isPostEditing ? (
+              <form
+                className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3"
+                data-card-action="true"
+                onSubmit={(event) => postActions?.onUpdate?.(event, post)}
+              >
+                <textarea
+                  className="min-h-28 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isPostUpdating}
+                  maxLength={POST_MAX_LENGTH + 1}
+                  onChange={(event) => postActions?.onEditChange?.(post.id, event.target.value)}
+                  placeholder="流星便の本文を編集する"
+                  value={postEditDraft}
+                />
+                {isPostEditOverLimit && (
+                  <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+                    流星便は500文字以内で放流してください
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs leading-5 text-slate-500">
+                    <span className={isPostEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+                      {postEditLength}/{POST_MAX_LENGTH}
+                    </span>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={isPostUpdating}
+                      onClick={() => postActions?.onCancelEdit?.(post.id)}
+                      type="button"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!canSavePostEdit}
+                      type="submit"
+                    >
+                      {isPostUpdating ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            ) : (
+              <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
+                {post.text}
+              </p>
+            )}
             <div className="mt-4 flex flex-wrap gap-2">
               {post.tags.map((tag) => (
                 <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
@@ -3130,6 +3499,23 @@ function PostCard({ archive, detailMode = false, onOpenDetail, post, resonance, 
                 label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
                 onClick={() => archive?.onToggleArchive?.(post.id)}
               />
+              {isOwnPost && !post.deletedAt && (
+                <>
+                  <ActionButton
+                    active={isPostEditing}
+                    disabled={isPostUpdating || isPostDeleting || !postActions?.onStartEdit}
+                    icon="✐"
+                    label={isPostEditing ? "編集中" : "編集"}
+                    onClick={() => postActions?.onStartEdit?.(post)}
+                  />
+                  <ActionButton
+                    disabled={isPostDeleting || isPostUpdating || !postActions?.onDelete}
+                    icon="×"
+                    label={isPostDeleting ? "削除中..." : "削除"}
+                    onClick={() => postActions?.onDelete?.(post)}
+                  />
+                </>
+              )}
             </div>
             {isStarLettersOpen && (
               <StarLettersPanel
