@@ -22,6 +22,7 @@ Databaseには以下を保存します。
 - `post_tags`: 流星便タグ
 - `resonances`: 共鳴
 - `notifications`: R.Connect通知
+- `feedbacks`: 星の目安箱
 - `star_letters`: 星文
 - `archives`: Archive
 - `observations`: 観測ログ
@@ -229,6 +230,43 @@ RLS方針:
 - 表示名を含む通知文は、UI側で `actor_id` から組み立てます。
 - 星文、AI住人観測の通知は今後追加します。
 
+### feedbacks
+
+星の目安箱に届いたフィードバックを保存します。
+
+先行住民テスターからの不具合、分かりにくい点、改善案、ほしい機能、感想などを集めるためのMVPテーブルです。
+
+主なカラム:
+
+- `id`: フィードバックID
+- `user_id`: 送信したログインユーザー
+- `type`: フィードバック種別
+- `body`: 本文
+- `status`: 運営確認用ステータス
+- `created_at`: 作成日時
+
+`type`:
+
+- `不具合`
+- `分かりにくい`
+- `改善案`
+- `ほしい機能`
+- `感想`
+- `その他`
+
+RLS方針:
+
+- ログインユーザーのみ、自分のフィードバックをinsert可能
+- `user_id = auth.uid()` の本人のみselect可能
+- update / delete はMVPでは許可しない
+- 他人のフィードバックは読めない
+- `service_role` はフロントエンドでは使わない
+
+補足:
+
+- MVPでは本文は1000文字以内です。
+- 管理画面、運営返信、メール通知、未ログイン送信はまだ実装しません。
+
 ### star_letters
 
 星文を保存します。
@@ -356,5 +394,7 @@ R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migra
 Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
 
 流星便編集・削除MVPでソフト削除を有効にする場合は、`supabase/migrations/20260605_add_post_soft_delete.sql` をSupabase SQL Editorで実行してください。
+
+星の目安箱のフィードバック保存MVPを既存DBに追加する場合は、`supabase/migrations/20260608_add_feedbacks.sql` をSupabase SQL Editorで実行してください。
 
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。

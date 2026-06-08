@@ -10,7 +10,9 @@ const bottomNavItems = [
 ];
 
 const STAR_LETTER_MAX_LENGTH = 500;
+const FEEDBACK_MAX_LENGTH = 1000;
 const POST_MAX_LENGTH = 500;
+const FEEDBACK_TYPES = ["不具合", "分かりにくい", "改善案", "ほしい機能", "感想", "その他"];
 const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
 const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
 
@@ -283,6 +285,11 @@ function App() {
   const [starLetterEditDrafts, setStarLetterEditDrafts] = useState({});
   const [starLetterUpdatingId, setStarLetterUpdatingId] = useState(null);
   const [starLetterDeletingId, setStarLetterDeletingId] = useState(null);
+  const [feedbackType, setFeedbackType] = useState(FEEDBACK_TYPES[0]);
+  const [feedbackBody, setFeedbackBody] = useState("");
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackError, setFeedbackError] = useState("");
   const detailPostId = route.name === "meteor" ? route.postId : null;
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
@@ -1184,6 +1191,14 @@ function App() {
     setProfileScreenMode("settings");
   }
 
+  function handleOpenFeedback() {
+    setFeedbackMessage("");
+    setFeedbackError("");
+    setProfileMessage("");
+    setProfileError("");
+    setProfileScreenMode("feedback");
+  }
+
   function handleBackToProfile() {
     setProfileMessage("");
     setProfileError("");
@@ -1312,6 +1327,48 @@ function App() {
       Boolean(profileForm.notify_authors_when_i_resonate),
       "共鳴通知",
     );
+  }
+
+  async function handleFeedbackSubmit(event) {
+    event.preventDefault();
+    setFeedbackMessage("");
+    setFeedbackError("");
+
+    if (!session?.user?.id) {
+      setFeedbackError("ログインするとフィードバックを送れます。");
+      return;
+    }
+
+    const body = feedbackBody.trim();
+
+    if (!body) {
+      setFeedbackError("内容を入力してください。");
+      return;
+    }
+
+    if (getTrimmedCharacterLength(body) > FEEDBACK_MAX_LENGTH) {
+      setFeedbackError("フィードバックは1000文字以内で送ってください。");
+      return;
+    }
+
+    setFeedbackSaving(true);
+
+    const { error } = await supabase.from("feedbacks").insert({
+      user_id: session.user.id,
+      type: feedbackType,
+      body,
+      status: "new",
+    });
+
+    setFeedbackSaving(false);
+
+    if (error) {
+      setFeedbackError(error.message);
+      return;
+    }
+
+    setFeedbackBody("");
+    setFeedbackMessage("フィードバックを送信しました。ありがとうございます。");
   }
 
   async function handlePostSubmit(event) {
@@ -2072,6 +2129,7 @@ function App() {
     onChange: handleProfileFieldChange,
     onBackToProfile: handleBackToProfile,
     onCancelEdit: handleCancelProfileEdit,
+    onOpenFeedback: handleOpenFeedback,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
     onStartEdit: handleStartProfileEdit,
@@ -2079,6 +2137,20 @@ function App() {
     resonanceCount: profileResonanceCount,
     saving: profileSaving,
     profileScreenMode,
+  };
+  const feedback = {
+    body: feedbackBody,
+    error: feedbackError,
+    maxLength: FEEDBACK_MAX_LENGTH,
+    message: feedbackMessage,
+    onBack: handleBackToProfile,
+    onBodyChange: setFeedbackBody,
+    onSubmit: handleFeedbackSubmit,
+    onTypeChange: setFeedbackType,
+    saving: feedbackSaving,
+    session,
+    type: feedbackType,
+    types: FEEDBACK_TYPES,
   };
   const composer = {
     canPost: Boolean(session),
@@ -2190,6 +2262,7 @@ function App() {
           activeTab={activeTab}
           auth={auth}
           composer={composer}
+          feedback={feedback}
           posts={posts}
           postsError={postsError}
           postsLoading={postsLoading}
@@ -2264,6 +2337,7 @@ function TabContent({
   archive,
   auth,
   composer,
+  feedback,
   meteorDetail,
   notifications,
   onOpenMeteorDetail,
@@ -2314,6 +2388,7 @@ function TabContent({
       <ProfileScreen
         archive={archive}
         auth={auth}
+        feedback={feedback}
         ownPosts={ownPosts}
         onOpenMeteorDetail={onOpenMeteorDetail}
         postActions={postActions}
@@ -2547,7 +2622,7 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ archive, auth, onOpenMeteorDetail, ownPosts, postActions, profile, resonance, starLetters }) {
+function ProfileScreen({ archive, auth, feedback, onOpenMeteorDetail, ownPosts, postActions, profile, resonance, starLetters }) {
   if (profile.profileScreenMode === "edit") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -2560,6 +2635,14 @@ function ProfileScreen({ archive, auth, onOpenMeteorDetail, ownPosts, postAction
     return (
       <main className="mx-auto max-w-2xl">
         <SettingsPanel auth={auth} onBack={profile.onBackToProfile} profile={profile} />
+      </main>
+    );
+  }
+
+  if (profile.profileScreenMode === "feedback") {
+    return (
+      <main className="mx-auto max-w-2xl">
+        <FeedbackScreen feedback={feedback} />
       </main>
     );
   }
@@ -2726,6 +2809,16 @@ function SettingsPanel({ auth, onBack, profile }) {
           戻る
         </button>
         <p>基本設定は今後ここから調整できるようにします。</p>
+        <button
+          className="w-full rounded-2xl border border-comet/20 bg-comet/10 px-4 py-4 text-left transition hover:border-comet/35 hover:bg-comet/15"
+          onClick={profile.onOpenFeedback}
+          type="button"
+        >
+          <span className="block text-sm font-black text-white">星の目安箱</span>
+          <span className="mt-1 block text-xs leading-6 text-slate-400">
+            不具合、感想、改善案を星空Villageへ送れます。
+          </span>
+        </button>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           <p className="text-xs font-black text-comet">ログイン状態</p>
           <p className="mt-1 text-slate-300">{auth.status}</p>
@@ -2773,6 +2866,97 @@ function SettingsPanel({ auth, onBack, profile }) {
             {auth.loading ? "処理中..." : "ログアウト"}
           </button>
         )}
+      </div>
+    </Panel>
+  );
+}
+
+function FeedbackScreen({ feedback }) {
+  const trimmedLength = getTrimmedCharacterLength(feedback.body);
+  const isOverLimit = trimmedLength > feedback.maxLength;
+  const canSubmit = Boolean(feedback.session) && feedback.body.trim() && !isOverLimit && !feedback.saving;
+
+  return (
+    <Panel title="星の目安箱" eyebrow="feedback">
+      <div className="space-y-4">
+        <button
+          className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={feedback.saving}
+          onClick={feedback.onBack}
+          type="button"
+        >
+          戻る
+        </button>
+
+        <p className="text-sm leading-7 text-slate-300">
+          星空Villageを一緒に育てるための感想・不具合・改善案を送れます。
+        </p>
+
+        {!feedback.session && (
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
+            ログインするとフィードバックを送れます。
+          </div>
+        )}
+
+        <form className="space-y-4 rounded-2xl border border-white/10 bg-night-950/35 p-4" onSubmit={feedback.onSubmit}>
+          <label className="block text-xs font-bold text-slate-400">
+            種別
+            <select
+              className="mt-1 min-h-10 w-full rounded-2xl border border-white/10 bg-night-950/70 px-3 text-sm text-white outline-none focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!feedback.session || feedback.saving}
+              onChange={(event) => feedback.onTypeChange(event.target.value)}
+              value={feedback.type}
+            >
+              {feedback.types.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-bold text-slate-400">
+            本文
+            <textarea
+              className="mt-1 min-h-36 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 px-3 py-3 text-sm leading-7 text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!feedback.session || feedback.saving}
+              onChange={(event) => feedback.onBodyChange(event.target.value)}
+              placeholder="気づいたこと、困ったこと、ほしい機能など"
+              value={feedback.body}
+            />
+          </label>
+
+          {isOverLimit && (
+            <p className="rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+              フィードバックは1000文字以内で送ってください。
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs leading-5 text-slate-500">
+              <span className={isOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+                {trimmedLength}/{feedback.maxLength}
+              </span>
+            </p>
+            <button
+              className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canSubmit}
+              type="submit"
+            >
+              {feedback.saving ? "送信中..." : "送信する"}
+            </button>
+          </div>
+
+          {(feedback.message || feedback.error) && (
+            <p
+              className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${
+                feedback.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+              }`}
+            >
+              {feedback.error || feedback.message}
+            </p>
+          )}
+        </form>
       </div>
     </Panel>
   );
