@@ -53,6 +53,7 @@ create table if not exists public.posts (
   visibility text not null default 'public' check (visibility in ('public', 'private')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
   constraint posts_body_or_media_present check (
     char_length(trim(body)) > 0
     or media_url is not null
@@ -75,6 +76,7 @@ comment on column public.posts.type is 'MVPでは text, image, audio, video, you
 comment on column public.posts.visibility is 'MVPでは public/private のみ。followers は将来の観測者機能で検討する。';
 comment on column public.posts.duration_seconds is 'audio/video の長さ。DBでは30秒以下を制約するが、クライアント側とサーバー側でも検証する。';
 comment on column public.posts.media_url is 'image/audio/video のファイルURL。Storage実装前は外部URLまたは将来の保存先を想定する。';
+comment on column public.posts.deleted_at is '流星便のソフト削除時刻。null のものだけ通常一覧に表示する。';
 
 -- profile_tags: わたしの星座.
 create table if not exists public.profile_tags (
@@ -358,6 +360,8 @@ create index if not exists profiles_username_idx on public.profiles(username);
 create index if not exists posts_author_id_idx on public.posts(author_id);
 create index if not exists posts_type_idx on public.posts(type);
 create index if not exists posts_visibility_created_at_idx on public.posts(visibility, created_at desc);
+create index if not exists posts_deleted_at_idx on public.posts(deleted_at);
+create index if not exists posts_visibility_deleted_created_at_idx on public.posts(visibility, deleted_at, created_at desc);
 create index if not exists profile_tags_profile_id_idx on public.profile_tags(profile_id);
 create index if not exists post_tags_post_id_idx on public.post_tags(post_id);
 create index if not exists post_tags_label_idx on public.post_tags(label);
