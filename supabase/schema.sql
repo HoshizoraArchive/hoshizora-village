@@ -132,6 +132,26 @@ comment on column public.notifications.actor_id is '通知のきっかけを作�
 comment on column public.notifications.type is '通知タイプ。MVPでは resonance と archive を許可する。';
 comment on column public.notifications.is_read is '既読状態。本人だけが更新できる。';
 
+-- feedbacks: 星の目安箱.
+-- Logged-in beta testers can send and read only their own feedback.
+create table if not exists public.feedbacks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  type text not null check (type in ('不具合', '分かりにくい', '改善案', 'ほしい機能', '感想', 'その他')),
+  body text not null check (
+    char_length(trim(body)) > 0
+    and char_length(trim(body)) <= 1000
+  ),
+  status text not null default 'new' check (status in ('new')),
+  created_at timestamptz not null default now()
+);
+
+comment on table public.feedbacks is '星の目安箱。先行住民テスターから届いた不具合、感想、改善案を保存する。';
+comment on column public.feedbacks.user_id is 'フィードバックを送ったログインユーザー。ユーザー削除時はnullになる。';
+comment on column public.feedbacks.type is 'フィードバック種別。不具合、分かりにくい、改善案、ほしい機能、感想、その他。';
+comment on column public.feedbacks.body is 'フィードバック本文。MVPでは1000文字以内。';
+comment on column public.feedbacks.status is '運営確認用ステータス。MVPではnewのみ。';
+
 -- star_letters: 星文.
 create table if not exists public.star_letters (
   id uuid primary key default gen_random_uuid(),
@@ -348,6 +368,8 @@ create index if not exists notifications_recipient_created_at_idx on public.noti
 create index if not exists notifications_recipient_is_read_idx on public.notifications(recipient_id, is_read);
 create index if not exists notifications_actor_id_idx on public.notifications(actor_id);
 create index if not exists notifications_post_id_idx on public.notifications(post_id);
+create index if not exists feedbacks_user_created_at_idx on public.feedbacks(user_id, created_at desc);
+create index if not exists feedbacks_status_created_at_idx on public.feedbacks(status, created_at desc);
 create index if not exists star_letters_post_id_idx on public.star_letters(post_id);
 create index if not exists star_letters_author_id_idx on public.star_letters(author_id);
 create index if not exists archives_profile_id_idx on public.archives(profile_id);
@@ -368,6 +390,7 @@ alter table public.profile_tags enable row level security;
 alter table public.post_tags enable row level security;
 alter table public.resonances enable row level security;
 alter table public.notifications enable row level security;
+alter table public.feedbacks enable row level security;
 alter table public.star_letters enable row level security;
 alter table public.archives enable row level security;
 alter table public.observations enable row level security;
@@ -519,6 +542,21 @@ create policy notifications_update_read_own on public.notifications
 for update to authenticated
 using (recipient_id = auth.uid())
 with check (recipient_id = auth.uid());
+
+-- feedbacks:
+-- Logged-in users can send feedback and read only their own rows.
+revoke all on table public.feedbacks from anon, authenticated;
+grant select, insert on table public.feedbacks to authenticated;
+
+drop policy if exists feedbacks_select_own on public.feedbacks;
+create policy feedbacks_select_own on public.feedbacks
+for select to authenticated
+using (user_id = auth.uid());
+
+drop policy if exists feedbacks_insert_own on public.feedbacks;
+create policy feedbacks_insert_own on public.feedbacks
+for insert to authenticated
+with check (user_id = auth.uid());
 
 -- star_letters:
 -- Logged-in users can leave 星文 on visible posts.
