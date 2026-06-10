@@ -205,6 +205,38 @@ function findFirstYouTubeVideoId(text) {
   return null;
 }
 
+function getSunoUrl(rawUrl) {
+  const safeUrl = getSafeLinkUrl(rawUrl);
+
+  if (!safeUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(safeUrl);
+    const hostname = url.hostname.toLowerCase();
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const isSunoHost = hostname === "suno.com" || hostname === "www.suno.com";
+    const isSupportedPath = (pathParts[0] === "s" || pathParts[0] === "song") && Boolean(pathParts[1]);
+
+    return isSunoHost && isSupportedPath ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function findFirstSunoUrl(text) {
+  for (const match of String(text ?? "").matchAll(URL_PATTERN)) {
+    const sunoUrl = getSunoUrl(getCleanMatchedUrl(match[0]));
+
+    if (sunoUrl) {
+      return sunoUrl;
+    }
+  }
+
+  return null;
+}
+
 function formatNotificationTime(createdAt) {
   const date = new Date(createdAt);
 
@@ -4066,6 +4098,43 @@ function YouTubeEmbed({ videoId }) {
   );
 }
 
+function SunoLinkCard({ url }) {
+  if (!url) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-4 overflow-hidden rounded-2xl border border-aurora/25 bg-gradient-to-br from-night-950/75 via-comet/10 to-aurora/15 p-3 shadow-[0_18px_55px_rgba(3,7,18,0.24)]"
+      data-card-action="true"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="flex items-start gap-3">
+        <div className="grid h-10 w-10 flex-none place-items-center rounded-2xl border border-comet/25 bg-comet/10 text-lg font-black text-comet shadow-[0_0_18px_rgba(125,223,255,0.12)]">
+          ♪
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-black text-comet">Sunoで音楽を聴く</p>
+          <p className="mt-1 text-xs leading-5 text-slate-300">この流星便にはSunoの楽曲リンクがあります。</p>
+          <a
+            className="mt-3 inline-flex min-h-9 items-center justify-center rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01]"
+            href={url}
+            onClick={(event) => event.stopPropagation()}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Sunoで開く
+          </a>
+        </div>
+        <span className="text-sm text-aurora/70" aria-hidden="true">
+          ✦
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function Timeline({ archive, onOpenMeteorDetail, postActions, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <section className="mx-auto max-w-3xl">
@@ -4231,6 +4300,7 @@ function PostCard({
   const postStarLetters = starLetters?.itemsByPostId?.[post.id] ?? [];
   const isStarLettersOpen = showStarLetters || starLetters?.openPostId === post.id;
   const isStarLetterSaving = starLetters?.savingPostId === post.id;
+  const sunoUrl = !isPostEditing ? findFirstSunoUrl(post.text) : null;
   const resonanceLabel = `${resonanceCount} 共鳴`;
   const starLetterLabel = `星文 ${postStarLetters.length}`;
   const canOpenDetail = Boolean(onOpenDetail && post.id && !detailMode);
@@ -4335,6 +4405,7 @@ function PostCard({
                   <LinkedText>{post.text}</LinkedText>
                 </p>
                 <YouTubeEmbed videoId={youtubeVideoId} />
+                <SunoLinkCard url={sunoUrl} />
               </>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
