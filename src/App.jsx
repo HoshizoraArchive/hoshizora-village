@@ -83,23 +83,39 @@ async function runPostQuery(buildQuery) {
 }
 
 function getRouteFromLocation() {
-  const match = window.location.pathname.match(/^\/meteor\/([^/?#]+)\/?$/);
+  const meteorMatch = window.location.pathname.match(/^\/meteor\/([^/?#]+)\/?$/);
 
-  if (match?.[1]) {
+  if (meteorMatch?.[1]) {
     return {
       name: "meteor",
-      postId: decodeURIComponent(match[1]),
+      postId: decodeURIComponent(meteorMatch[1]),
+      username: null,
+    };
+  }
+
+  const starMatch = window.location.pathname.match(/^\/stars\/([^/?#]+)\/?$/);
+
+  if (starMatch?.[1]) {
+    return {
+      name: "starProfile",
+      postId: null,
+      username: decodeURIComponent(starMatch[1]).replace(/^@/, ""),
     };
   }
 
   return {
     name: "home",
     postId: null,
+    username: null,
   };
 }
 
 function buildMeteorPath(postId) {
   return `/meteor/${encodeURIComponent(postId)}`;
+}
+
+function buildStarProfilePath(username) {
+  return `/stars/${encodeURIComponent(String(username ?? "").replace(/^@/, ""))}`;
 }
 
 function getAvatarText(value) {
@@ -294,8 +310,15 @@ function App() {
   const [detailPost, setDetailPost] = useState(null);
   const [detailPostLoading, setDetailPostLoading] = useState(false);
   const [detailPostError, setDetailPostError] = useState("");
+  const [publicProfile, setPublicProfile] = useState(null);
+  const [publicProfileTags, setPublicProfileTags] = useState([]);
+  const [publicProfilePosts, setPublicProfilePosts] = useState([]);
+  const [publicProfileLoading, setPublicProfileLoading] = useState(false);
+  const [publicProfileError, setPublicProfileError] = useState("");
   const [shareMessage, setShareMessage] = useState("");
   const [shareError, setShareError] = useState("");
+  const [profileShareMessage, setProfileShareMessage] = useState("");
+  const [profileShareError, setProfileShareError] = useState("");
   const [session, setSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("確認中");
   const [authLoading, setAuthLoading] = useState(false);
@@ -355,12 +378,14 @@ function App() {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackError, setFeedbackError] = useState("");
   const detailPostId = route.name === "meteor" ? route.postId : null;
+  const publicProfileUsername = route.name === "starProfile" ? route.username : null;
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
   const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
+  const publicProfilePostIdsKey = publicProfilePosts.map((post) => post.id).filter(Boolean).join("|");
   const allPostIdsKey = [
     ...new Set(
-      [...savedPosts, ...ownPosts, ...archivedPosts, detailPost]
+      [...savedPosts, ...ownPosts, ...archivedPosts, ...publicProfilePosts, detailPost]
         .filter(Boolean)
         .map((post) => post.id)
         .filter(Boolean),
@@ -372,6 +397,8 @@ function App() {
       setRoute(getRouteFromLocation());
       setShareMessage("");
       setShareError("");
+      setProfileShareMessage("");
+      setProfileShareError("");
     }
 
     window.addEventListener("popstate", handlePopState);
@@ -545,6 +572,47 @@ function App() {
       isMounted = false;
     };
   }, [archivedPostIdsKey]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const postIds = publicProfilePostIdsKey ? publicProfilePostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readPublicProfilePostResonances() {
+      const { data, error } = await supabase
+        .from("resonances")
+        .select("id, post_id, profile_id")
+        .in("post_id", postIds);
+
+      if (!isMounted || error) {
+        return;
+      }
+
+      const countsByPost = new Map();
+
+      for (const resonance of data ?? []) {
+        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
+      }
+
+      setPublicProfilePosts((currentPosts) =>
+        currentPosts.map((post) => ({
+          ...post,
+          resonanceCount: countsByPost.get(post.id) ?? 0,
+        })),
+      );
+    }
+
+    readPublicProfilePostResonances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [publicProfilePostIdsKey]);
 
   useEffect(() => {
     let isMounted = true;
@@ -736,6 +804,105 @@ function App() {
       isMounted = false;
     };
   }, [detailPostId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!publicProfileUsername) {
+      setPublicProfile(null);
+      setPublicProfileTags([]);
+      setPublicProfilePosts([]);
+      setPublicProfileLoading(false);
+      setPublicProfileError("");
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readPublicProfile() {
+      setPublicProfileLoading(true);
+      setPublicProfileError("");
+      setProfileShareMessage("");
+      setProfileShareError("");
+
+      const { data: profileRow, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, display_name, username, avatar_url, bio, constellation_note")
+        .eq("username", publicProfileUsername)
+        .maybeSingle();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (profileError) {
+        setPublicProfile(null);
+        setPublicProfileTags([]);
+        setPublicProfilePosts([]);
+        setPublicProfileLoading(false);
+        setPublicProfileError(profileError.message);
+        return;
+      }
+
+      if (!profileRow) {
+        setPublicProfile(null);
+        setPublicProfileTags([]);
+        setPublicProfilePosts([]);
+        setPublicProfileLoading(false);
+        setPublicProfileError("not-found");
+        return;
+      }
+
+      const { data: tagRows } = await supabase
+        .from("profile_tags")
+        .select("id, label, kind, created_at")
+        .eq("profile_id", profileRow.id)
+        .order("created_at", { ascending: true });
+
+      if (!isMounted) {
+        return;
+      }
+
+      const { data: postRows, error: postsError } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = supabase
+          .from("posts")
+          .select(columns)
+          .eq("author_id", profileRow.id)
+          .eq("visibility", "public")
+          .eq("type", "text");
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query.order("created_at", { ascending: false }).limit(30);
+      });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (postsError) {
+        setPublicProfile(profileRow);
+        setPublicProfileTags(tagRows ?? []);
+        setPublicProfilePosts([]);
+        setPublicProfileLoading(false);
+        setPublicProfileError(postsError.message);
+        return;
+      }
+
+      setPublicProfile(profileRow);
+      setPublicProfileTags(tagRows ?? []);
+      setPublicProfilePosts((postRows ?? []).map((post) => mapSavedPost(post, profileRow)));
+      setPublicProfileLoading(false);
+    }
+
+    readPublicProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [publicProfileUsername]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2117,10 +2284,29 @@ function App() {
       window.history.pushState({ hoshizoraRoute: "meteor" }, "", nextPath);
     }
 
-    setRoute({ name: "meteor", postId });
+    setRoute({ name: "meteor", postId, username: null });
     setShareMessage("");
     setShareError("");
     setOpenStarLetterPostId(postId);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleOpenStarProfile(username) {
+    if (!username) {
+      return;
+    }
+
+    const nextPath = buildStarProfilePath(username);
+
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ hoshizoraRoute: "starProfile" }, "", nextPath);
+    }
+
+    setRoute({ name: "starProfile", postId: null, username: String(username).replace(/^@/, "") });
+    setShareMessage("");
+    setShareError("");
+    setProfileShareMessage("");
+    setProfileShareError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -2134,7 +2320,22 @@ function App() {
     }
 
     window.history.replaceState({}, "", "/");
-    setRoute({ name: "home", postId: null });
+    setRoute({ name: "home", postId: null, username: null });
+    setActiveTab("observe");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleBackFromStarProfile() {
+    setProfileShareMessage("");
+    setProfileShareError("");
+
+    if (window.history.state?.hoshizoraRoute === "starProfile") {
+      window.history.back();
+      return;
+    }
+
+    window.history.replaceState({}, "", "/");
+    setRoute({ name: "home", postId: null, username: null });
     setActiveTab("observe");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -2168,10 +2369,39 @@ function App() {
     }
   }
 
+  async function handleShareStarProfile(username) {
+    setProfileShareMessage("");
+    setProfileShareError("");
+
+    if (!username) {
+      setProfileShareError("星座URLの共有にはusernameが必要です。");
+      return;
+    }
+
+    const starProfileUrl = `${window.location.origin}${buildStarProfilePath(username)}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "星空Villageのわたしの星座",
+          text: "星空Villageのわたしの星座です。",
+          url: starProfileUrl,
+        });
+        setProfileShareMessage("星座URLを共有できます");
+        return;
+      }
+
+      await navigator.clipboard.writeText(starProfileUrl);
+      setProfileShareMessage("星座URLをコピーしました");
+    } catch (_error) {
+      setProfileShareError("星座URLのコピーに失敗しました。");
+    }
+  }
+
   function handleTabChange(tabId) {
-    if (route.name === "meteor") {
+    if (route.name !== "home") {
       window.history.pushState({}, "", "/");
-      setRoute({ name: "home", postId: null });
+      setRoute({ name: "home", postId: null, username: null });
     }
 
     setActiveTab(tabId);
@@ -2203,10 +2433,13 @@ function App() {
     onOpenGuide: handleOpenGuide,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
+    onShareProfile: handleShareStarProfile,
     onStartEdit: handleStartProfileEdit,
     onSubmit: handleProfileSubmit,
     resonanceCount: profileResonanceCount,
     saving: profileSaving,
+    shareError: profileShareError,
+    shareMessage: profileShareMessage,
     profileScreenMode,
   };
   const feedback = {
@@ -2320,6 +2553,19 @@ function App() {
     shareError,
     shareMessage,
   };
+  const publicStarProfile = {
+    error: publicProfileError,
+    loading: publicProfileLoading,
+    onBack: handleBackFromStarProfile,
+    onOpenMeteorDetail: handleOpenMeteorDetail,
+    onShareProfile: handleShareStarProfile,
+    posts: publicProfilePosts,
+    profile: publicProfile,
+    shareError: profileShareError,
+    shareMessage: profileShareMessage,
+    tags: publicProfileTags,
+    username: publicProfileUsername,
+  };
 
   return (
     <div className="relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
@@ -2345,6 +2591,7 @@ function App() {
           notifications={notificationState}
           starLetters={starLetters}
           meteorDetail={meteorDetail}
+          publicStarProfile={publicStarProfile}
           route={route}
           onOpenMeteorDetail={handleOpenMeteorDetail}
         />
@@ -2418,6 +2665,7 @@ function TabContent({
   postsError,
   postsLoading,
   profile,
+  publicStarProfile,
   resonance,
   route,
   starLetters,
@@ -2428,6 +2676,17 @@ function TabContent({
         archive={archive}
         detail={meteorDetail}
         postActions={postActions}
+        resonance={resonance}
+        starLetters={starLetters}
+      />
+    );
+  }
+
+  if (route.name === "starProfile") {
+    return (
+      <PublicStarProfileScreen
+        archive={archive}
+        profileRoute={publicStarProfile}
         resonance={resonance}
         starLetters={starLetters}
       />
@@ -2604,6 +2863,140 @@ function MeteorDetailScreen({ archive, detail, postActions, resonance, starLette
         ) : null}
       </section>
     </main>
+  );
+}
+
+function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters }) {
+  const profile = profileRoute.profile;
+  const isNotFound = profileRoute.error === "not-found";
+  const displayName = profile?.display_name || defaultProfileView.display_name;
+
+  return (
+    <main className="mx-auto max-w-3xl">
+      <section className="mb-4 flex flex-wrap items-center justify-between gap-3 px-3 sm:px-5">
+        <button
+          className="min-h-10 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+          onClick={profileRoute.onBack}
+          type="button"
+        >
+          観測へ戻る
+        </button>
+        <button
+          className="min-h-10 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!profile?.username}
+          onClick={() => profileRoute.onShareProfile(profile?.username)}
+          type="button"
+        >
+          共有
+        </button>
+      </section>
+
+      <section className="space-y-5 px-3 pb-10 sm:px-5">
+        {(profileRoute.loading || profileRoute.error || profileRoute.shareMessage || profileRoute.shareError) && (
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              profileRoute.error || profileRoute.shareError
+                ? "border-sakura/30 bg-sakura/10 text-sakura"
+                : "border-comet/20 bg-comet/10 text-comet"
+            }`}
+          >
+            {isNotFound
+              ? "この星座はまだ見つかりませんでした。"
+              : profileRoute.error || profileRoute.shareError || profileRoute.shareMessage || "星座を探しています…"}
+          </p>
+        )}
+
+        {isNotFound ? (
+          <section className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+            <h2 className="text-xl font-black text-white">この星座はまだ見つかりませんでした。</h2>
+            <p className="mt-3">URLが間違っているか、まだ作成されていない星座かもしれません。</p>
+            <button
+              className="mt-5 min-h-10 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
+              onClick={profileRoute.onBack}
+              type="button"
+            >
+              観測へ戻る
+            </button>
+          </section>
+        ) : null}
+
+        {profile && !isNotFound ? (
+          <>
+            <PublicProfileCard
+              displayName={displayName}
+              onShare={() => profileRoute.onShareProfile(profile.username)}
+              profile={profile}
+              tags={profileRoute.tags}
+            />
+
+            <Panel title={`${displayName}の流星便`} eyebrow="public meteor letters">
+              {profileRoute.posts.length === 0 ? (
+                <p className="text-sm leading-7 text-slate-400">公開されている流星便はまだありません。</p>
+              ) : (
+                <div className="space-y-5">
+                  {profileRoute.posts.map((post) => (
+                    <PostCard
+                      archive={archive}
+                      key={post.id ?? post.handle}
+                      onOpenDetail={profileRoute.onOpenMeteorDetail}
+                      post={post}
+                      resonance={resonance}
+                      starLetters={starLetters}
+                    />
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
+function PublicProfileCard({ displayName, onShare, profile, tags }) {
+  const username = profile.username ? `@${profile.username}` : defaultProfileView.username;
+  const bio = profile.bio || defaultProfileView.bio;
+  const avatar = getAvatarText(displayName);
+  const visibleTags = (tags ?? []).filter((tag) => tag?.label);
+
+  return (
+    <section className="glass-panel overflow-hidden">
+      <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
+      <div className="p-4 pt-0">
+        <div className="-mt-7 flex items-end justify-between gap-3">
+          <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+          <button
+            className="mb-2 min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
+            onClick={onShare}
+            type="button"
+          >
+            共有
+          </button>
+        </div>
+        <div className="mt-3">
+          <p className="text-xs font-black text-comet">わたしの星座</p>
+          <h2 className="mt-1 text-lg font-black text-white">{displayName}</h2>
+          <p className="text-sm text-slate-400">{username}</p>
+          <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
+          {profile.constellation_note && (
+            <div className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 px-3 py-2">
+              <p className="text-[11px] font-black text-comet">星座メモ</p>
+              <p className="mt-1 text-xs leading-5 text-slate-200">{profile.constellation_note}</p>
+            </div>
+          )}
+          {visibleTags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {visibleTags.map((tag) => (
+                <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag.id}>
+                  {tag.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -3182,6 +3575,8 @@ function ProfileCard({ profile }) {
   const constellationNote = profile.data?.constellation_note;
   const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
   const resonanceValue = formatCount(profile.resonanceCount);
+  const canShareStarProfile = Boolean(profile.data?.username);
+  const statusMessage = profile.error || profile.shareError || profile.message || profile.shareMessage;
 
   return (
     <section className="glass-panel overflow-hidden">
@@ -3228,13 +3623,26 @@ function ProfileCard({ profile }) {
           <Stat label="共鳴" value={resonanceValue} />
         </div>
 
-        {(profile.message || profile.error) && (
+        {profile.canEdit && (
+          <button
+            className="mt-4 min-h-10 w-full rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!canShareStarProfile}
+            onClick={() => profile.onShareProfile(profile.data?.username)}
+            type="button"
+          >
+            星座URLを共有
+          </button>
+        )}
+
+        {statusMessage && (
           <p
             className={`mt-4 rounded-2xl border px-3 py-2 text-xs leading-5 ${
-              profile.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+              profile.error || profile.shareError
+                ? "border-sakura/30 bg-sakura/10 text-sakura"
+                : "border-comet/20 bg-comet/10 text-comet"
             }`}
           >
-            {profile.error || profile.message}
+            {statusMessage}
           </p>
         )}
 
