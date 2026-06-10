@@ -16,6 +16,7 @@ const FEEDBACK_TYPES = ["不具合", "分かりにくい", "改善案", "ほし�
 const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
 const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
+const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 
 const emptyProfileForm = {
   display_name: "",
@@ -138,6 +139,54 @@ function getSafeLinkUrl(rawUrl) {
   } catch {
     return null;
   }
+}
+
+function getCleanMatchedUrl(rawUrl) {
+  const trailingText = rawUrl.match(/[.,!?;:)\]}、。！？）」』】]+$/)?.[0] ?? "";
+  return trailingText ? rawUrl.slice(0, -trailingText.length) : rawUrl;
+}
+
+function getYouTubeVideoIdFromUrl(rawUrl) {
+  const safeUrl = getSafeLinkUrl(rawUrl);
+
+  if (!safeUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(safeUrl);
+    const hostname = url.hostname.toLowerCase();
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    let videoId = null;
+
+    if (hostname === "youtu.be") {
+      videoId = pathParts[0] ?? null;
+    }
+
+    if (hostname === "youtube.com" || hostname === "www.youtube.com" || hostname === "m.youtube.com") {
+      if (url.pathname === "/watch") {
+        videoId = url.searchParams.get("v");
+      } else if (pathParts[0] === "shorts") {
+        videoId = pathParts[1] ?? null;
+      }
+    }
+
+    return videoId && YOUTUBE_VIDEO_ID_PATTERN.test(videoId) ? videoId : null;
+  } catch {
+    return null;
+  }
+}
+
+function findFirstYouTubeVideoId(text) {
+  for (const match of String(text ?? "").matchAll(URL_PATTERN)) {
+    const videoId = getYouTubeVideoIdFromUrl(getCleanMatchedUrl(match[0]));
+
+    if (videoId) {
+      return videoId;
+    }
+  }
+
+  return null;
 }
 
 function formatNotificationTime(createdAt) {
@@ -3546,7 +3595,7 @@ function LinkedText({ children }) {
     const matchedText = match[0];
     const matchIndex = match.index ?? 0;
     const trailingText = matchedText.match(/[.,!?;:)\]}、。！？）」』】]+$/)?.[0] ?? "";
-    const urlText = trailingText ? matchedText.slice(0, -trailingText.length) : matchedText;
+    const urlText = getCleanMatchedUrl(matchedText);
     const safeUrl = getSafeLinkUrl(urlText);
 
     if (matchIndex > lastIndex) {
@@ -3582,6 +3631,31 @@ function LinkedText({ children }) {
   }
 
   return <>{parts}</>;
+}
+
+function YouTubeEmbed({ videoId }) {
+  if (!videoId || !YOUTUBE_VIDEO_ID_PATTERN.test(videoId)) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
+      data-card-action="true"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <iframe
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        className="h-full w-full"
+        loading="lazy"
+        referrerPolicy="strict-origin-when-cross-origin"
+        src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+        title="YouTube video player"
+      />
+    </div>
+  );
 }
 
 function Timeline({ archive, onOpenMeteorDetail, postActions, posts, postsError, postsLoading, resonance, starLetters }) {
@@ -3742,6 +3816,7 @@ function PostCard({
   const postEditDraft = postActions?.editDrafts?.[post.id] ?? post.text;
   const postEditLength = getTrimmedCharacterLength(postEditDraft);
   const isPostEditOverLimit = postEditLength > POST_MAX_LENGTH;
+  const youtubeVideoId = !isPostEditing ? findFirstYouTubeVideoId(post.text) : null;
   const isPostUpdating = postActions?.updatingId === post.id;
   const isPostDeleting = postActions?.deletingId === post.id;
   const canSavePostEdit = Boolean(postEditDraft.trim()) && !isPostEditOverLimit && !isPostUpdating;
@@ -3847,9 +3922,12 @@ function PostCard({
                 </div>
               </form>
             ) : (
-              <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
-                <LinkedText>{post.text}</LinkedText>
-              </p>
+              <>
+                <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
+                  <LinkedText>{post.text}</LinkedText>
+                </p>
+                <YouTubeEmbed videoId={youtubeVideoId} />
+              </>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
               {post.tags.map((tag) => (
