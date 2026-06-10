@@ -291,6 +291,7 @@ function mapSavedPost(post, authorProfile) {
   return {
     id: post.id,
     authorId: post.author_id,
+    authorUsername: authorProfile?.username ?? null,
     name: displayName,
     handle: username,
     badge: "流星便",
@@ -2590,6 +2591,7 @@ function App() {
     loading: publicProfileLoading,
     onBack: handleBackFromStarProfile,
     onOpenMeteorDetail: handleOpenMeteorDetail,
+    onOpenStarProfile: handleOpenStarProfile,
     onShareProfile: handleShareStarProfile,
     posts: publicProfilePosts,
     profile: publicProfile,
@@ -2626,6 +2628,7 @@ function App() {
           publicStarProfile={publicStarProfile}
           route={route}
           onOpenMeteorDetail={handleOpenMeteorDetail}
+          onOpenStarProfile={handleOpenStarProfile}
         />
       </div>
 
@@ -2691,6 +2694,7 @@ function TabContent({
   meteorDetail,
   notifications,
   onOpenMeteorDetail,
+  onOpenStarProfile,
   ownPosts,
   postActions,
   posts,
@@ -2707,6 +2711,7 @@ function TabContent({
       <MeteorDetailScreen
         archive={archive}
         detail={meteorDetail}
+        onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         resonance={resonance}
         starLetters={starLetters}
@@ -2738,6 +2743,7 @@ function TabContent({
       <ArchiveScreen
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         resonance={resonance}
         starLetters={starLetters}
@@ -2753,6 +2759,7 @@ function TabContent({
         feedback={feedback}
         ownPosts={ownPosts}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         profile={profile}
         resonance={resonance}
@@ -2769,18 +2776,30 @@ function TabContent({
       postsError={postsError}
       postsLoading={postsLoading}
       onOpenMeteorDetail={onOpenMeteorDetail}
+      onOpenStarProfile={onOpenStarProfile}
       resonance={resonance}
       starLetters={starLetters}
     />
   );
 }
 
-function ObserveScreen({ archive, onOpenMeteorDetail, postActions, posts, postsError, postsLoading, resonance, starLetters }) {
+function ObserveScreen({
+  archive,
+  onOpenMeteorDetail,
+  onOpenStarProfile,
+  postActions,
+  posts,
+  postsError,
+  postsLoading,
+  resonance,
+  starLetters,
+}) {
   return (
     <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
       <Timeline
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         posts={posts}
         postsError={postsError}
@@ -2823,7 +2842,7 @@ function PlaceholderScreen({ eyebrow, title, text, note }) {
   );
 }
 
-function MeteorDetailScreen({ archive, detail, postActions, resonance, starLetters }) {
+function MeteorDetailScreen({ archive, detail, onOpenStarProfile, postActions, resonance, starLetters }) {
   const post = detail.post;
   const isDeleted = Boolean(post?.deletedAt);
 
@@ -2886,6 +2905,7 @@ function MeteorDetailScreen({ archive, detail, postActions, resonance, starLette
           <PostCard
             archive={archive}
             detailMode
+            onOpenAuthorProfile={onOpenStarProfile}
             postActions={postActions}
             post={post}
             resonance={resonance}
@@ -2970,6 +2990,7 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
                     <PostCard
                       archive={archive}
                       key={post.id ?? post.handle}
+                      onOpenAuthorProfile={profileRoute.onOpenStarProfile}
                       onOpenDetail={profileRoute.onOpenMeteorDetail}
                       post={post}
                       resonance={resonance}
@@ -3118,7 +3139,18 @@ function NotificationCard({ notification, onMarkRead, updating }) {
   );
 }
 
-function ProfileScreen({ archive, auth, feedback, onOpenMeteorDetail, ownPosts, postActions, profile, resonance, starLetters }) {
+function ProfileScreen({
+  archive,
+  auth,
+  feedback,
+  onOpenMeteorDetail,
+  onOpenStarProfile,
+  ownPosts,
+  postActions,
+  profile,
+  resonance,
+  starLetters,
+}) {
   if (profile.profileScreenMode === "edit") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -3157,6 +3189,7 @@ function ProfileScreen({ archive, auth, feedback, onOpenMeteorDetail, ownPosts, 
       <OwnPostsPanel
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenStarProfile={onOpenStarProfile}
         ownPosts={ownPosts}
         postActions={postActions}
         resonance={resonance}
@@ -3166,7 +3199,7 @@ function ProfileScreen({ archive, auth, feedback, onOpenMeteorDetail, ownPosts, 
   );
 }
 
-function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, postActions, resonance, starLetters }) {
+function OwnPostsPanel({ archive, onOpenMeteorDetail, onOpenStarProfile, ownPosts, postActions, resonance, starLetters }) {
   if (!ownPosts.session) {
     return null;
   }
@@ -3201,6 +3234,7 @@ function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, postActions, res
             <PostCard
               archive={archive}
               key={post.id ?? post.handle}
+              onOpenAuthorProfile={onOpenStarProfile}
               onOpenDetail={onOpenMeteorDetail}
               postActions={postActions}
               post={post}
@@ -3214,7 +3248,7 @@ function OwnPostsPanel({ archive, onOpenMeteorDetail, ownPosts, postActions, res
   );
 }
 
-function ArchiveScreen({ archive, onOpenMeteorDetail, postActions, resonance, starLetters }) {
+function ArchiveScreen({ archive, onOpenMeteorDetail, onOpenStarProfile, postActions, resonance, starLetters }) {
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel mb-4 p-5 sm:p-6">
@@ -3260,6 +3294,7 @@ function ArchiveScreen({ archive, onOpenMeteorDetail, postActions, resonance, st
               <PostCard
                 archive={archive}
                 key={post.archiveId ?? post.id}
+                onOpenAuthorProfile={onOpenStarProfile}
                 onOpenDetail={onOpenMeteorDetail}
                 postActions={postActions}
                 post={post}
@@ -4135,7 +4170,17 @@ function SunoLinkCard({ url }) {
   );
 }
 
-function Timeline({ archive, onOpenMeteorDetail, postActions, posts, postsError, postsLoading, resonance, starLetters }) {
+function Timeline({
+  archive,
+  onOpenMeteorDetail,
+  onOpenStarProfile,
+  postActions,
+  posts,
+  postsError,
+  postsLoading,
+  resonance,
+  starLetters,
+}) {
   return (
     <section className="mx-auto max-w-3xl">
       {(postsLoading || postsError) && (
@@ -4208,6 +4253,7 @@ function Timeline({ archive, onOpenMeteorDetail, postActions, posts, postsError,
             <PostCard
               archive={archive}
               key={post.id ?? post.handle}
+              onOpenAuthorProfile={onOpenStarProfile}
               onOpenDetail={onOpenMeteorDetail}
               postActions={postActions}
               post={post}
@@ -4277,6 +4323,7 @@ function Composer({ composer }) {
 function PostCard({
   archive,
   detailMode = false,
+  onOpenAuthorProfile,
   onOpenDetail,
   post,
   postActions,
@@ -4304,11 +4351,21 @@ function PostCard({
   const resonanceLabel = `${resonanceCount} 共鳴`;
   const starLetterLabel = `星文 ${postStarLetters.length}`;
   const canOpenDetail = Boolean(onOpenDetail && post.id && !detailMode);
+  const authorUsername = post.authorUsername;
+  const canOpenAuthorProfile = Boolean(onOpenAuthorProfile && authorUsername);
 
   function isCardActionTarget(target) {
     return Boolean(
       target?.closest?.("button, a, input, textarea, select, label, [data-card-action='true']"),
     );
+  }
+
+  function handleOpenAuthorProfile(event) {
+    event.stopPropagation();
+
+    if (canOpenAuthorProfile) {
+      onOpenAuthorProfile(authorUsername);
+    }
   }
 
   function handleOpenDetail(event) {
@@ -4342,14 +4399,48 @@ function PostCard({
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
       <div className="p-4 sm:p-5">
         <div className="flex gap-3">
-          <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
+          {canOpenAuthorProfile ? (
+            <button
+              aria-label={`${post.name}の星座を開く`}
+              className="flex-none rounded-2xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
+              data-card-action="true"
+              onClick={handleOpenAuthorProfile}
+              type="button"
+            >
+              <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
+            </button>
+          ) : (
+            <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h3 className="font-black text-white">{post.name}</h3>
+              {canOpenAuthorProfile ? (
+                <button
+                  className="font-black text-white transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
+                  data-card-action="true"
+                  onClick={handleOpenAuthorProfile}
+                  type="button"
+                >
+                  {post.name}
+                </button>
+              ) : (
+                <h3 className="font-black text-white">{post.name}</h3>
+              )}
               <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
                 {post.badge}
               </span>
-              <span className="text-sm text-slate-500">{post.handle}</span>
+              {canOpenAuthorProfile ? (
+                <button
+                  className="text-sm text-slate-500 transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
+                  data-card-action="true"
+                  onClick={handleOpenAuthorProfile}
+                  type="button"
+                >
+                  {post.handle}
+                </button>
+              ) : (
+                <span className="text-sm text-slate-500">{post.handle}</span>
+              )}
               <span className="text-sm text-slate-500">· {post.time}</span>
             </div>
             {post.archivedTime && (
