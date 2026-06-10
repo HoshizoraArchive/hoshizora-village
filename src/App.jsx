@@ -15,6 +15,7 @@ const POST_MAX_LENGTH = 500;
 const FEEDBACK_TYPES = ["不具合", "分かりにくい", "改善案", "ほしい機能", "感想", "その他"];
 const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
 const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 
 const emptyProfileForm = {
   display_name: "",
@@ -123,6 +124,20 @@ function formatPostTime(createdAt) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getSafeLinkUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    return url.href;
+  } catch {
+    return null;
+  }
 }
 
 function formatNotificationTime(createdAt) {
@@ -3522,6 +3537,53 @@ function AuthPanel({ auth }) {
   );
 }
 
+function LinkedText({ children }) {
+  const text = String(children ?? "");
+  const parts = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const matchedText = match[0];
+    const matchIndex = match.index ?? 0;
+    const trailingText = matchedText.match(/[.,!?;:)\]}、。！？）」』】]+$/)?.[0] ?? "";
+    const urlText = trailingText ? matchedText.slice(0, -trailingText.length) : matchedText;
+    const safeUrl = getSafeLinkUrl(urlText);
+
+    if (matchIndex > lastIndex) {
+      parts.push(text.slice(lastIndex, matchIndex));
+    }
+
+    if (safeUrl) {
+      parts.push(
+        <a
+          className="break-all text-comet underline decoration-comet/50 underline-offset-4 transition hover:text-aurora hover:decoration-aurora"
+          href={safeUrl}
+          key={`${matchIndex}-${urlText}`}
+          onClick={(event) => event.stopPropagation()}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          {urlText}
+        </a>,
+      );
+
+      if (trailingText) {
+        parts.push(trailingText);
+      }
+    } else {
+      parts.push(matchedText);
+    }
+
+    lastIndex = matchIndex + matchedText.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+}
+
 function Timeline({ archive, onOpenMeteorDetail, postActions, posts, postsError, postsLoading, resonance, starLetters }) {
   return (
     <section className="mx-auto max-w-3xl">
@@ -3786,7 +3848,7 @@ function PostCard({
               </form>
             ) : (
               <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
-                {post.text}
+                <LinkedText>{post.text}</LinkedText>
               </p>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
@@ -3984,7 +4046,9 @@ function StarLetterItem({ letter, starLetters }) {
             </form>
           ) : (
             <>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">{letter.body}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">
+                <LinkedText>{letter.body}</LinkedText>
+              </p>
               {isOwner && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
