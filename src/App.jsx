@@ -1199,6 +1199,12 @@ function App() {
     setProfileScreenMode("feedback");
   }
 
+  function handleOpenGuide() {
+    setProfileMessage("");
+    setProfileError("");
+    setProfileScreenMode("guide");
+  }
+
   function handleBackToProfile() {
     setProfileMessage("");
     setProfileError("");
@@ -2130,6 +2136,7 @@ function App() {
     onBackToProfile: handleBackToProfile,
     onCancelEdit: handleCancelProfileEdit,
     onOpenFeedback: handleOpenFeedback,
+    onOpenGuide: handleOpenGuide,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
     onStartEdit: handleStartProfileEdit,
@@ -2647,6 +2654,14 @@ function ProfileScreen({ archive, auth, feedback, onOpenMeteorDetail, ownPosts, 
     );
   }
 
+  if (profile.profileScreenMode === "guide") {
+    return (
+      <main className="mx-auto max-w-2xl">
+        <GuideScreen onBack={profile.onBackToProfile} onOpenFeedback={profile.onOpenFeedback} />
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-2xl space-y-4">
       <ProfileCard profile={profile} />
@@ -2810,6 +2825,16 @@ function SettingsPanel({ auth, onBack, profile }) {
         </button>
         <p>基本設定は今後ここから調整できるようにします。</p>
         <button
+          className="w-full rounded-2xl border border-aurora/20 bg-aurora/10 px-4 py-4 text-left transition hover:border-aurora/35 hover:bg-aurora/15"
+          onClick={profile.onOpenGuide}
+          type="button"
+        >
+          <span className="block text-sm font-black text-white">はじめての入村案内</span>
+          <span className="mt-1 block text-xs leading-6 text-slate-400">
+            今できること、未実装のこと、テストで見てほしい場所を確認できます。
+          </span>
+        </button>
+        <button
           className="w-full rounded-2xl border border-comet/20 bg-comet/10 px-4 py-4 text-left transition hover:border-comet/35 hover:bg-comet/15"
           onClick={profile.onOpenFeedback}
           type="button"
@@ -2868,6 +2893,129 @@ function SettingsPanel({ auth, onBack, profile }) {
         )}
       </div>
     </Panel>
+  );
+}
+
+function GuideScreen({ onBack, onOpenFeedback }) {
+  const availableItems = [
+    "会員登録 / ログイン",
+    "プロフィール作成 / 編集",
+    "流星便投稿",
+    "流星便編集 / 削除",
+    "流星便の詳細ページ表示",
+    "流星便URL共有",
+    "共鳴",
+    "Archive保存 / 解除",
+    "星文投稿",
+    "星文編集 / 削除",
+    "R.Connect通知",
+    "共鳴 / Archive通知設定",
+    "星の目安箱からフィードバック送信",
+  ];
+  const plannedItems = [
+    "星空ちあAI住人の自動観測",
+    "AI住人からの星文",
+    "星文通知",
+    "プロフィール単体URL / アカウント共有",
+    "プロフィール画像アップロード",
+    "画像 / 音声 / 動画投稿",
+    "YouTube URL埋め込み再生",
+    "Sunoリンクカード表示",
+    "Push通知",
+    "リアルタイム通知",
+    "リポスト / 再放流",
+    "星空広場 / ゲーム広場",
+    "占い舘",
+    "管理者用の目安箱一覧",
+    "スマホアプリ化",
+  ];
+  const betaTestItems = [
+    "登録やログインで迷わないか",
+    "プロフィール作成が分かりやすいか",
+    "流星便を投稿しやすいか",
+    "共鳴 / Archive / 星文の意味が伝わるか",
+    "通知が分かりやすいか",
+    "画面が重くないか",
+    "スマホで使いにくい場所がないか",
+    "ほしい機能や不安な点がないか",
+  ];
+
+  return (
+    <Panel title="はじめての入村案内" eyebrow="GUIDE">
+      <div className="space-y-4 pb-8">
+        <button
+          className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+          onClick={onBack}
+          type="button"
+        >
+          戻る
+        </button>
+
+        <GuideSection title="星空Villageとは">
+          <div className="space-y-3 text-sm leading-7 text-slate-300">
+            <p>星空Villageは、AI時代にもう一度SNSをやさしく作り直すための、小さな星空の街です。</p>
+            <p>ここでは、投稿は「流星便」、いいねは「共鳴」、コメントは「星文」、保存は「Archive」と呼びます。</p>
+            <p>
+              誰にも見つからないまま流れていく想いや作品を、AI住人や他のユーザーが観測し、残し、言葉を届ける場所を目指しています。
+            </p>
+          </div>
+        </GuideSection>
+
+        <GuideSection title="今できること">
+          <GuideList items={availableItems} />
+        </GuideSection>
+
+        <GuideSection title="まだ未実装のこと">
+          <GuideList items={plannedItems} />
+        </GuideSection>
+
+        <GuideSection title="ベータテストで試してほしいこと">
+          <GuideList items={betaTestItems} />
+        </GuideSection>
+
+        <GuideSection title="不具合・要望の送り方">
+          <div className="space-y-3 text-sm leading-7 text-slate-300">
+            <p>気づいたこと、不具合、ほしい機能、分かりにくかった場所があれば、設定画面の「星の目安箱」から送ってください。</p>
+            <p>あなたの声は、星空Villageを育てるための大切な星文です。</p>
+          </div>
+        </GuideSection>
+
+        <div className="rounded-2xl border border-sakura/20 bg-sakura/10 px-4 py-4 text-xs leading-6 text-slate-300">
+          現在の星空Villageは開発中の先行テスト版です。予告なく仕様が変わったり、一部機能が不安定な場合があります。
+          <br />
+          大切な文章や作品は、念のため自分の手元にも保存しておいてください。
+        </div>
+
+        <button
+          className="min-h-11 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-sm font-black text-night-950 shadow-glow transition hover:scale-[1.01]"
+          onClick={onOpenFeedback}
+          type="button"
+        >
+          星の目安箱へ送る
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
+function GuideSection({ children, title }) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-night-950/35 px-4 py-4 shadow-[0_18px_55px_rgba(3,7,18,0.22)] sm:px-5">
+      <h3 className="text-sm font-black text-comet">{title}</h3>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function GuideList({ items }) {
+  return (
+    <ul className="grid gap-2 text-sm leading-6 text-slate-300 sm:grid-cols-2">
+      {items.map((item) => (
+        <li className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2" key={item}>
+          {item}
+        </li>
+      ))}
+    </ul>
   );
 }
 
