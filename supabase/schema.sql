@@ -6,6 +6,59 @@
 
 create extension if not exists "pgcrypto";
 
+-- Storage bucket for profile avatar images.
+-- Public read is allowed so avatar_url can be rendered in public profile pages and timelines.
+-- Authenticated users may upload only into their own auth.uid() folder via storage.objects policies.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'avatars',
+  'avatars',
+  true,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set
+  name = excluded.name,
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'avatars_public_read'
+  ) then
+    create policy avatars_public_read
+    on storage.objects
+    for select
+    to public
+    using (bucket_id = 'avatars');
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'avatars_insert_own_folder'
+  ) then
+    create policy avatars_insert_own_folder
+    on storage.objects
+    for insert
+    to authenticated
+    with check (
+      bucket_id = 'avatars'
+      and (storage.foldername(name))[1] = auth.uid()::text
+    );
+  end if;
+end
+$$;
+
 -- Private schema for trigger/helper functions that should not be exposed through the Data API.
 create schema if not exists app_private;
 revoke all on schema app_private from public, anon, authenticated;
