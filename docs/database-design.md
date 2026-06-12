@@ -231,11 +231,10 @@ RLS方針:
 
 - `recipient_id = auth.uid()` の本人のみselect可能
 - 本人のみ `is_read` をupdate可能
-- フロントエンドからのinsertは、`actor_id = auth.uid()` かつ対象流星便の作者だけを `recipient_id` にする通知に限定する
-- `resonance` / `archive` のinsertは、反応したユーザー側の通知設定がONの場合だけ許可する
-- 通知作成は既存DBトリガーに加え、アプリ側でも `resonances` / `archives` / `star_letters` 保存成功後に行う
+- フロントエンドからの自由なinsertは許可しない
+- 通知作成は `resonances` / `archives` / `star_letters` insert時のDBトリガーで行う
 
-通知作成方針:
+トリガー方針:
 
 - `resonances.post_id` から `posts.author_id` を取得する
 - `posts.author_id` を `recipient_id` として通知を作成する
@@ -421,7 +420,7 @@ R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migra
 
 Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
 
-共鳴 / Archive / 星文のR.Connect通知をアプリ側から作成できるようにする場合は、`supabase/migrations/20260612_add_frontend_notifications.sql` をSupabase SQL Editorで実行してください。
+星文のR.Connect通知triggerを既存DBに追加する場合は、`supabase/migrations/20260612_add_frontend_notifications.sql` をSupabase SQL Editorで実行してください。
 
 流星便編集・削除MVPでソフト削除を有効にする場合は、`supabase/migrations/20260605_add_post_soft_delete.sql` をSupabase SQL Editorで実行してください。
 

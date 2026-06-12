@@ -292,22 +292,6 @@ function formatNotificationMessage(notification) {
   return notification.message;
 }
 
-function getNotificationFallbackMessage(type) {
-  if (type === "resonance") {
-    return "あなたの流星便に共鳴が届きました。";
-  }
-
-  if (type === "archive") {
-    return "あなたの流星便がArchiveされました。";
-  }
-
-  if (type === "star_letter") {
-    return "あなたの流星便に星文が届きました。";
-  }
-
-  return "R.Connectが届きました。";
-}
-
 function mapSavedPost(post, authorProfile) {
   const displayName = authorProfile?.display_name || defaultProfileView.display_name;
   const username = authorProfile?.username ? `@${authorProfile.username}` : "@starry_creator";
@@ -2068,39 +2052,6 @@ function App() {
     setPostActionMessage("流星便を削除しました。");
   }
 
-  async function createPostNotification({ post, type }) {
-    const actorId = session?.user?.id;
-    const recipientId = post?.authorId;
-
-    if (!actorId || !recipientId || !post?.id) {
-      return;
-    }
-
-    if (actorId === recipientId) {
-      return;
-    }
-
-    if (type === "resonance" && profile?.notify_authors_when_i_resonate === false) {
-      return;
-    }
-
-    if (type === "archive" && profile?.notify_authors_when_i_archive === false) {
-      return;
-    }
-
-    const { error } = await supabase.from("notifications").insert({
-      recipient_id: recipientId,
-      actor_id: actorId,
-      post_id: post.id,
-      type,
-      message: getNotificationFallbackMessage(type),
-    });
-
-    if (error) {
-      console.warn("R.Connect notification insert failed", error);
-    }
-  }
-
   async function handleResonance(postId) {
     setResonanceMessage("");
     setResonanceError("");
@@ -2144,8 +2095,6 @@ function App() {
     if (targetPost.authorId === session.user.id) {
       setProfileResonanceCount((currentCount) => (Number.isFinite(currentCount) ? currentCount + 1 : currentCount));
     }
-
-    await createPostNotification({ post: targetPost, type: "resonance" });
 
     setSavedPosts((currentPosts) =>
       currentPosts.map((post) =>
@@ -2264,8 +2213,6 @@ function App() {
       archivedAt: data.created_at,
       archivedTime: formatNotificationTime(data.created_at),
     };
-
-    await createPostNotification({ post: targetPost, type: "archive" });
 
     setArchivedPosts((currentPosts) => [archivedTargetPost, ...currentPosts.filter((post) => post.id !== postId)]);
     setArchivesMessage("流星便をArchiveしました。");
@@ -2409,8 +2356,6 @@ function App() {
     }
 
     const mappedLetter = mapStarLetter(data, profile);
-
-    await createPostNotification({ post: targetPost, type: "star_letter" });
 
     setStarLettersByPostId((currentLetters) => ({
       ...currentLetters,
