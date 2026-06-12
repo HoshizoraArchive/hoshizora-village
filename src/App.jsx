@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "./lib/supabaseClient";
 
 const bottomNavItems = [
@@ -19,6 +19,13 @@ const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const AVATAR_BUCKET = "avatars";
 const AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+const AVATAR_CROP_SIZE = 512;
+const AVATAR_CROP_MIN_ZOOM = 1;
+const AVATAR_CROP_MAX_ZOOM = 3;
+const AVATAR_CROP_PREVIEW_FALLBACK_SIZE = 260;
+const AVATAR_CROP_OUTPUT_TYPE = "image/jpeg";
+const AVATAR_CROP_OUTPUT_EXTENSION = "jpg";
+const AVATAR_CROP_OUTPUT_QUALITY = 0.92;
 const AVATAR_ALLOWED_TYPES = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -67,6 +74,101 @@ function optionalUsername(value) {
 
 function getTrimmedCharacterLength(value) {
   return Array.from(value.trim()).length;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getAvatarCoverScale(imageSize, frameSize) {
+  if (!imageSize?.width || !imageSize?.height || !frameSize) {
+    return 1;
+  }
+
+  return Math.max(frameSize / imageSize.width, frameSize / imageSize.height);
+}
+
+function constrainAvatarCropOffset(offset, zoom, imageSize, frameSize) {
+  if (!imageSize?.width || !imageSize?.height || !frameSize) {
+    return offset;
+  }
+
+  const coverScale = getAvatarCoverScale(imageSize, frameSize);
+  const displayedWidth = imageSize.width * coverScale * zoom;
+  const displayedHeight = imageSize.height * coverScale * zoom;
+  const maxX = Math.max(0, (displayedWidth - frameSize) / 2);
+  const maxY = Math.max(0, (displayedHeight - frameSize) / 2);
+
+  return {
+    x: clampNumber(offset.x, -maxX, maxX),
+    y: clampNumber(offset.y, -maxY, maxY),
+  };
+}
+
+function isSameAvatarCropOffset(currentOffset, nextOffset) {
+  return Math.abs(currentOffset.x - nextOffset.x) < 0.5 && Math.abs(currentOffset.y - nextOffset.y) < 0.5;
+}
+
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("画像の読み込みに失敗しました。"));
+    };
+
+    image.src = imageUrl;
+  });
+}
+
+async function createCroppedAvatarBlob({ file, frameSize, offset, zoom }) {
+  const image = await loadImageFromFile(file);
+  const sourceSize = {
+    width: image.naturalWidth || image.width,
+    height: image.naturalHeight || image.height,
+  };
+  const safeFrameSize = frameSize || AVATAR_CROP_PREVIEW_FALLBACK_SIZE;
+  const coverScale = getAvatarCoverScale(sourceSize, AVATAR_CROP_SIZE);
+  const outputOffsetScale = AVATAR_CROP_SIZE / safeFrameSize;
+  const drawWidth = sourceSize.width * coverScale * zoom;
+  const drawHeight = sourceSize.height * coverScale * zoom;
+  const drawX = (AVATAR_CROP_SIZE - drawWidth) / 2 + offset.x * outputOffsetScale;
+  const drawY = (AVATAR_CROP_SIZE - drawHeight) / 2 + offset.y * outputOffsetScale;
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_CROP_SIZE;
+  canvas.height = AVATAR_CROP_SIZE;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("星影の切り抜き準備に失敗しました。");
+  }
+
+  context.fillStyle = "#050816";
+  context.fillRect(0, 0, AVATAR_CROP_SIZE, AVATAR_CROP_SIZE);
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+
+        reject(new Error("星影の切り抜きに失敗しました。"));
+      },
+      AVATAR_CROP_OUTPUT_TYPE,
+      AVATAR_CROP_OUTPUT_QUALITY,
+    );
+  });
 }
 
 function isMissingDeletedAtError(error) {
@@ -407,6 +509,10 @@ function App() {
   const [profileScreenMode, setProfileScreenMode] = useState("view");
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
+  const [avatarCropZoom, setAvatarCropZoom] = useState(AVATAR_CROP_MIN_ZOOM);
+  const [avatarCropOffset, setAvatarCropOffset] = useState({ x: 0, y: 0 });
+  const [avatarImageSize, setAvatarImageSize] = useState(null);
+  const [avatarCropFrameSize, setAvatarCropFrameSize] = useState(AVATAR_CROP_PREVIEW_FALLBACK_SIZE);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarModal, setAvatarModal] = useState(null);
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
@@ -1502,9 +1608,16 @@ function App() {
     }));
   }
 
+  function resetAvatarCrop() {
+    setAvatarCropZoom(AVATAR_CROP_MIN_ZOOM);
+    setAvatarCropOffset({ x: 0, y: 0 });
+    setAvatarImageSize(null);
+  }
+
   function clearSelectedAvatar() {
     setAvatarFile(null);
     setAvatarPreviewUrl("");
+    resetAvatarCrop();
   }
 
   function handleOpenAvatarModal(avatarUrl, label = "星影") {
@@ -1549,7 +1662,46 @@ function App() {
 
     setAvatarFile(file);
     setAvatarPreviewUrl(URL.createObjectURL(file));
-    setProfileMessage("星影を選びました。保存するとプロフィールに反映されます。");
+    resetAvatarCrop();
+    setProfileMessage("星影を選びました。位置を調整して保存できます。");
+  }
+
+  function handleAvatarCropImageLoad(imageSize) {
+    setAvatarImageSize(imageSize);
+    setAvatarCropOffset((currentOffset) => {
+      const nextOffset = constrainAvatarCropOffset(currentOffset, avatarCropZoom, imageSize, avatarCropFrameSize);
+      return isSameAvatarCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handleAvatarCropFrameSizeChange(nextFrameSize) {
+    setAvatarCropFrameSize((currentFrameSize) => (currentFrameSize === nextFrameSize ? currentFrameSize : nextFrameSize));
+    setAvatarCropOffset((currentOffset) => {
+      const nextOffset = constrainAvatarCropOffset(currentOffset, avatarCropZoom, avatarImageSize, nextFrameSize);
+      return isSameAvatarCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handleAvatarCropOffsetChange(nextOffset) {
+    setAvatarCropOffset((currentOffset) => {
+      const safeOffset = constrainAvatarCropOffset(nextOffset, avatarCropZoom, avatarImageSize, avatarCropFrameSize);
+      return isSameAvatarCropOffset(currentOffset, safeOffset) ? currentOffset : safeOffset;
+    });
+  }
+
+  function handleAvatarCropZoomChange(nextZoom) {
+    const safeZoom = clampNumber(Number(nextZoom) || AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MAX_ZOOM);
+    setAvatarCropZoom(safeZoom);
+    setAvatarCropOffset((currentOffset) => {
+      const nextOffset = constrainAvatarCropOffset(currentOffset, safeZoom, avatarImageSize, avatarCropFrameSize);
+      return isSameAvatarCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handleAvatarCropReset() {
+    setAvatarCropZoom(AVATAR_CROP_MIN_ZOOM);
+    setAvatarCropOffset({ x: 0, y: 0 });
+    setProfileMessage("星影の位置をリセットしました。");
   }
 
   function handleStartProfileEdit() {
@@ -1634,11 +1786,26 @@ function App() {
 
       setAvatarUploading(true);
 
-      const extension = AVATAR_ALLOWED_TYPES[avatarFile.type];
-      const filePath = `${session.user.id}/avatar-${Date.now()}.${extension}`;
-      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, avatarFile, {
+      let croppedAvatarBlob;
+
+      try {
+        croppedAvatarBlob = await createCroppedAvatarBlob({
+          file: avatarFile,
+          frameSize: avatarCropFrameSize,
+          offset: avatarCropOffset,
+          zoom: avatarCropZoom,
+        });
+      } catch (cropError) {
+        setAvatarUploading(false);
+        setProfileSaving(false);
+        setProfileError(cropError.message);
+        return;
+      }
+
+      const filePath = `${session.user.id}/avatar-cropped-${Date.now()}.${AVATAR_CROP_OUTPUT_EXTENSION}`;
+      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, croppedAvatarBlob, {
         cacheControl: "3600",
-        contentType: avatarFile.type,
+        contentType: AVATAR_CROP_OUTPUT_TYPE,
         upsert: false,
       });
 
@@ -2630,13 +2797,22 @@ function App() {
     data: profile,
     error: profileError,
     avatarAccept: AVATAR_ACCEPT,
+    avatarCropFrameSize,
+    avatarCropOffset,
+    avatarCropZoom,
     avatarFileName: avatarFile?.name ?? "",
+    avatarImageSize,
     avatarPreviewUrl,
     avatarUploading,
     form: profileForm,
     loading: profileLoading,
     message: profileMessage,
     onArchiveNotificationSettingSubmit: handleArchiveNotificationSettingSubmit,
+    onAvatarCropFrameSizeChange: handleAvatarCropFrameSizeChange,
+    onAvatarCropImageLoad: handleAvatarCropImageLoad,
+    onAvatarCropOffsetChange: handleAvatarCropOffsetChange,
+    onAvatarCropReset: handleAvatarCropReset,
+    onAvatarCropZoomChange: handleAvatarCropZoomChange,
     onAvatarFileChange: handleProfileAvatarFileChange,
     onChange: handleProfileFieldChange,
     onBackToProfile: handleBackToProfile,
@@ -4046,6 +4222,146 @@ function AvatarFrame({ avatar, avatarUrl, className = "h-12 w-12 rounded-2xl tex
   return <div className={`${baseClass} ${className}`}>{avatar}</div>;
 }
 
+function AvatarCropper({ disabled, imageUrl, offset, onFrameSizeChange, onImageLoad, onOffsetChange, onReset, onZoomChange, zoom }) {
+  const frameRef = useRef(null);
+  const [dragState, setDragState] = useState(null);
+
+  useEffect(() => {
+    const frame = frameRef.current;
+
+    if (!frame) {
+      return undefined;
+    }
+
+    function updateFrameSize() {
+      const rect = frame.getBoundingClientRect();
+      const nextSize = Math.round(Math.min(rect.width, rect.height));
+
+      if (nextSize > 0) {
+        onFrameSizeChange(nextSize);
+      }
+    }
+
+    updateFrameSize();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateFrameSize);
+      return () => {
+        window.removeEventListener("resize", updateFrameSize);
+      };
+    }
+
+    const observer = new ResizeObserver(updateFrameSize);
+    observer.observe(frame);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [imageUrl, onFrameSizeChange]);
+
+  function handlePointerDown(event) {
+    if (disabled) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDragState({
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startOffset: offset,
+    });
+  }
+
+  function handlePointerMove(event) {
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    onOffsetChange({
+      x: dragState.startOffset.x + event.clientX - dragState.startX,
+      y: dragState.startOffset.y + event.clientY - dragState.startY,
+    });
+  }
+
+  function handlePointerEnd(event) {
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    setDragState(null);
+  }
+
+  return (
+    <div className="mt-4 rounded-3xl border border-comet/20 bg-night-950/45 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-black text-comet">星影の位置を調整</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">枠の中をドラッグして、アイコンに使う光を合わせます。</p>
+        </div>
+        <button
+          className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disabled}
+          onClick={onReset}
+          type="button"
+        >
+          位置をリセット
+        </button>
+      </div>
+
+      <div
+        aria-label="星影の正方形プレビュー"
+        className="relative mx-auto mt-4 aspect-square w-full max-w-[260px] touch-none overflow-hidden rounded-3xl border border-comet/30 bg-night-950/70 shadow-[0_0_35px_rgba(125,223,255,0.16)]"
+        onPointerCancel={handlePointerEnd}
+        onPointerDown={handlePointerDown}
+        onPointerLeave={handlePointerEnd}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        ref={frameRef}
+        style={{ touchAction: "none" }}
+      >
+        <div className="absolute inset-0" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0)` }}>
+          <img
+            alt=""
+            className="h-full w-full select-none object-cover"
+            draggable={false}
+            onLoad={(event) =>
+              onImageLoad({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              })
+            }
+            src={imageUrl}
+            style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
+          />
+        </div>
+        <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-white/25" />
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-black text-slate-400">
+          <span>星影を遠ざける</span>
+          <span>星影を近づける</span>
+        </div>
+        <input
+          aria-label="星影のズーム"
+          className="w-full accent-cyan-300"
+          disabled={disabled}
+          max={AVATAR_CROP_MAX_ZOOM}
+          min={AVATAR_CROP_MIN_ZOOM}
+          onChange={(event) => onZoomChange(event.target.value)}
+          step="0.01"
+          type="range"
+          value={zoom}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ProfileEditor({ profile }) {
   const previewUrl = profile.avatarPreviewUrl || profile.form.avatar_url;
   const previewName = profile.form.display_name || defaultProfileView.display_name;
@@ -4110,6 +4426,19 @@ function ProfileEditor({ profile }) {
             )}
           </div>
         </div>
+        {profile.avatarPreviewUrl ? (
+          <AvatarCropper
+            disabled={profile.loading || profile.saving || profile.avatarUploading}
+            imageUrl={profile.avatarPreviewUrl}
+            offset={profile.avatarCropOffset}
+            onFrameSizeChange={profile.onAvatarCropFrameSizeChange}
+            onImageLoad={profile.onAvatarCropImageLoad}
+            onOffsetChange={profile.onAvatarCropOffsetChange}
+            onReset={profile.onAvatarCropReset}
+            onZoomChange={profile.onAvatarCropZoomChange}
+            zoom={profile.avatarCropZoom}
+          />
+        ) : null}
       </div>
 
       <label className="block text-xs font-bold text-slate-400">
