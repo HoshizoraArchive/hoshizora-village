@@ -175,16 +175,16 @@ create table if not exists public.notifications (
   recipient_id uuid not null references public.profiles(id) on delete cascade,
   actor_id uuid references public.profiles(id) on delete set null,
   post_id uuid references public.posts(id) on delete cascade,
-  type text not null check (type in ('resonance', 'archive')),
+  type text not null check (type in ('resonance', 'archive', 'star_letter')),
   message text not null check (char_length(trim(message)) > 0),
   is_read boolean not null default false,
   created_at timestamptz not null default now()
 );
 
-comment on table public.notifications is 'R.Connect通知。共鳴、Archiveなどの通知を保存する。MVPでは共鳴通知とArchive通知を扱う。';
+comment on table public.notifications is 'R.Connect通知。共鳴、Archive、星文などの通知を保存する。';
 comment on column public.notifications.recipient_id is '通知を受け取るユーザー。本人だけが閲覧できる。';
 comment on column public.notifications.actor_id is '通知のきっかけを作ったユーザー。削除された場合はnullになる。';
-comment on column public.notifications.type is '通知タイプ。MVPでは resonance と archive を許可する。';
+comment on column public.notifications.type is '通知タイプ。MVPでは resonance、archive、star_letter を許可する。';
 comment on column public.notifications.is_read is '既読状態。本人だけが更新できる。';
 
 -- feedbacks: 星の目安箱.
@@ -407,6 +407,55 @@ drop trigger if exists archives_create_notification on public.archives;
 create trigger archives_create_notification
 after insert on public.archives
 for each row execute function app_private.create_archive_notification();
+
+-- Create a 星文 notification for the 流星便 author.
+create or replace function app_private.create_star_letter_notification()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  target_author_id uuid;
+begin
+  select p.author_id
+    into target_author_id
+  from public.posts p
+  where p.id = new.post_id;
+
+  if target_author_id is null then
+    return new;
+  end if;
+
+  if target_author_id = new.author_id then
+    return new;
+  end if;
+
+  insert into public.notifications (
+    recipient_id,
+    actor_id,
+    post_id,
+    type,
+    message
+  )
+  values (
+    target_author_id,
+    new.author_id,
+    new.post_id,
+    'star_letter',
+    'あなたの流星便に星文が届きました。'
+  );
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.create_star_letter_notification() from public, anon, authenticated;
+
+drop trigger if exists star_letters_create_notification on public.star_letters;
+create trigger star_letters_create_notification
+after insert on public.star_letters
+for each row execute function app_private.create_star_letter_notification();
 
 -- Indexes for MVP queries.
 create index if not exists profiles_username_idx on public.profiles(username);

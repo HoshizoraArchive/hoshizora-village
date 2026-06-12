@@ -286,7 +286,7 @@ function formatNotificationMessage(notification) {
   }
 
   if (notification.type === "star_letter") {
-    return `${actorName}さんがあなたに星文を送りました。`;
+    return `${actorName}さんがあなたの流星便に星文を送りました。`;
   }
 
   return notification.message;
@@ -1335,7 +1335,7 @@ function App() {
       if (actorIds.length > 0) {
         const { data: profileRows } = await supabase
           .from("profiles")
-          .select("id, display_name, username")
+          .select("id, display_name, username, avatar_url")
           .in("id", actorIds);
 
         if (!isMounted) {
@@ -2715,6 +2715,8 @@ function App() {
     loading: notificationsLoading,
     message: notificationsMessage,
     onMarkRead: handleMarkNotificationRead,
+    onOpenMeteorDetail: handleOpenMeteorDetail,
+    onOpenStarProfile: handleOpenStarProfile,
     session,
     updatingId: notificationUpdatingId,
   };
@@ -3320,6 +3322,8 @@ function RConnectScreen({ notifications }) {
                     key={notification.id}
                     notification={notification}
                     onMarkRead={notifications.onMarkRead}
+                    onOpenMeteorDetail={notifications.onOpenMeteorDetail}
+                    onOpenStarProfile={notifications.onOpenStarProfile}
                     updating={notifications.updatingId === notification.id}
                   />
                 ))}
@@ -3332,8 +3336,13 @@ function RConnectScreen({ notifications }) {
   );
 }
 
-function NotificationCard({ notification, onMarkRead, updating }) {
+function NotificationCard({ notification, onMarkRead, onOpenMeteorDetail, onOpenStarProfile, updating }) {
   const isUnread = !notification.is_read;
+  const actorName = getNotificationActorName(notification);
+  const actorProfile = notification.actorProfile;
+  const actorUsername = actorProfile?.username;
+  const canOpenActorProfile = Boolean(actorUsername);
+  const avatar = getAvatarText(actorName);
 
   return (
     <article
@@ -3352,19 +3361,55 @@ function NotificationCard({ notification, onMarkRead, updating }) {
         <span className="text-xs text-slate-500">{formatNotificationTime(notification.created_at)}</span>
       </div>
 
+      <div className="mt-3 flex items-center gap-3">
+        {canOpenActorProfile ? (
+          <button
+            className="flex min-w-0 items-center gap-3 rounded-2xl p-1 text-left transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-comet/40"
+            onClick={() => onOpenStarProfile(actorUsername)}
+            type="button"
+          >
+            <AvatarFrame avatar={avatar} avatarUrl={actorProfile?.avatar_url} className="h-10 w-10 rounded-2xl text-sm" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-black text-white">{actorName}</span>
+              <span className="block truncate text-xs text-slate-500">@{actorUsername}</span>
+            </span>
+          </button>
+        ) : (
+          <div className="flex min-w-0 items-center gap-3">
+            <AvatarFrame avatar={avatar} avatarUrl={actorProfile?.avatar_url} className="h-10 w-10 rounded-2xl text-sm" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-black text-white">{actorName}</span>
+              <span className="block text-xs text-slate-500">観測者情報を取得中</span>
+            </span>
+          </div>
+        )}
+      </div>
+
       <p className="mt-3 text-sm leading-7 text-slate-100">{formatNotificationMessage(notification)}</p>
       <p className="mt-2 text-[11px] font-bold text-slate-500">type: {notification.type}</p>
 
-      {isUnread && (
-        <button
-          className="mt-4 min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={updating}
-          onClick={() => onMarkRead(notification.id)}
-          type="button"
-        >
-          {updating ? "更新中..." : "既読にする"}
-        </button>
-      )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {notification.post_id ? (
+          <button
+            className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            onClick={() => onOpenMeteorDetail(notification.post_id)}
+            type="button"
+          >
+            流星便を見る
+          </button>
+        ) : null}
+
+        {isUnread && (
+          <button
+            className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={updating}
+            onClick={() => onMarkRead(notification.id)}
+            type="button"
+          >
+            {updating ? "更新中..." : "既読にする"}
+          </button>
+        )}
+      </div>
     </article>
   );
 }

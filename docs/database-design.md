@@ -208,7 +208,7 @@ RLS方針:
 
 R.Connectに表示する通知を保存します。
 
-MVPでは、共鳴された時とArchiveされた時に流星便の作者へ通知を残します。
+MVPでは、共鳴された時、Archiveされた時、星文が届いた時に流星便の作者へ通知を残します。
 
 主なカラム:
 
@@ -225,13 +225,14 @@ MVPでは、共鳴された時とArchiveされた時に流星便の作者へ通�
 
 - `resonance`
 - `archive`
+- `star_letter`
 
 RLS方針:
 
 - `recipient_id = auth.uid()` の本人のみselect可能
 - 本人のみ `is_read` をupdate可能
 - フロントエンドからの自由なinsertは許可しない
-- 通知作成は `resonances` / `archives` insert時のDBトリガーで行う
+- 通知作成は `resonances` / `archives` / `star_letters` insert時のDBトリガーで行う
 
 トリガー方針:
 
@@ -246,11 +247,15 @@ RLS方針:
 - 自分の流星便を自分でArchiveした場合は通知を作らない
 - Archiveしたユーザーの `profiles.notify_authors_when_i_archive` がfalseの場合は通知を作らない
 - Archive通知のmessageはMVPでは `あなたの流星便がArchiveされました。` の固定文にする
+- `star_letters.post_id` から `posts.author_id` を取得する
+- `star_letters.author_id` を `actor_id` として保存する
+- 自分の流星便に自分で星文した場合は通知を作らない
+- 星文通知のmessageはMVPでは `あなたの流星便に星文が届きました。` の固定文にする
 
 補足:
 
 - 表示名を含む通知文は、UI側で `actor_id` から組み立てます。
-- 星文、AI住人観測の通知は今後追加します。
+- AI住人観測の通知は今後追加します。
 
 ### feedbacks
 
@@ -414,6 +419,8 @@ RLS方針:
 R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
 
 Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
+
+星文のR.Connect通知triggerを既存DBに追加する場合は、`supabase/migrations/20260612_add_frontend_notifications.sql` をSupabase SQL Editorで実行してください。
 
 流星便編集・削除MVPでソフト削除を有効にする場合は、`supabase/migrations/20260605_add_post_soft_delete.sql` をSupabase SQL Editorで実行してください。
 
