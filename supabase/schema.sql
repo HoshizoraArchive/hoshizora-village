@@ -175,16 +175,16 @@ create table if not exists public.notifications (
   recipient_id uuid not null references public.profiles(id) on delete cascade,
   actor_id uuid references public.profiles(id) on delete set null,
   post_id uuid references public.posts(id) on delete cascade,
-  type text not null check (type in ('resonance', 'archive')),
+  type text not null check (type in ('resonance', 'archive', 'star_letter')),
   message text not null check (char_length(trim(message)) > 0),
   is_read boolean not null default false,
   created_at timestamptz not null default now()
 );
 
-comment on table public.notifications is 'R.Connect通知。共鳴、Archiveなどの通知を保存する。MVPでは共鳴通知とArchive通知を扱う。';
+comment on table public.notifications is 'R.Connect通知。共鳴、Archive、星文などの通知を保存する。';
 comment on column public.notifications.recipient_id is '通知を受け取るユーザー。本人だけが閲覧できる。';
 comment on column public.notifications.actor_id is '通知のきっかけを作ったユーザー。削除された場合はnullになる。';
-comment on column public.notifications.type is '通知タイプ。MVPでは resonance と archive を許可する。';
+comment on column public.notifications.type is '通知タイプ。MVPでは resonance、archive、star_letter を許可する。';
 comment on column public.notifications.is_read is '既読状態。本人だけが更新できる。';
 
 -- feedbacks: 星の目安箱.
@@ -583,10 +583,10 @@ create policy resonances_delete_own on public.resonances
 for delete using (profile_id = auth.uid());
 
 -- notifications:
--- Client inserts are intentionally not allowed; trusted triggers create rows.
+-- Client inserts are limited to action notifications created by the actor for a post author.
 -- UPDATE is limited to is_read through column privileges plus RLS owner checks.
 revoke all on table public.notifications from anon, authenticated;
-grant select on table public.notifications to authenticated;
+grant select, insert on table public.notifications to authenticated;
 grant update (is_read) on table public.notifications to authenticated;
 
 drop policy if exists notifications_select_own on public.notifications;
@@ -599,6 +599,29 @@ create policy notifications_update_read_own on public.notifications
 for update to authenticated
 using (recipient_id = auth.uid())
 with check (recipient_id = auth.uid());
+
+drop policy if exists notifications_insert_actor_for_post_author on public.notifications;
+create policy notifications_insert_actor_for_post_author on public.notifications
+for insert to authenticated
+with check (
+  actor_id = auth.uid()
+  and recipient_id <> auth.uid()
+  and post_id is not null
+  and type in ('resonance', 'archive', 'star_letter')
+  and exists (
+    select 1 from public.posts p
+    where p.id = public.notifications.post_id
+      and p.author_id = public.notifications.recipient_id
+  )
+  and (
+    type <> 'resonance'
+    or coalesce((select pr.notify_authors_when_i_resonate from public.profiles pr where pr.id = auth.uid()), true)
+  )
+  and (
+    type <> 'archive'
+    or coalesce((select pr.notify_authors_when_i_archive from public.profiles pr where pr.id = auth.uid()), true)
+  )
+);
 
 -- feedbacks:
 -- Logged-in users can send feedback and read only their own rows.
