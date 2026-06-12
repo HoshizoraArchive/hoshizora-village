@@ -408,6 +408,7 @@ function App() {
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarModal, setAvatarModal] = useState(null);
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
   const [savedPosts, setSavedPosts] = useState([]);
   const [ownPosts, setOwnPosts] = useState([]);
@@ -492,6 +493,24 @@ function App() {
       }
     };
   }, [avatarPreviewUrl]);
+
+  useEffect(() => {
+    if (!avatarModal) {
+      return undefined;
+    }
+
+    function handleAvatarModalKeyDown(event) {
+      if (event.key === "Escape") {
+        setAvatarModal(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleAvatarModalKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleAvatarModalKeyDown);
+    };
+  }, [avatarModal]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1486,6 +1505,21 @@ function App() {
   function clearSelectedAvatar() {
     setAvatarFile(null);
     setAvatarPreviewUrl("");
+  }
+
+  function handleOpenAvatarModal(avatarUrl, label = "星影") {
+    if (!avatarUrl) {
+      return;
+    }
+
+    setAvatarModal({
+      label,
+      url: avatarUrl,
+    });
+  }
+
+  function handleCloseAvatarModal() {
+    setAvatarModal(null);
   }
 
   function handleProfileAvatarFileChange(event) {
@@ -2608,6 +2642,7 @@ function App() {
     onBackToProfile: handleBackToProfile,
     onCancelEdit: handleCancelProfileEdit,
     onOpenFeedback: handleOpenFeedback,
+    onOpenAvatar: handleOpenAvatarModal,
     onOpenGuide: handleOpenGuide,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
@@ -2735,6 +2770,7 @@ function App() {
     error: publicProfileError,
     loading: publicProfileLoading,
     onBack: handleBackFromStarProfile,
+    onOpenAvatar: handleOpenAvatarModal,
     onOpenMeteorDetail: handleOpenMeteorDetail,
     onOpenStarProfile: handleOpenStarProfile,
     onShareProfile: handleShareStarProfile,
@@ -2778,6 +2814,7 @@ function App() {
       </div>
 
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
+      <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
     </div>
   );
 }
@@ -3121,6 +3158,7 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
           <>
             <PublicProfileCard
               displayName={displayName}
+              onOpenAvatar={() => profileRoute.onOpenAvatar(profile.avatar_url, `${displayName}の星影`)}
               onShare={() => profileRoute.onShareProfile(profile.username)}
               profile={profile}
               tags={profileRoute.tags}
@@ -3152,18 +3190,30 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
   );
 }
 
-function PublicProfileCard({ displayName, onShare, profile, tags }) {
+function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }) {
   const username = profile.username ? `@${profile.username}` : defaultProfileView.username;
   const bio = profile.bio || defaultProfileView.bio;
   const avatar = getAvatarText(displayName);
   const visibleTags = (tags ?? []).filter((tag) => tag?.label);
+  const canOpenAvatar = Boolean(profile.avatar_url);
 
   return (
     <section className="glass-panel overflow-hidden">
       <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
       <div className="p-4 pt-0">
         <div className="-mt-7 flex items-end justify-between gap-3">
-          <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+          {canOpenAvatar ? (
+            <button
+              aria-label={`${displayName}の星影を見る`}
+              className="rounded-3xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
+              onClick={onOpenAvatar}
+              type="button"
+            >
+              <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+            </button>
+          ) : (
+            <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+          )}
           <button
             className="mb-2 min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
             onClick={onShare}
@@ -3195,6 +3245,41 @@ function PublicProfileCard({ displayName, onShare, profile, tags }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function AvatarPreviewModal({ avatar, onClose }) {
+  if (!avatar?.url) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="星影を見る"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-night-950/85 px-4 py-8 backdrop-blur-xl"
+      onClick={onClose}
+      role="dialog"
+    >
+      <div
+        className="w-full max-w-3xl rounded-3xl border border-white/15 bg-night-950/80 p-3 shadow-[0_0_60px_rgba(125,223,255,0.18)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-xs font-black text-comet">星影を見る</p>
+          <button
+            className="min-h-9 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            閉じる
+          </button>
+        </div>
+        <div className="grid max-h-[78vh] place-items-center overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+          <img alt={avatar.label ?? "星影"} className="max-h-[78vh] w-full object-contain" src={avatar.url} />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3788,6 +3873,7 @@ function ProfileCard({ profile }) {
   const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
   const resonanceValue = formatCount(profile.resonanceCount);
   const canShareStarProfile = Boolean(profile.data?.username);
+  const canOpenAvatar = Boolean(avatarUrl);
   const statusMessage = profile.error || profile.shareError || profile.message || profile.shareMessage;
 
   return (
@@ -3795,7 +3881,18 @@ function ProfileCard({ profile }) {
       <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
       <div className="p-4 pt-0">
         <div className="-mt-7 flex items-end justify-between gap-3">
-          <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+          {canOpenAvatar ? (
+            <button
+              aria-label={`${displayName}の星影を見る`}
+              className="rounded-3xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
+              onClick={() => profile.onOpenAvatar(avatarUrl, `${displayName}の星影`)}
+              type="button"
+            >
+              <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+            </button>
+          ) : (
+            <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+          )}
           <div className="mb-2 flex items-center gap-2">
             {profile.canEdit && (
               <button
