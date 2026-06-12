@@ -27,6 +27,28 @@ Databaseには以下を保存します。
 - `archives`: Archive
 - `observations`: 観測ログ
 
+### Storage
+
+Supabase Storageは、プロフィール画像アップロードMVPで `avatars` bucket を使います。
+
+- bucket名: `avatars`
+- public read: 有効
+- 最大サイズ: 5MB
+- 許可MIME type: `image/jpeg`, `image/png`, `image/webp`
+- 保存パス: `{userId}/avatar-{timestamp}.{ext}`
+
+Storage policy方針:
+
+- 誰でも `avatars` bucket の画像をselect可能
+- ログイン済みユーザーだけがinsert可能
+- insertできるのは `auth.uid()` と同じ名前のフォルダ配下のみ
+- 他人のフォルダにはアップロードできない
+- `service_role` はフロントエンドでは使わない
+
+本番Supabase SQL Editorで実行するmigration:
+
+- `supabase/migrations/20260611_add_avatar_storage.sql`
+
 ### 将来の拡張
 
 AI住人の観測ログ、Archive分類、星文候補、おすすめ観測の判定結果を `observations` に保存できる形にします。
@@ -45,7 +67,7 @@ AI住人用の強い権限はフロントエンドに置かず、将来のサー
 - `display_name`: 表示名
 - `username`: ユーザー名
 - `bio`: 自己紹介
-- `avatar_url`: アイコン画像URL
+- `avatar_url`: プロフィール画像URL。プロフィール画像アップロードMVPでは `avatars` bucket の公開URLを保存する
 - `constellation_note`: わたしの星座の説明
 - `notify_authors_when_i_archive`: 自分のArchiveを相手に通知するかどうか
 - `notify_authors_when_i_resonate`: 自分の共鳴を相手に通知するかどうか

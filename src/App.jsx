@@ -17,6 +17,14 @@ const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
 const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const AVATAR_BUCKET = "avatars";
+const AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+const AVATAR_ALLOWED_TYPES = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+const AVATAR_ACCEPT = Object.keys(AVATAR_ALLOWED_TYPES).join(",");
 
 const emptyProfileForm = {
   display_name: "",
@@ -310,12 +318,45 @@ function mapSavedPost(post, authorProfile) {
   };
 }
 
+function applyAuthorProfileToPost(post, authorProfile) {
+  if (!post || post.authorId !== authorProfile?.id) {
+    return post;
+  }
+
+  const displayName = authorProfile.display_name || defaultProfileView.display_name;
+
+  return {
+    ...post,
+    authorUsername: authorProfile.username ?? null,
+    name: displayName,
+    handle: authorProfile.username ? `@${authorProfile.username}` : post.handle,
+    avatar: getAvatarText(displayName),
+    avatarUrl: authorProfile.avatar_url ?? null,
+  };
+}
+
 function mapArchivedPost(archive, post, authorProfile) {
   return {
     ...mapSavedPost(post, authorProfile),
     archiveId: archive.id,
     archivedAt: archive.created_at,
     archivedTime: formatNotificationTime(archive.created_at),
+  };
+}
+
+function applyAuthorProfileToStarLetter(letter, authorProfile) {
+  if (!letter || letter.authorId !== authorProfile?.id) {
+    return letter;
+  }
+
+  const displayName = authorProfile.display_name || "誰か";
+
+  return {
+    ...letter,
+    name: displayName,
+    handle: authorProfile.username ? `@${authorProfile.username}` : letter.handle,
+    avatar: getAvatarText(displayName),
+    avatarUrl: authorProfile.avatar_url ?? null,
   };
 }
 
@@ -364,6 +405,10 @@ function App() {
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarModal, setAvatarModal] = useState(null);
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
   const [savedPosts, setSavedPosts] = useState([]);
   const [ownPosts, setOwnPosts] = useState([]);
@@ -440,6 +485,32 @@ function App() {
       window.removeEventListener("popstate", handlePopState);
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
+
+  useEffect(() => {
+    if (!avatarModal) {
+      return undefined;
+    }
+
+    function handleAvatarModalKeyDown(event) {
+      if (event.key === "Escape") {
+        setAvatarModal(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleAvatarModalKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleAvatarModalKeyDown);
+    };
+  }, [avatarModal]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1431,7 +1502,58 @@ function App() {
     }));
   }
 
+  function clearSelectedAvatar() {
+    setAvatarFile(null);
+    setAvatarPreviewUrl("");
+  }
+
+  function handleOpenAvatarModal(avatarUrl, label = "星影") {
+    if (!avatarUrl) {
+      return;
+    }
+
+    setAvatarModal({
+      label,
+      url: avatarUrl,
+    });
+  }
+
+  function handleCloseAvatarModal() {
+    setAvatarModal(null);
+  }
+
+  function handleProfileAvatarFileChange(event) {
+    const file = event.target.files?.[0];
+
+    setProfileMessage("");
+    setProfileError("");
+
+    if (!file) {
+      clearSelectedAvatar();
+      return;
+    }
+
+    if (!AVATAR_ALLOWED_TYPES[file.type]) {
+      clearSelectedAvatar();
+      event.target.value = "";
+      setProfileError("jpg / jpeg / png / webp の画像を選んでください。");
+      return;
+    }
+
+    if (file.size > AVATAR_MAX_SIZE_BYTES) {
+      clearSelectedAvatar();
+      event.target.value = "";
+      setProfileError("画像は5MBまで選べます。");
+      return;
+    }
+
+    setAvatarFile(file);
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+    setProfileMessage("星影を選びました。保存するとプロフィールに反映されます。");
+  }
+
   function handleStartProfileEdit() {
+    clearSelectedAvatar();
     setProfileForm(
       profile ? profileFormFromRecord(profile) : { ...emptyProfileForm, display_name: defaultProfileView.display_name },
     );
@@ -1441,6 +1563,7 @@ function App() {
   }
 
   function handleCancelProfileEdit() {
+    clearSelectedAvatar();
     setProfileForm(
       profile ? profileFormFromRecord(profile) : { ...emptyProfileForm, display_name: defaultProfileView.display_name },
     );
@@ -1494,6 +1617,43 @@ function App() {
     setProfileMessage("");
     setProfileError("");
 
+    let nextAvatarUrl = optionalText(profileForm.avatar_url);
+
+    if (avatarFile) {
+      if (!AVATAR_ALLOWED_TYPES[avatarFile.type]) {
+        setProfileSaving(false);
+        setProfileError("jpg / jpeg / png / webp の画像を選んでください。");
+        return;
+      }
+
+      if (avatarFile.size > AVATAR_MAX_SIZE_BYTES) {
+        setProfileSaving(false);
+        setProfileError("画像は5MBまで選べます。");
+        return;
+      }
+
+      setAvatarUploading(true);
+
+      const extension = AVATAR_ALLOWED_TYPES[avatarFile.type];
+      const filePath = `${session.user.id}/avatar-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, avatarFile, {
+        cacheControl: "3600",
+        contentType: avatarFile.type,
+        upsert: false,
+      });
+
+      setAvatarUploading(false);
+
+      if (uploadError) {
+        setProfileSaving(false);
+        setProfileError(`星影の更新に失敗しました。${uploadError.message}`);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
+      nextAvatarUrl = publicUrlData.publicUrl;
+    }
+
     const { data, error } = await supabase
       .from("profiles")
       .upsert(
@@ -1501,7 +1661,7 @@ function App() {
           id: session.user.id,
           display_name: displayName,
           username: optionalUsername(profileForm.username),
-          avatar_url: optionalText(profileForm.avatar_url),
+          avatar_url: nextAvatarUrl,
           bio: optionalText(profileForm.bio),
           constellation_note: optionalText(profileForm.constellation_note),
         },
@@ -1525,7 +1685,21 @@ function App() {
 
     setProfile(nextProfile);
     setProfileForm(profileFormFromRecord(nextProfile));
-    setProfileMessage("プロフィールを保存しました。");
+    clearSelectedAvatar();
+    setSavedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
+    setOwnPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
+    setArchivedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
+    setPublicProfilePosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
+    setDetailPost((currentPost) => applyAuthorProfileToPost(currentPost, nextProfile));
+    setStarLettersByPostId((currentLettersByPostId) =>
+      Object.fromEntries(
+        Object.entries(currentLettersByPostId).map(([postId, letters]) => [
+          postId,
+          letters.map((letter) => applyAuthorProfileToStarLetter(letter, nextProfile)),
+        ]),
+      ),
+    );
+    setProfileMessage(avatarFile ? "星影を更新しました。" : "プロフィールを保存しました。");
     setProfileScreenMode("view");
   }
 
@@ -2455,14 +2629,20 @@ function App() {
     canEdit: Boolean(session),
     data: profile,
     error: profileError,
+    avatarAccept: AVATAR_ACCEPT,
+    avatarFileName: avatarFile?.name ?? "",
+    avatarPreviewUrl,
+    avatarUploading,
     form: profileForm,
     loading: profileLoading,
     message: profileMessage,
     onArchiveNotificationSettingSubmit: handleArchiveNotificationSettingSubmit,
+    onAvatarFileChange: handleProfileAvatarFileChange,
     onChange: handleProfileFieldChange,
     onBackToProfile: handleBackToProfile,
     onCancelEdit: handleCancelProfileEdit,
     onOpenFeedback: handleOpenFeedback,
+    onOpenAvatar: handleOpenAvatarModal,
     onOpenGuide: handleOpenGuide,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
@@ -2590,6 +2770,7 @@ function App() {
     error: publicProfileError,
     loading: publicProfileLoading,
     onBack: handleBackFromStarProfile,
+    onOpenAvatar: handleOpenAvatarModal,
     onOpenMeteorDetail: handleOpenMeteorDetail,
     onOpenStarProfile: handleOpenStarProfile,
     onShareProfile: handleShareStarProfile,
@@ -2633,6 +2814,7 @@ function App() {
       </div>
 
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
+      <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
     </div>
   );
 }
@@ -2976,6 +3158,7 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
           <>
             <PublicProfileCard
               displayName={displayName}
+              onOpenAvatar={() => profileRoute.onOpenAvatar(profile.avatar_url, `${displayName}の星影`)}
               onShare={() => profileRoute.onShareProfile(profile.username)}
               profile={profile}
               tags={profileRoute.tags}
@@ -3007,18 +3190,30 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
   );
 }
 
-function PublicProfileCard({ displayName, onShare, profile, tags }) {
+function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }) {
   const username = profile.username ? `@${profile.username}` : defaultProfileView.username;
   const bio = profile.bio || defaultProfileView.bio;
   const avatar = getAvatarText(displayName);
   const visibleTags = (tags ?? []).filter((tag) => tag?.label);
+  const canOpenAvatar = Boolean(profile.avatar_url);
 
   return (
     <section className="glass-panel overflow-hidden">
       <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
       <div className="p-4 pt-0">
         <div className="-mt-7 flex items-end justify-between gap-3">
-          <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+          {canOpenAvatar ? (
+            <button
+              aria-label={`${displayName}の星影を見る`}
+              className="rounded-3xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
+              onClick={onOpenAvatar}
+              type="button"
+            >
+              <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+            </button>
+          ) : (
+            <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+          )}
           <button
             className="mb-2 min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
             onClick={onShare}
@@ -3050,6 +3245,41 @@ function PublicProfileCard({ displayName, onShare, profile, tags }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function AvatarPreviewModal({ avatar, onClose }) {
+  if (!avatar?.url) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="星影を見る"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-night-950/85 px-4 py-8 backdrop-blur-xl"
+      onClick={onClose}
+      role="dialog"
+    >
+      <div
+        className="w-full max-w-3xl rounded-3xl border border-white/15 bg-night-950/80 p-3 shadow-[0_0_60px_rgba(125,223,255,0.18)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-xs font-black text-comet">星影を見る</p>
+          <button
+            className="min-h-9 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            閉じる
+          </button>
+        </div>
+        <div className="grid max-h-[78vh] place-items-center overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+          <img alt={avatar.label ?? "星影"} className="max-h-[78vh] w-full object-contain" src={avatar.url} />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3643,6 +3873,7 @@ function ProfileCard({ profile }) {
   const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
   const resonanceValue = formatCount(profile.resonanceCount);
   const canShareStarProfile = Boolean(profile.data?.username);
+  const canOpenAvatar = Boolean(avatarUrl);
   const statusMessage = profile.error || profile.shareError || profile.message || profile.shareMessage;
 
   return (
@@ -3650,7 +3881,18 @@ function ProfileCard({ profile }) {
       <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
       <div className="p-4 pt-0">
         <div className="-mt-7 flex items-end justify-between gap-3">
-          <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+          {canOpenAvatar ? (
+            <button
+              aria-label={`${displayName}の星影を見る`}
+              className="rounded-3xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
+              onClick={() => profile.onOpenAvatar(avatarUrl, `${displayName}の星影`)}
+              type="button"
+            >
+              <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+            </button>
+          ) : (
+            <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+          )}
           <div className="mb-2 flex items-center gap-2">
             {profile.canEdit && (
               <button
@@ -3726,7 +3968,7 @@ function ProfileEditScreen({ profile }) {
           <p className="text-xs font-black text-comet">profile edit</p>
           <h2 className="mt-1 text-2xl font-black text-white">プロフィール編集</h2>
           <p className="mt-2 text-sm leading-7 text-slate-400">
-            表示名、アイコン画像URL、わたしの星座を編集できます。
+            表示名、星影、わたしの星座を編集できます。
           </p>
         </div>
         <button
@@ -3760,11 +4002,19 @@ function AvatarFrame({ avatar, avatarUrl, className = "h-12 w-12 rounded-2xl tex
 }
 
 function ProfileEditor({ profile }) {
+  const previewUrl = profile.avatarPreviewUrl || profile.form.avatar_url;
+  const previewName = profile.form.display_name || defaultProfileView.display_name;
+  const previewAvatar = getAvatarText(previewName);
+
   return (
     <form className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-night-950/35 p-3" onSubmit={profile.onSubmit}>
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-black text-comet">プロフィール編集</p>
-        {profile.loading && <span className="text-[11px] font-bold text-slate-500">読み込み中...</span>}
+        {(profile.loading || profile.avatarUploading) && (
+          <span className="text-[11px] font-bold text-slate-500">
+            {profile.avatarUploading ? "アップロード中..." : "読み込み中..."}
+          </span>
+        )}
       </div>
 
       <label className="block text-xs font-bold text-slate-400">
@@ -3792,8 +4042,33 @@ function ProfileEditor({ profile }) {
         />
       </label>
 
+      <div className="rounded-2xl border border-comet/20 bg-comet/10 p-3">
+        <p className="text-xs font-black text-comet">星影</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <AvatarFrame avatar={previewAvatar} avatarUrl={previewUrl} className="h-16 w-16 rounded-3xl text-xl" />
+          <div className="min-w-0 flex-1">
+            <label className="inline-flex min-h-10 cursor-pointer items-center rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01]">
+              写真フォルダから星影を選ぶ
+              <input
+                accept={profile.avatarAccept}
+                className="sr-only"
+                disabled={profile.loading || profile.saving || profile.avatarUploading}
+                onChange={profile.onAvatarFileChange}
+                type="file"
+              />
+            </label>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              jpg / jpeg / png / webp、5MBまで。保存するとプロフィールに反映されます。
+            </p>
+            {profile.avatarFileName && (
+              <p className="mt-1 truncate text-xs font-bold text-comet">選択中: {profile.avatarFileName}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
       <label className="block text-xs font-bold text-slate-400">
-        アイコン画像URL
+        画像URL（予備）
         <input
           className="mt-1 min-h-10 w-full rounded-2xl border border-white/10 bg-night-950/70 px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
           onChange={(event) => profile.onChange("avatar_url", event.target.value)}
@@ -3826,14 +4101,14 @@ function ProfileEditor({ profile }) {
       <div className="grid gap-2 sm:grid-cols-2">
         <button
           className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={profile.loading || profile.saving}
+          disabled={profile.loading || profile.saving || profile.avatarUploading}
           type="submit"
         >
-          {profile.saving ? "保存中..." : "保存する"}
+          {profile.avatarUploading ? "アップロード中..." : profile.saving ? "保存中..." : "保存する"}
         </button>
         <button
           className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={profile.saving}
+          disabled={profile.saving || profile.avatarUploading}
           onClick={profile.onCancelEdit}
           type="button"
         >
