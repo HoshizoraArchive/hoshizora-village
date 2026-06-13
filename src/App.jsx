@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "./lib/supabaseClient";
 
 const bottomNavItems = [
@@ -19,6 +19,13 @@ const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const AVATAR_BUCKET = "avatars";
 const AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+const AVATAR_CROP_SIZE = 512;
+const AVATAR_CROP_MIN_ZOOM = 1;
+const AVATAR_CROP_MAX_ZOOM = 6;
+const AVATAR_CROP_PREVIEW_FALLBACK_SIZE = 260;
+const AVATAR_CROP_OUTPUT_TYPE = "image/jpeg";
+const AVATAR_CROP_OUTPUT_EXTENSION = "jpg";
+const AVATAR_CROP_OUTPUT_QUALITY = 0.92;
 const AVATAR_ALLOWED_TYPES = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -67,6 +74,101 @@ function optionalUsername(value) {
 
 function getTrimmedCharacterLength(value) {
   return Array.from(value.trim()).length;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getAvatarCoverScale(imageSize, frameSize) {
+  if (!imageSize?.width || !imageSize?.height || !frameSize) {
+    return 1;
+  }
+
+  return Math.max(frameSize / imageSize.width, frameSize / imageSize.height);
+}
+
+function constrainAvatarCropOffset(offset, zoom, imageSize, frameSize) {
+  if (!imageSize?.width || !imageSize?.height || !frameSize) {
+    return offset;
+  }
+
+  const coverScale = getAvatarCoverScale(imageSize, frameSize);
+  const displayedWidth = imageSize.width * coverScale * zoom;
+  const displayedHeight = imageSize.height * coverScale * zoom;
+  const maxX = Math.max(0, (displayedWidth - frameSize) / 2);
+  const maxY = Math.max(0, (displayedHeight - frameSize) / 2);
+
+  return {
+    x: clampNumber(offset.x, -maxX, maxX),
+    y: clampNumber(offset.y, -maxY, maxY),
+  };
+}
+
+function isSameAvatarCropOffset(currentOffset, nextOffset) {
+  return Math.abs(currentOffset.x - nextOffset.x) < 0.5 && Math.abs(currentOffset.y - nextOffset.y) < 0.5;
+}
+
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("画像の読み込みに失敗しました。"));
+    };
+
+    image.src = imageUrl;
+  });
+}
+
+async function createCroppedAvatarBlob({ file, frameSize, offset, zoom }) {
+  const image = await loadImageFromFile(file);
+  const sourceSize = {
+    width: image.naturalWidth || image.width,
+    height: image.naturalHeight || image.height,
+  };
+  const safeFrameSize = frameSize || AVATAR_CROP_PREVIEW_FALLBACK_SIZE;
+  const coverScale = getAvatarCoverScale(sourceSize, AVATAR_CROP_SIZE);
+  const outputOffsetScale = AVATAR_CROP_SIZE / safeFrameSize;
+  const drawWidth = sourceSize.width * coverScale * zoom;
+  const drawHeight = sourceSize.height * coverScale * zoom;
+  const drawX = (AVATAR_CROP_SIZE - drawWidth) / 2 + offset.x * outputOffsetScale;
+  const drawY = (AVATAR_CROP_SIZE - drawHeight) / 2 + offset.y * outputOffsetScale;
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_CROP_SIZE;
+  canvas.height = AVATAR_CROP_SIZE;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("星影の切り抜き準備に失敗しました。");
+  }
+
+  context.fillStyle = "#050816";
+  context.fillRect(0, 0, AVATAR_CROP_SIZE, AVATAR_CROP_SIZE);
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+
+        reject(new Error("星影の切り抜きに失敗しました。"));
+      },
+      AVATAR_CROP_OUTPUT_TYPE,
+      AVATAR_CROP_OUTPUT_QUALITY,
+    );
+  });
 }
 
 function isMissingDeletedAtError(error) {
@@ -406,7 +508,16 @@ function App() {
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
   const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarCroppedBlob, setAvatarCroppedBlob] = useState(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
+  const [avatarCropFile, setAvatarCropFile] = useState(null);
+  const [avatarCropPreviewUrl, setAvatarCropPreviewUrl] = useState("");
+  const [avatarCropModalOpen, setAvatarCropModalOpen] = useState(false);
+  const [avatarCropZoom, setAvatarCropZoom] = useState(AVATAR_CROP_MIN_ZOOM);
+  const [avatarCropOffset, setAvatarCropOffset] = useState({ x: 0, y: 0 });
+  const [avatarImageSize, setAvatarImageSize] = useState(null);
+  const [avatarCropFrameSize, setAvatarCropFrameSize] = useState(AVATAR_CROP_PREVIEW_FALLBACK_SIZE);
+  const [avatarCropPreparing, setAvatarCropPreparing] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarModal, setAvatarModal] = useState(null);
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
@@ -493,6 +604,14 @@ function App() {
       }
     };
   }, [avatarPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarCropPreviewUrl) {
+        URL.revokeObjectURL(avatarCropPreviewUrl);
+      }
+    };
+  }, [avatarCropPreviewUrl]);
 
   useEffect(() => {
     if (!avatarModal) {
@@ -1502,9 +1621,26 @@ function App() {
     }));
   }
 
+  function resetAvatarCrop() {
+    setAvatarCropZoom(AVATAR_CROP_MIN_ZOOM);
+    setAvatarCropOffset({ x: 0, y: 0 });
+    setAvatarImageSize(null);
+  }
+
+  function clearAvatarCropDraft() {
+    setAvatarCropFile(null);
+    setAvatarCropPreviewUrl("");
+    setAvatarCropModalOpen(false);
+    setAvatarCropPreparing(false);
+    resetAvatarCrop();
+  }
+
   function clearSelectedAvatar() {
     setAvatarFile(null);
+    setAvatarCroppedBlob(null);
     setAvatarPreviewUrl("");
+    clearAvatarCropDraft();
+    resetAvatarCrop();
   }
 
   function handleOpenAvatarModal(avatarUrl, label = "星影") {
@@ -1527,29 +1663,98 @@ function App() {
 
     setProfileMessage("");
     setProfileError("");
+    event.target.value = "";
 
     if (!file) {
-      clearSelectedAvatar();
       return;
     }
 
     if (!AVATAR_ALLOWED_TYPES[file.type]) {
-      clearSelectedAvatar();
-      event.target.value = "";
+      clearAvatarCropDraft();
       setProfileError("jpg / jpeg / png / webp の画像を選んでください。");
       return;
     }
 
     if (file.size > AVATAR_MAX_SIZE_BYTES) {
-      clearSelectedAvatar();
-      event.target.value = "";
+      clearAvatarCropDraft();
       setProfileError("画像は5MBまで選べます。");
       return;
     }
 
-    setAvatarFile(file);
-    setAvatarPreviewUrl(URL.createObjectURL(file));
-    setProfileMessage("星影を選びました。保存するとプロフィールに反映されます。");
+    setAvatarCropFile(file);
+    setAvatarCropPreviewUrl(URL.createObjectURL(file));
+    resetAvatarCrop();
+    setAvatarCropModalOpen(true);
+  }
+
+  function handleAvatarCropImageLoad(imageSize) {
+    setAvatarImageSize(imageSize);
+    setAvatarCropOffset((currentOffset) => {
+      const nextOffset = constrainAvatarCropOffset(currentOffset, avatarCropZoom, imageSize, avatarCropFrameSize);
+      return isSameAvatarCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handleAvatarCropFrameSizeChange(nextFrameSize) {
+    setAvatarCropFrameSize((currentFrameSize) => (currentFrameSize === nextFrameSize ? currentFrameSize : nextFrameSize));
+    setAvatarCropOffset((currentOffset) => {
+      const nextOffset = constrainAvatarCropOffset(currentOffset, avatarCropZoom, avatarImageSize, nextFrameSize);
+      return isSameAvatarCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handleAvatarCropOffsetChange(nextOffset) {
+    setAvatarCropOffset((currentOffset) => {
+      const safeOffset = constrainAvatarCropOffset(nextOffset, avatarCropZoom, avatarImageSize, avatarCropFrameSize);
+      return isSameAvatarCropOffset(currentOffset, safeOffset) ? currentOffset : safeOffset;
+    });
+  }
+
+  function handleAvatarCropZoomChange(nextZoom) {
+    const safeZoom = clampNumber(Number(nextZoom) || AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MAX_ZOOM);
+    setAvatarCropZoom(safeZoom);
+    setAvatarCropOffset((currentOffset) => {
+      const nextOffset = constrainAvatarCropOffset(currentOffset, safeZoom, avatarImageSize, avatarCropFrameSize);
+      return isSameAvatarCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handleAvatarCropReset() {
+    setAvatarCropZoom(AVATAR_CROP_MIN_ZOOM);
+    setAvatarCropOffset({ x: 0, y: 0 });
+  }
+
+  function handleCancelAvatarCrop() {
+    clearAvatarCropDraft();
+  }
+
+  async function handleUseCroppedAvatar() {
+    if (!avatarCropFile) {
+      return;
+    }
+
+    setAvatarCropPreparing(true);
+    setProfileMessage("");
+    setProfileError("");
+
+    try {
+      const croppedAvatarBlob = await createCroppedAvatarBlob({
+        file: avatarCropFile,
+        frameSize: avatarCropFrameSize,
+        offset: avatarCropOffset,
+        zoom: avatarCropZoom,
+      });
+      const croppedPreviewUrl = URL.createObjectURL(croppedAvatarBlob);
+
+      setAvatarFile(avatarCropFile);
+      setAvatarCroppedBlob(croppedAvatarBlob);
+      setAvatarPreviewUrl(croppedPreviewUrl);
+      setProfileMessage("この星影を選びました。保存するとプロフィールに反映されます。");
+      clearAvatarCropDraft();
+    } catch (cropError) {
+      setProfileError(cropError.message);
+      setAvatarCropPreparing(false);
+    }
   }
 
   function handleStartProfileEdit() {
@@ -1634,11 +1839,28 @@ function App() {
 
       setAvatarUploading(true);
 
-      const extension = AVATAR_ALLOWED_TYPES[avatarFile.type];
-      const filePath = `${session.user.id}/avatar-${Date.now()}.${extension}`;
-      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, avatarFile, {
+      let nextCroppedAvatarBlob = avatarCroppedBlob;
+
+      if (!nextCroppedAvatarBlob) {
+        try {
+          nextCroppedAvatarBlob = await createCroppedAvatarBlob({
+            file: avatarFile,
+            frameSize: avatarCropFrameSize,
+            offset: avatarCropOffset,
+            zoom: avatarCropZoom,
+          });
+        } catch (cropError) {
+          setAvatarUploading(false);
+          setProfileSaving(false);
+          setProfileError(cropError.message);
+          return;
+        }
+      }
+
+      const filePath = `${session.user.id}/avatar-cropped-${Date.now()}.${AVATAR_CROP_OUTPUT_EXTENSION}`;
+      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, nextCroppedAvatarBlob, {
         cacheControl: "3600",
-        contentType: avatarFile.type,
+        contentType: AVATAR_CROP_OUTPUT_TYPE,
         upsert: false,
       });
 
@@ -2783,6 +3005,24 @@ function App() {
     tags: publicProfileTags,
     username: publicProfileUsername,
   };
+  const avatarCropState = {
+    disabled: avatarCropPreparing,
+    fileName: avatarCropFile?.name ?? "",
+    frameSize: avatarCropFrameSize,
+    imageSize: avatarImageSize,
+    imageUrl: avatarCropPreviewUrl,
+    isOpen: avatarCropModalOpen,
+    offset: avatarCropOffset,
+    onCancel: handleCancelAvatarCrop,
+    onFrameSizeChange: handleAvatarCropFrameSizeChange,
+    onImageLoad: handleAvatarCropImageLoad,
+    onOffsetChange: handleAvatarCropOffsetChange,
+    onReset: handleAvatarCropReset,
+    onUse: handleUseCroppedAvatar,
+    onZoomChange: handleAvatarCropZoomChange,
+    preparing: avatarCropPreparing,
+    zoom: avatarCropZoom,
+  };
 
   return (
     <div className="relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
@@ -2817,6 +3057,7 @@ function App() {
 
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
       <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
+      <AvatarCropModal crop={avatarCropState} />
     </div>
   );
 }
@@ -3189,6 +3430,107 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
         ) : null}
       </section>
     </main>
+  );
+}
+
+function AvatarCropModal({ crop }) {
+  const onCancelRef = useRef(crop.onCancel);
+
+  useEffect(() => {
+    onCancelRef.current = crop.onCancel;
+  }, [crop.onCancel]);
+
+  useEffect(() => {
+    if (!crop.isOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onCancelRef.current();
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [crop.isOpen]);
+
+  if (!crop.isOpen || !crop.imageUrl) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="星影を切り取る"
+      aria-modal="true"
+      className="fixed inset-0 z-50 overflow-y-auto bg-night-950/88 px-3 py-4 backdrop-blur-xl"
+      role="dialog"
+    >
+      <div className="mx-auto flex min-h-full max-w-xl items-center">
+        <div className="w-full rounded-3xl border border-white/15 bg-night-950/90 p-4 shadow-[0_0_70px_rgba(125,223,255,0.18)] sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black text-comet">星影を切り取る</p>
+              <h2 className="mt-1 text-xl font-black text-white">星影を切り取る</h2>
+              <p className="mt-2 text-xs leading-6 text-slate-400">
+                ドラッグして位置を調整し、スライダーで大きさを変えられます。
+              </p>
+            </div>
+            <button
+              className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={crop.preparing}
+              onClick={crop.onCancel}
+              type="button"
+            >
+              キャンセル
+            </button>
+          </div>
+
+          <AvatarCropper
+            disabled={crop.disabled}
+            frameSize={crop.frameSize}
+            imageSize={crop.imageSize}
+            imageUrl={crop.imageUrl}
+            offset={crop.offset}
+            onFrameSizeChange={crop.onFrameSizeChange}
+            onImageLoad={crop.onImageLoad}
+            onOffsetChange={crop.onOffsetChange}
+            onReset={crop.onReset}
+            onZoomChange={crop.onZoomChange}
+            zoom={crop.zoom}
+          />
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 truncate text-xs font-bold text-slate-500">{crop.fileName}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={crop.preparing}
+                onClick={crop.onCancel}
+                type="button"
+              >
+                キャンセル
+              </button>
+              <button
+                className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={crop.preparing || !crop.imageSize}
+                onClick={crop.onUse}
+                type="button"
+              >
+                {crop.preparing ? "準備中..." : "この星影を使う"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -4046,6 +4388,289 @@ function AvatarFrame({ avatar, avatarUrl, className = "h-12 w-12 rounded-2xl tex
   return <div className={`${baseClass} ${className}`}>{avatar}</div>;
 }
 
+function AvatarCropper({
+  disabled,
+  frameSize,
+  imageSize,
+  imageUrl,
+  offset,
+  onFrameSizeChange,
+  onImageLoad,
+  onOffsetChange,
+  onReset,
+  onZoomChange,
+  zoom,
+}) {
+  const guideRef = useRef(null);
+  const imageRef = useRef(null);
+  const dragStateRef = useRef(null);
+  const latestVisualOffsetRef = useRef(offset);
+  const animationFrameRef = useRef(null);
+  const coverScale = getAvatarCoverScale(imageSize, frameSize);
+  const displayedWidth = imageSize?.width && frameSize ? imageSize.width * coverScale * zoom : null;
+  const displayedHeight = imageSize?.height && frameSize ? imageSize.height * coverScale * zoom : null;
+
+  function applyImageTransform(nextOffset) {
+    if (!imageRef.current) {
+      return;
+    }
+
+    imageRef.current.style.transform = `translate(-50%, -50%) translate3d(${nextOffset.x}px, ${nextOffset.y}px, 0)`;
+  }
+
+  function scheduleVisualOffset(nextOffset) {
+    latestVisualOffsetRef.current = nextOffset;
+
+    if (animationFrameRef.current) {
+      return;
+    }
+
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      applyImageTransform(latestVisualOffsetRef.current);
+    });
+  }
+
+  function flushVisualOffset() {
+    if (animationFrameRef.current) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    applyImageTransform(latestVisualOffsetRef.current);
+  }
+
+  function getMeasuredFrameSize() {
+    const rect = guideRef.current?.getBoundingClientRect();
+    const measuredSize = rect ? Math.round(Math.min(rect.width, rect.height)) : 0;
+
+    return measuredSize || frameSize;
+  }
+
+  useEffect(() => {
+    const guide = guideRef.current;
+
+    if (!guide) {
+      return undefined;
+    }
+
+    function updateFrameSize() {
+      const rect = guide.getBoundingClientRect();
+      const nextSize = Math.round(Math.min(rect.width, rect.height));
+
+      if (nextSize > 0) {
+        onFrameSizeChange(nextSize);
+      }
+    }
+
+    updateFrameSize();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateFrameSize);
+      return () => {
+        window.removeEventListener("resize", updateFrameSize);
+      };
+    }
+
+    const observer = new ResizeObserver(updateFrameSize);
+    observer.observe(guide);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [imageUrl, onFrameSizeChange]);
+
+  useEffect(() => {
+    latestVisualOffsetRef.current = offset;
+
+    if (!dragStateRef.current) {
+      applyImageTransform(offset);
+    }
+  }, [displayedHeight, displayedWidth, offset]);
+
+  useEffect(
+    () => () => {
+      if (animationFrameRef.current) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  function handlePointerDown(event) {
+    if (disabled || !imageSize?.width || !imageSize?.height) {
+      return;
+    }
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; dragging still works without it.
+    }
+
+    const safeStartOffset = constrainAvatarCropOffset(
+      latestVisualOffsetRef.current,
+      zoom,
+      imageSize,
+      getMeasuredFrameSize(),
+    );
+
+    latestVisualOffsetRef.current = safeStartOffset;
+    flushVisualOffset();
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startOffset: safeStartOffset,
+      target: event.currentTarget,
+    };
+  }
+
+  function handlePointerMove(event) {
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    const nextOffset = constrainAvatarCropOffset(
+      {
+        x: dragState.startOffset.x + event.clientX - dragState.startX,
+        y: dragState.startOffset.y + event.clientY - dragState.startY,
+      },
+      zoom,
+      imageSize,
+      getMeasuredFrameSize(),
+    );
+
+    scheduleVisualOffset(nextOffset);
+  }
+
+  function handlePointerEnd(event) {
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    const finalOffset = latestVisualOffsetRef.current;
+
+    dragStateRef.current = null;
+    try {
+      dragState.target?.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Some mobile browsers release capture before the pointerup callback.
+    }
+    flushVisualOffset();
+    onOffsetChange(finalOffset);
+  }
+
+  return (
+    <div className="mt-4 rounded-3xl border border-comet/20 bg-night-950/45 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-black text-comet">星影の位置を調整</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">枠の中をドラッグして、アイコンに使う光を合わせます。</p>
+        </div>
+        <button
+          className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disabled}
+          onClick={onReset}
+          type="button"
+        >
+          位置をリセット
+        </button>
+      </div>
+
+      <div
+        aria-label="星影の正方形プレビュー"
+        className="relative mx-auto mt-4 aspect-square w-full max-w-[320px] touch-none overflow-hidden rounded-3xl border border-comet/30 bg-night-950/70 shadow-[0_0_35px_rgba(125,223,255,0.16)]"
+        onPointerCancel={handlePointerEnd}
+        onPointerDown={handlePointerDown}
+        onLostPointerCapture={handlePointerEnd}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        style={{ touchAction: "none", userSelect: "none", WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+      >
+        <img
+          alt=""
+          className={displayedWidth && displayedHeight ? "absolute max-w-none select-none" : "h-full w-full select-none object-cover"}
+          draggable={false}
+          onLoad={(event) =>
+            onImageLoad({
+              width: event.currentTarget.naturalWidth,
+              height: event.currentTarget.naturalHeight,
+            })
+          }
+          onDragStart={(event) => event.preventDefault()}
+          ref={imageRef}
+          src={imageUrl}
+          style={
+            displayedWidth && displayedHeight
+              ? {
+                  height: `${displayedHeight}px`,
+                  left: "50%",
+                  top: "50%",
+                  transform: `translate(-50%, -50%) translate3d(${offset.x}px, ${offset.y}px, 0)`,
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  willChange: "transform",
+                  width: `${displayedWidth}px`,
+                }
+              : undefined
+          }
+        />
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute inset-x-0 top-0 h-[9%] bg-night-950/52" />
+          <div className="absolute inset-x-0 bottom-0 h-[9%] bg-night-950/52" />
+          <div className="absolute bottom-[9%] left-0 top-[9%] w-[9%] bg-night-950/52" />
+          <div className="absolute bottom-[9%] right-0 top-[9%] w-[9%] bg-night-950/52" />
+          <div
+            className="absolute inset-[9%] rounded-[1.65rem] border border-comet/65 bg-white/[0.025] shadow-[0_0_28px_rgba(125,223,255,0.16),inset_0_0_22px_rgba(255,255,255,0.06)]"
+            ref={guideRef}
+          >
+            <div className="absolute inset-y-0 left-1/3 w-px bg-white/10" />
+            <div className="absolute inset-y-0 left-2/3 w-px bg-white/10" />
+            <div className="absolute inset-x-0 top-1/3 h-px bg-white/10" />
+            <div className="absolute inset-x-0 top-2/3 h-px bg-white/10" />
+          </div>
+          <div className="absolute inset-0 rounded-3xl ring-1 ring-inset ring-white/25" />
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-black text-slate-400">
+          <span>星影を遠ざける</span>
+          <span>星影を近づける</span>
+        </div>
+        <input
+          aria-label="星影のズーム"
+          className="w-full accent-cyan-300"
+          disabled={disabled}
+          max={AVATAR_CROP_MAX_ZOOM}
+          min={AVATAR_CROP_MIN_ZOOM}
+          onChange={(event) => onZoomChange(event.target.value)}
+          step="0.01"
+          type="range"
+          value={zoom}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ProfileEditor({ profile }) {
   const previewUrl = profile.avatarPreviewUrl || profile.form.avatar_url;
   const previewName = profile.form.display_name || defaultProfileView.display_name;
@@ -4718,11 +5343,11 @@ function PostCard({
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
       <div className="p-4 sm:p-5">
-        <div className="flex gap-3">
+        <div className="flex items-start gap-3">
           {canOpenAuthorProfile ? (
             <button
               aria-label={`${post.name}の星座を開く`}
-              className="flex-none rounded-2xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
+              className="inline-flex flex-none self-start rounded-2xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
               data-card-action="true"
               onClick={handleOpenAuthorProfile}
               type="button"
@@ -4732,11 +5357,11 @@ function PostCard({
           ) : (
             <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
           )}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 pt-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
-                  className="font-black text-white transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
+                  className="min-w-0 max-w-full truncate text-left font-black text-white transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
                   data-card-action="true"
                   onClick={handleOpenAuthorProfile}
                   type="button"
@@ -4749,6 +5374,8 @@ function PostCard({
               <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
                 {post.badge}
               </span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
                   className="text-sm text-slate-500 transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
@@ -4763,123 +5390,123 @@ function PostCard({
               )}
               <span className="text-sm text-slate-500">· {post.time}</span>
             </div>
-            {post.archivedTime && (
-              <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
-            )}
-            {isPostEditing ? (
-              <form
-                className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3"
-                data-card-action="true"
-                onSubmit={(event) => postActions?.onUpdate?.(event, post)}
-              >
-                <textarea
-                  className="min-h-28 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isPostUpdating}
-                  maxLength={POST_MAX_LENGTH + 1}
-                  onChange={(event) => postActions?.onEditChange?.(post.id, event.target.value)}
-                  placeholder="流星便の本文を編集する"
-                  value={postEditDraft}
-                />
-                {isPostEditOverLimit && (
-                  <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
-                    流星便は500文字以内で放流してください
-                  </p>
-                )}
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs leading-5 text-slate-500">
-                    <span className={isPostEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
-                      {postEditLength}/{POST_MAX_LENGTH}
-                    </span>
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={isPostUpdating}
-                      onClick={() => postActions?.onCancelEdit?.(post.id)}
-                      type="button"
-                    >
-                      キャンセル
-                    </button>
-                    <button
-                      className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={!canSavePostEdit}
-                      type="submit"
-                    >
-                      {isPostUpdating ? "保存中..." : "保存"}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            ) : (
-              <>
-                <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
-                  <LinkedText>{post.text}</LinkedText>
-                </p>
-                <YouTubeEmbed videoId={youtubeVideoId} />
-                <SunoLinkCard url={sunoUrl} />
-              </>
-            )}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {post.tags.map((tag) => (
-                <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-            <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
-              <ActionButton
-                disabled={isResonanceSaving || !resonance?.onResonate}
-                icon="♡"
-                label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
-                onClick={() => resonance?.onResonate?.(post.id)}
-              />
-              <ActionButton
-                active={isStarLettersOpen}
-                disabled={!starLetters?.onToggle}
-                icon="✎"
-                label={starLetterLabel}
-                onClick={() => starLetters?.onToggle?.(post.id)}
-              />
-              <ActionButton
-                active={isArchived}
-                disabled={isArchiveSaving || !archive?.onToggleArchive}
-                icon="✦"
-                label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
-                onClick={() => archive?.onToggleArchive?.(post.id)}
-              />
-              {isOwnPost && !post.deletedAt && (
-                <>
-                  <ActionButton
-                    active={isPostEditing}
-                    disabled={isPostUpdating || isPostDeleting || !postActions?.onStartEdit}
-                    icon="✐"
-                    label={isPostEditing ? "編集中" : "編集"}
-                    onClick={() => postActions?.onStartEdit?.(post)}
-                    variant="edit"
-                  />
-                  <ActionButton
-                    disabled={isPostDeleting || isPostUpdating || !postActions?.onDelete}
-                    icon="×"
-                    label={isPostDeleting ? "削除中..." : "削除"}
-                    onClick={() => postActions?.onDelete?.(post)}
-                    variant="danger"
-                  />
-                </>
-              )}
-            </div>
-            {isStarLettersOpen && (
-              <StarLettersPanel
-                draft={starLetters?.drafts?.[post.id] ?? ""}
-                letters={postStarLetters}
-                loading={starLetters?.loading}
-                onChange={(value) => starLetters?.onChange?.(post.id, value)}
-                onSubmit={(event) => starLetters?.onSubmit?.(event, post.id)}
-                saving={isStarLetterSaving}
-                starLetters={starLetters}
-              />
-            )}
           </div>
         </div>
+        {post.archivedTime && (
+          <p className="mt-3 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
+        )}
+        {isPostEditing ? (
+          <form
+            className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3"
+            data-card-action="true"
+            onSubmit={(event) => postActions?.onUpdate?.(event, post)}
+          >
+            <textarea
+              className="min-h-28 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isPostUpdating}
+              maxLength={POST_MAX_LENGTH + 1}
+              onChange={(event) => postActions?.onEditChange?.(post.id, event.target.value)}
+              placeholder="流星便の本文を編集する"
+              value={postEditDraft}
+            />
+            {isPostEditOverLimit && (
+              <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+                流星便は500文字以内で放流してください
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs leading-5 text-slate-500">
+                <span className={isPostEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+                  {postEditLength}/{POST_MAX_LENGTH}
+                </span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isPostUpdating}
+                  onClick={() => postActions?.onCancelEdit?.(post.id)}
+                  type="button"
+                >
+                  キャンセル
+                </button>
+                <button
+                  className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canSavePostEdit}
+                  type="submit"
+                >
+                  {isPostUpdating ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <>
+            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
+              <LinkedText>{post.text}</LinkedText>
+            </p>
+            <YouTubeEmbed videoId={youtubeVideoId} />
+            <SunoLinkCard url={sunoUrl} />
+          </>
+        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {post.tags.map((tag) => (
+            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
+        <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
+          <ActionButton
+            disabled={isResonanceSaving || !resonance?.onResonate}
+            icon="♡"
+            label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
+            onClick={() => resonance?.onResonate?.(post.id)}
+          />
+          <ActionButton
+            active={isStarLettersOpen}
+            disabled={!starLetters?.onToggle}
+            icon="✎"
+            label={starLetterLabel}
+            onClick={() => starLetters?.onToggle?.(post.id)}
+          />
+          <ActionButton
+            active={isArchived}
+            disabled={isArchiveSaving || !archive?.onToggleArchive}
+            icon="✦"
+            label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
+            onClick={() => archive?.onToggleArchive?.(post.id)}
+          />
+          {isOwnPost && !post.deletedAt && (
+            <>
+              <ActionButton
+                active={isPostEditing}
+                disabled={isPostUpdating || isPostDeleting || !postActions?.onStartEdit}
+                icon="✐"
+                label={isPostEditing ? "編集中" : "編集"}
+                onClick={() => postActions?.onStartEdit?.(post)}
+                variant="edit"
+              />
+              <ActionButton
+                disabled={isPostDeleting || isPostUpdating || !postActions?.onDelete}
+                icon="×"
+                label={isPostDeleting ? "削除中..." : "削除"}
+                onClick={() => postActions?.onDelete?.(post)}
+                variant="danger"
+              />
+            </>
+          )}
+        </div>
+        {isStarLettersOpen && (
+          <StarLettersPanel
+            draft={starLetters?.drafts?.[post.id] ?? ""}
+            letters={postStarLetters}
+            loading={starLetters?.loading}
+            onChange={(value) => starLetters?.onChange?.(post.id, value)}
+            onSubmit={(event) => starLetters?.onSubmit?.(event, post.id)}
+            saving={isStarLetterSaving}
+            starLetters={starLetters}
+          />
+        )}
       </div>
     </article>
   );
