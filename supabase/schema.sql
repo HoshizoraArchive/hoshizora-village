@@ -59,6 +59,76 @@ begin
 end
 $$;
 
+-- Storage bucket for meteor letter image attachments.
+-- Public read is allowed for images attached to public posts.
+-- Authenticated users may upload/delete only inside their own auth.uid() folder.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'meteor-media',
+  'meteor-media',
+  true,
+  8388608,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set
+  name = excluded.name,
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'meteor_media_public_read'
+  ) then
+    create policy meteor_media_public_read
+    on storage.objects
+    for select
+    to public
+    using (bucket_id = 'meteor-media');
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'meteor_media_insert_own_folder'
+  ) then
+    create policy meteor_media_insert_own_folder
+    on storage.objects
+    for insert
+    to authenticated
+    with check (
+      bucket_id = 'meteor-media'
+      and (storage.foldername(name))[1] = auth.uid()::text
+    );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'meteor_media_delete_own_folder'
+  ) then
+    create policy meteor_media_delete_own_folder
+    on storage.objects
+    for delete
+    to authenticated
+    using (
+      bucket_id = 'meteor-media'
+      and (storage.foldername(name))[1] = auth.uid()::text
+    );
+  end if;
+end
+$$;
+
 -- Private schema for trigger/helper functions that should not be exposed through the Data API.
 create schema if not exists app_private;
 revoke all on schema app_private from public, anon, authenticated;
@@ -109,12 +179,13 @@ create table if not exists public.posts (
   deleted_at timestamptz,
   constraint posts_body_or_media_present check (
     char_length(trim(body)) > 0
+    or type = 'image'
     or media_url is not null
     or youtube_url is not null
   ),
   constraint posts_media_requirements check (
-    type = 'text'
-    or (type in ('image', 'audio', 'video') and media_url is not null)
+    type in ('text', 'image')
+    or (type in ('audio', 'video') and media_url is not null)
     or (type = 'youtube' and youtube_url is not null and youtube_video_id is not null)
   ),
   constraint posts_duration_non_negative check (duration_seconds is null or duration_seconds >= 0),
@@ -130,6 +201,26 @@ comment on column public.posts.visibility is 'MVPでは public/private のみ。
 comment on column public.posts.duration_seconds is 'audio/video の長さ。DBでは30秒以下を制約するが、クライアント側とサーバー側でも検証する。';
 comment on column public.posts.media_url is 'image/audio/video のファイルURL。Storage実装前は外部URLまたは将来の保存先を想定する。';
 comment on column public.posts.deleted_at is '流星便のソフト削除時刻。null のものだけ通常一覧に表示する。';
+
+-- post_media: 流星便に添える画像.
+-- MVPでは画像のみ。Storage pathを保存し、公開URLはクライアント側で生成する。
+create table if not exists public.post_media (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.posts(id) on delete cascade,
+  uploader_id uuid not null references public.profiles(id) on delete cascade,
+  media_type text not null default 'image' check (media_type in ('image')),
+  storage_path text not null,
+  sort_order integer not null check (sort_order between 0 and 3),
+  mime_type text check (mime_type is null or mime_type in ('image/jpeg', 'image/png', 'image/webp')),
+  size_bytes bigint check (size_bytes is null or (size_bytes > 0 and size_bytes <= 8388608)),
+  created_at timestamptz not null default now(),
+  unique (post_id, sort_order),
+  unique (storage_path)
+);
+
+comment on table public.post_media is '流星便に添えるメディア。画像投稿MVPでは最大4枚の画像を保存する。';
+comment on column public.post_media.storage_path is 'meteor-media bucket 内のStorage path。公開URLはクライアント側で生成する。';
+comment on column public.post_media.sort_order is '同一流星便内の表示順。MVPでは0から3まで。';
 
 -- profile_tags: わたしの星座.
 create table if not exists public.profile_tags (
@@ -464,6 +555,10 @@ create index if not exists posts_type_idx on public.posts(type);
 create index if not exists posts_visibility_created_at_idx on public.posts(visibility, created_at desc);
 create index if not exists posts_deleted_at_idx on public.posts(deleted_at);
 create index if not exists posts_visibility_deleted_created_at_idx on public.posts(visibility, deleted_at, created_at desc);
+create index if not exists post_media_post_id_idx on public.post_media(post_id);
+create index if not exists post_media_post_sort_order_idx on public.post_media(post_id, sort_order);
+create index if not exists post_media_uploader_id_idx on public.post_media(uploader_id);
+create index if not exists post_media_storage_path_idx on public.post_media(storage_path);
 create index if not exists profile_tags_profile_id_idx on public.profile_tags(profile_id);
 create index if not exists post_tags_post_id_idx on public.post_tags(post_id);
 create index if not exists post_tags_label_idx on public.post_tags(label);
@@ -492,6 +587,7 @@ create index if not exists observations_archive_tags_gin_idx on public.observati
 -- Row Level Security.
 alter table public.profiles enable row level security;
 alter table public.posts enable row level security;
+alter table public.post_media enable row level security;
 alter table public.profile_tags enable row level security;
 alter table public.post_tags enable row level security;
 alter table public.resonances enable row level security;
@@ -536,6 +632,42 @@ for update using (auth.uid() = author_id) with check (auth.uid() = author_id);
 drop policy if exists posts_delete_own on public.posts;
 create policy posts_delete_own on public.posts
 for delete using (auth.uid() = author_id);
+
+-- post_media:
+-- Public, non-deleted post media is readable; insert is restricted to the post author.
+revoke all on table public.post_media from anon, authenticated;
+grant select on table public.post_media to anon, authenticated;
+grant insert, delete on table public.post_media to authenticated;
+
+drop policy if exists post_media_select_visible on public.post_media;
+create policy post_media_select_visible on public.post_media
+for select using (
+  exists (
+    select 1 from public.posts p
+    where p.id = public.post_media.post_id
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
+  )
+);
+
+drop policy if exists post_media_insert_own_post on public.post_media;
+create policy post_media_insert_own_post on public.post_media
+for insert to authenticated
+with check (
+  uploader_id = auth.uid()
+  and exists (
+    select 1 from public.posts p
+    where p.id = public.post_media.post_id
+      and p.author_id = auth.uid()
+  )
+);
+
+drop policy if exists post_media_delete_own_upload on public.post_media;
+create policy post_media_delete_own_upload on public.post_media
+for delete to authenticated
+using (uploader_id = auth.uid());
 
 -- profile_tags: visible as part of public profile; editable only by owner.
 drop policy if exists profile_tags_select_public on public.profile_tags;
