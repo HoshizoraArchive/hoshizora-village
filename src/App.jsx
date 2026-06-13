@@ -32,6 +32,16 @@ const AVATAR_ALLOWED_TYPES = {
   "image/webp": "webp",
 };
 const AVATAR_ACCEPT = Object.keys(AVATAR_ALLOWED_TYPES).join(",");
+const METEOR_MEDIA_BUCKET = "meteor-media";
+const METEOR_IMAGE_MAX_COUNT = 4;
+const METEOR_IMAGE_MAX_SIZE_BYTES = 8 * 1024 * 1024;
+const METEOR_IMAGE_ALLOWED_TYPES = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+const METEOR_IMAGE_ACCEPT = Object.keys(METEOR_IMAGE_ALLOWED_TYPES).join(",");
+const VISIBLE_POST_TYPES = ["text", "image"];
 
 const emptyProfileForm = {
   display_name: "",
@@ -176,6 +186,45 @@ function isMissingDeletedAtError(error) {
   return error?.code === "42703" || error?.code === "PGRST204" || message.includes("deleted_at");
 }
 
+function isMissingPostMediaError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return error?.code === "42P01" || error?.code === "PGRST205" || message.includes("post_media");
+}
+
+function createClientId() {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getMeteorImageExtension(file) {
+  return METEOR_IMAGE_ALLOWED_TYPES[file?.type] ?? null;
+}
+
+function createMeteorMediaPath(userId, uploadBatchId, sortOrder, file) {
+  const extension = getMeteorImageExtension(file) || "jpg";
+  return `${userId}/${uploadBatchId}/${sortOrder}-${createClientId()}.${extension}`;
+}
+
+function createPostImageDraft(file) {
+  return {
+    id: createClientId(),
+    file,
+    name: file.name,
+    previewUrl: URL.createObjectURL(file),
+    size: file.size,
+    type: file.type,
+  };
+}
+
+function revokePostImageDraft(draft) {
+  if (draft?.previewUrl) {
+    URL.revokeObjectURL(draft.previewUrl);
+  }
+}
+
+function applyVisiblePostTypeFilter(query) {
+  return query.in("type", VISIBLE_POST_TYPES);
+}
+
 async function runPostQuery(buildQuery) {
   const result = await buildQuery(POST_SELECT_COLUMNS_WITH_DELETED_AT, true);
 
@@ -190,6 +239,72 @@ async function runPostQuery(buildQuery) {
     ...result,
     supportsSoftDelete: true,
   };
+}
+
+function mapPostMediaRows(mediaRows) {
+  return (mediaRows ?? [])
+    .filter((row) => row?.media_type === "image" && row.storage_path)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    .map((row) => {
+      const { data } = supabase.storage.from(METEOR_MEDIA_BUCKET).getPublicUrl(row.storage_path);
+
+      return {
+        id: row.id,
+        postId: row.post_id,
+        storagePath: row.storage_path,
+        sortOrder: row.sort_order ?? 0,
+        mediaType: row.media_type,
+        mimeType: row.mime_type ?? "",
+        sizeBytes: row.size_bytes ?? null,
+        createdAt: row.created_at ?? null,
+        url: data.publicUrl,
+      };
+    });
+}
+
+async function readPostMediaForPostIds(postIds) {
+  const uniquePostIds = [...new Set((postIds ?? []).filter(Boolean))];
+
+  if (uniquePostIds.length === 0) {
+    return { mediaByPostId: new Map(), error: null };
+  }
+
+  const { data, error } = await supabase
+    .from("post_media")
+    .select("id, post_id, uploader_id, media_type, storage_path, sort_order, mime_type, size_bytes, created_at")
+    .in("post_id", uniquePostIds)
+    .eq("media_type", "image")
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    return { mediaByPostId: new Map(), error };
+  }
+
+  const mediaByPostId = new Map();
+
+  for (const media of mapPostMediaRows(data)) {
+    mediaByPostId.set(media.postId, [...(mediaByPostId.get(media.postId) ?? []), media]);
+  }
+
+  return { mediaByPostId, error: null };
+}
+
+function attachMediaToPosts(posts, mediaByPostId) {
+  return (posts ?? []).map((post) => ({
+    ...post,
+    media: mediaByPostId.get(post.id) ?? [],
+  }));
+}
+
+async function hydratePostsWithMedia(posts) {
+  const safePosts = posts ?? [];
+  const { mediaByPostId, error } = await readPostMediaForPostIds(safePosts.map((post) => post.id));
+
+  if (error) {
+    return { posts: safePosts, error };
+  }
+
+  return { posts: attachMediaToPosts(safePosts, mediaByPostId), error: null };
 }
 
 function getRouteFromLocation() {
@@ -413,6 +528,7 @@ function mapSavedPost(post, authorProfile) {
     type: post.type,
     text: post.body,
     visibility: post.visibility,
+    media: [],
     tags: ["#流星便", "#観測待ち"],
     resonanceCount: 0,
     comments: "未集計",
@@ -528,9 +644,13 @@ function App() {
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState("");
   const [postDraft, setPostDraft] = useState("");
+  const [postImageDrafts, setPostImageDrafts] = useState([]);
+  const postImageDraftsRef = useRef([]);
   const [postSaving, setPostSaving] = useState(false);
   const [postMessage, setPostMessage] = useState("");
   const [postError, setPostError] = useState("");
+  const [postUploadProgress, setPostUploadProgress] = useState("");
+  const [mediaViewer, setMediaViewer] = useState(null);
   const [editingPostId, setEditingPostId] = useState(null);
   const [postEditDrafts, setPostEditDrafts] = useState({});
   const [postUpdatingId, setPostUpdatingId] = useState(null);
@@ -612,6 +732,19 @@ function App() {
       }
     };
   }, [avatarCropPreviewUrl]);
+
+  useEffect(() => {
+    postImageDraftsRef.current = postImageDrafts;
+  }, [postImageDrafts]);
+
+  useEffect(
+    () => () => {
+      for (const draft of postImageDraftsRef.current) {
+        revokePostImageDraft(draft);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!avatarModal) {
@@ -875,6 +1008,51 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+    const postIds = allPostIdsKey ? allPostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readPostMedia() {
+      const { mediaByPostId, error } = await readPostMediaForPostIds(postIds);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        if (!isMissingPostMediaError(error)) {
+          console.warn("post_mediaの読み込みに失敗しました。", error);
+        }
+        return;
+      }
+
+      setSavedPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
+      setOwnPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
+      setArchivedPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
+      setPublicProfilePosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
+      setDetailPost((currentPost) =>
+        currentPost
+          ? {
+              ...currentPost,
+              media: mediaByPostId.get(currentPost.id) ?? [],
+            }
+          : currentPost,
+      );
+    }
+
+    readPostMedia();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [allPostIdsKey]);
+
+  useEffect(() => {
+    let isMounted = true;
     const userId = session?.user?.id;
 
     if (!userId) {
@@ -987,7 +1165,7 @@ function App() {
       setDetailPostError("");
 
       const { data: post, error } = await runPostQuery((columns) =>
-        supabase.from("posts").select(columns).eq("id", detailPostId).eq("type", "text").maybeSingle(),
+        applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("id", detailPostId)).maybeSingle(),
       );
 
       if (!isMounted) {
@@ -1017,7 +1195,27 @@ function App() {
         return;
       }
 
-      setDetailPost(mapSavedPost(post, profileRowsError ? null : authorProfile));
+      const knownPost =
+        detailPost?.id === post.id
+          ? detailPost
+          : [savedPosts, ownPosts, archivedPosts, publicProfilePosts]
+              .flat()
+              .find((currentPost) => currentPost?.id === post.id);
+      const basePost = {
+        ...mapSavedPost(post, profileRowsError ? null : authorProfile),
+        media: knownPost?.media ?? [],
+      };
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia([basePost]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("流星便詳細の画像読み込みに失敗しました。", mediaError);
+      }
+
+      setDetailPost(hydratedPosts[0] ?? basePost);
       setDetailPostLoading(false);
     }
 
@@ -1091,8 +1289,9 @@ function App() {
           .from("posts")
           .select(columns)
           .eq("author_id", profileRow.id)
-          .eq("visibility", "public")
-          .eq("type", "text");
+          .eq("visibility", "public");
+
+        query = applyVisiblePostTypeFilter(query);
 
         if (supportsSoftDelete) {
           query = query.is("deleted_at", null);
@@ -1114,9 +1313,20 @@ function App() {
         return;
       }
 
+      const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profileRow));
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("公開プロフィールの画像読み込みに失敗しました。", mediaError);
+      }
+
       setPublicProfile(profileRow);
       setPublicProfileTags(tagRows ?? []);
-      setPublicProfilePosts((postRows ?? []).map((post) => mapSavedPost(post, profileRow)));
+      setPublicProfilePosts(hydratedPosts);
       setPublicProfileLoading(false);
     }
 
@@ -1214,7 +1424,7 @@ function App() {
       setOwnPostsError("");
 
       const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
-        let query = supabase.from("posts").select(columns).eq("author_id", userId).eq("type", "text");
+        let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("author_id", userId));
 
         if (supportsSoftDelete) {
           query = query.is("deleted_at", null);
@@ -1234,7 +1444,18 @@ function App() {
         return;
       }
 
-      setOwnPosts((data ?? []).map((post) => mapSavedPost(post, profile)));
+      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profile));
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("わたしの流星便の画像読み込みに失敗しました。", mediaError);
+      }
+
+      setOwnPosts(hydratedPosts);
     }
 
     readOwnPosts();
@@ -1288,7 +1509,7 @@ function App() {
       }
 
       const { data: postRows, error: postsError } = await runPostQuery((columns, supportsSoftDelete) => {
-        let query = supabase.from("posts").select(columns).in("id", postIds).eq("type", "text");
+        let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).in("id", postIds));
 
         if (supportsSoftDelete) {
           query = query.is("deleted_at", null);
@@ -1342,8 +1563,17 @@ function App() {
           return post ? mapArchivedPost(archive, post, profilesById.get(post.author_id)) : null;
         })
         .filter(Boolean);
+      const { posts: hydratedArchives, error: mediaError } = await hydratePostsWithMedia(mappedArchives);
 
-      setArchivedPosts(mappedArchives);
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("Archiveの画像読み込みに失敗しました。", mediaError);
+      }
+
+      setArchivedPosts(hydratedArchives);
       setArchivesLoading(false);
     }
 
@@ -1489,7 +1719,7 @@ function App() {
       setPostsError("");
 
       const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
-        let query = supabase.from("posts").select(columns).eq("visibility", "public").eq("type", "text");
+        let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("visibility", "public"));
 
         if (supportsSoftDelete) {
           query = query.is("deleted_at", null);
@@ -1536,7 +1766,18 @@ function App() {
         return;
       }
 
-      setSavedPosts((data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id))));
+      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id)));
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("公開流星便の画像読み込みに失敗しました。", mediaError);
+      }
+
+      setSavedPosts(hydratedPosts);
       setPostsLoading(false);
     }
 
@@ -2037,10 +2278,115 @@ function App() {
     setFeedbackMessage("フィードバックを送信しました。ありがとうございます。");
   }
 
+  function clearPostImageDrafts() {
+    setPostImageDrafts((currentDrafts) => {
+      for (const draft of currentDrafts) {
+        revokePostImageDraft(draft);
+      }
+
+      return [];
+    });
+  }
+
+  function handlePostImageFileChange(event) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+
+    event.target.value = "";
+    setPostMessage("");
+    setPostError("");
+
+    if (postSaving || selectedFiles.length === 0) {
+      return;
+    }
+
+    setPostImageDrafts((currentDrafts) => {
+      const remainingSlots = METEOR_IMAGE_MAX_COUNT - currentDrafts.length;
+      const nextDrafts = [...currentDrafts];
+      const errors = [];
+
+      if (remainingSlots <= 0) {
+        setPostError("星影は4枚まで放流できます。");
+        return currentDrafts;
+      }
+
+      for (const file of selectedFiles) {
+        if (nextDrafts.length >= METEOR_IMAGE_MAX_COUNT) {
+          errors.push("星影は4枚まで放流できます。");
+          break;
+        }
+
+        if (!METEOR_IMAGE_ALLOWED_TYPES[file.type]) {
+          errors.push("画像はjpg / jpeg / png / webpから選んでください。HEIC / HEIFは今回は未対応です。");
+          continue;
+        }
+
+        if (file.size > METEOR_IMAGE_MAX_SIZE_BYTES) {
+          errors.push("画像は1枚8MBまで選べます。");
+          continue;
+        }
+
+        nextDrafts.push(createPostImageDraft(file));
+      }
+
+      if (selectedFiles.length > remainingSlots) {
+        errors.push("5枚目以降の星影は追加していません。");
+      }
+
+      setPostError([...new Set(errors)].join(" "));
+      return nextDrafts;
+    });
+  }
+
+  function handleRemovePostImageDraft(draftId) {
+    if (postSaving) {
+      return;
+    }
+
+    setPostImageDrafts((currentDrafts) => {
+      const targetDraft = currentDrafts.find((draft) => draft.id === draftId);
+      revokePostImageDraft(targetDraft);
+      return currentDrafts.filter((draft) => draft.id !== draftId);
+    });
+  }
+
+  function handleMovePostImageDraft(draftId, direction) {
+    if (postSaving) {
+      return;
+    }
+
+    setPostImageDrafts((currentDrafts) => {
+      const currentIndex = currentDrafts.findIndex((draft) => draft.id === draftId);
+      const nextIndex = currentIndex + direction;
+
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentDrafts.length) {
+        return currentDrafts;
+      }
+
+      const nextDrafts = [...currentDrafts];
+      [nextDrafts[currentIndex], nextDrafts[nextIndex]] = [nextDrafts[nextIndex], nextDrafts[currentIndex]];
+      return nextDrafts;
+    });
+  }
+
+  async function removeUploadedMeteorMedia(storagePaths) {
+    const paths = (storagePaths ?? []).filter(Boolean);
+
+    if (paths.length === 0) {
+      return;
+    }
+
+    const { error } = await supabase.storage.from(METEOR_MEDIA_BUCKET).remove(paths);
+
+    if (error) {
+      console.warn("アップロード済み画像の後始末に失敗しました。", error);
+    }
+  }
+
   async function handlePostSubmit(event) {
     event.preventDefault();
     setPostMessage("");
     setPostError("");
+    setPostUploadProgress("");
 
     if (!session?.user?.id) {
       setPostError("ログインすると流星便を放流できます。");
@@ -2053,38 +2399,115 @@ function App() {
     }
 
     const body = postDraft.trim();
+    const imageDrafts = postImageDrafts;
 
-    if (!body) {
-      setPostError("流星便の本文を入力してください。");
+    if (!body && imageDrafts.length === 0) {
+      setPostError("本文を書くか、星影を1枚以上添えてください。");
       return;
     }
 
     setPostSaving(true);
 
-    const { data, error } = await supabase
-      .from("posts")
-      .insert({
-        author_id: session.user.id,
-        type: "text",
-        body,
-        visibility: "public",
-      })
-      .select("id, author_id, type, body, visibility, created_at")
-      .single();
+    const uploadedMedia = [];
+    let createdPostId = null;
 
-    setPostSaving(false);
+    try {
+      const uploadBatchId = createClientId();
 
-    if (error) {
-      setPostError(error.message);
-      return;
+      for (const [index, draft] of imageDrafts.entries()) {
+        setPostUploadProgress(`${index + 1} / ${imageDrafts.length}枚を送信中`);
+
+        const storagePath = createMeteorMediaPath(session.user.id, uploadBatchId, index, draft.file);
+        const { error: uploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(storagePath, draft.file, {
+          cacheControl: "3600",
+          contentType: draft.file.type,
+          upsert: false,
+        });
+
+        if (uploadError) {
+          throw new Error(`星影のアップロードに失敗しました。${uploadError.message}`);
+        }
+
+        uploadedMedia.push({
+          storage_path: storagePath,
+          sort_order: index,
+          mime_type: draft.file.type,
+          size_bytes: draft.file.size,
+        });
+      }
+
+      const postType = uploadedMedia.length > 0 ? "image" : "text";
+      const { data, error } = await supabase
+        .from("posts")
+        .insert({
+          author_id: session.user.id,
+          type: postType,
+          body,
+          visibility: "public",
+        })
+        .select(POST_SELECT_COLUMNS_WITH_DELETED_AT)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      createdPostId = data.id;
+
+      let media = [];
+
+      if (uploadedMedia.length > 0) {
+        const mediaRows = uploadedMedia.map((item) => ({
+          post_id: data.id,
+          uploader_id: session.user.id,
+          media_type: "image",
+          storage_path: item.storage_path,
+          sort_order: item.sort_order,
+          mime_type: item.mime_type,
+          size_bytes: item.size_bytes,
+        }));
+        const { data: insertedMedia, error: mediaError } = await supabase
+          .from("post_media")
+          .insert(mediaRows)
+          .select("id, post_id, uploader_id, media_type, storage_path, sort_order, mime_type, size_bytes, created_at");
+
+        if (mediaError) {
+          throw mediaError;
+        }
+
+        media = mapPostMediaRows(insertedMedia);
+      }
+
+      const newPost = {
+        ...mapSavedPost(data, profile),
+        media,
+      };
+      setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
+      setOwnPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
+      setPostDraft("");
+      clearPostImageDrafts();
+      setPostMessage("流星便を放流しました。");
+      setActiveTab("observe");
+    } catch (error) {
+      await removeUploadedMeteorMedia(uploadedMedia.map((item) => item.storage_path));
+
+      if (createdPostId) {
+        const { error: softDeleteError } = await supabase
+          .from("posts")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", createdPostId)
+          .eq("author_id", session.user.id);
+
+        if (softDeleteError) {
+          console.warn("半端に作成された流星便の非表示化に失敗しました。", softDeleteError);
+        }
+      }
+
+      setPostError(error?.message ?? "流星便の放流に失敗しました。");
     }
 
-    const newPost = mapSavedPost(data, profile);
-    setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
-    setOwnPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
-    setPostDraft("");
-    setPostMessage("流星便を放流しました。");
-    setActiveTab("observe");
+    setPostSaving(false);
+    setPostUploadProgress("");
   }
 
   function updatePostEverywhere(postId, updater) {
@@ -2114,8 +2537,8 @@ function App() {
       return;
     }
 
-    if (post.type !== "text") {
-      setPostActionError("MVPではテキスト流星便だけ編集できます。");
+    if (!VISIBLE_POST_TYPES.includes(post.type)) {
+      setPostActionError("MVPでは流星便本文だけ編集できます。");
       return;
     }
 
@@ -2164,8 +2587,8 @@ function App() {
       return;
     }
 
-    if (post.type !== "text") {
-      setPostActionError("MVPではテキスト流星便だけ編集できます。");
+    if (!VISIBLE_POST_TYPES.includes(post.type)) {
+      setPostActionError("MVPでは流星便本文だけ編集できます。");
       return;
     }
 
@@ -2176,8 +2599,8 @@ function App() {
 
     const body = (postEditDrafts[post.id] ?? "").trim();
 
-    if (!body) {
-      setPostActionError("流星便の本文を入力してください。");
+    if (!body && (post.media?.length ?? 0) === 0) {
+      setPostActionError("本文を書くか、星影が必要です。");
       return;
     }
 
@@ -2827,6 +3250,36 @@ function App() {
     }
   }
 
+  function handleOpenMediaViewer(items, index = 0) {
+    const safeItems = (items ?? []).filter((item) => item?.url);
+
+    if (safeItems.length === 0) {
+      return;
+    }
+
+    setMediaViewer({
+      index: clampNumber(index, 0, safeItems.length - 1),
+      items: safeItems,
+    });
+  }
+
+  function handleCloseMediaViewer() {
+    setMediaViewer(null);
+  }
+
+  function handleMediaViewerStep(direction) {
+    setMediaViewer((currentViewer) => {
+      if (!currentViewer) {
+        return currentViewer;
+      }
+
+      return {
+        ...currentViewer,
+        index: clampNumber(currentViewer.index + direction, 0, currentViewer.items.length - 1),
+      };
+    });
+  }
+
   function handleTabChange(tabId) {
     if (route.name !== "home") {
       window.history.pushState({}, "", "/");
@@ -2896,10 +3349,17 @@ function App() {
     draft: postDraft,
     error: postError,
     hasProfile: Boolean(profile?.id),
+    imageAccept: METEOR_IMAGE_ACCEPT,
+    imageDrafts: postImageDrafts,
+    maxImages: METEOR_IMAGE_MAX_COUNT,
     message: postMessage,
     onChange: setPostDraft,
+    onImageFileChange: handlePostImageFileChange,
+    onMoveImage: handleMovePostImageDraft,
+    onRemoveImage: handleRemovePostImageDraft,
     onSubmit: handlePostSubmit,
     saving: postSaving,
+    uploadProgress: postUploadProgress,
   };
   const resonance = {
     error: resonanceError,
@@ -2996,6 +3456,7 @@ function App() {
     onBack: handleBackFromStarProfile,
     onOpenAvatar: handleOpenAvatarModal,
     onOpenMeteorDetail: handleOpenMeteorDetail,
+    onOpenPostMedia: handleOpenMediaViewer,
     onOpenStarProfile: handleOpenStarProfile,
     onShareProfile: handleShareStarProfile,
     posts: publicProfilePosts,
@@ -3051,6 +3512,7 @@ function App() {
           publicStarProfile={publicStarProfile}
           route={route}
           onOpenMeteorDetail={handleOpenMeteorDetail}
+          onOpenPostMedia={handleOpenMediaViewer}
           onOpenStarProfile={handleOpenStarProfile}
         />
       </div>
@@ -3058,6 +3520,11 @@ function App() {
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
       <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
       <AvatarCropModal crop={avatarCropState} />
+      <PostMediaViewerModal
+        viewer={mediaViewer}
+        onClose={handleCloseMediaViewer}
+        onStep={handleMediaViewerStep}
+      />
     </div>
   );
 }
@@ -3119,6 +3586,7 @@ function TabContent({
   meteorDetail,
   notifications,
   onOpenMeteorDetail,
+  onOpenPostMedia,
   onOpenStarProfile,
   ownPosts,
   postActions,
@@ -3136,6 +3604,7 @@ function TabContent({
       <MeteorDetailScreen
         archive={archive}
         detail={meteorDetail}
+        onOpenPostMedia={onOpenPostMedia}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         resonance={resonance}
@@ -3148,6 +3617,7 @@ function TabContent({
     return (
       <PublicStarProfileScreen
         archive={archive}
+        onOpenPostMedia={onOpenPostMedia}
         profileRoute={publicStarProfile}
         resonance={resonance}
         starLetters={starLetters}
@@ -3168,6 +3638,7 @@ function TabContent({
       <ArchiveScreen
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenPostMedia={onOpenPostMedia}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         resonance={resonance}
@@ -3184,6 +3655,7 @@ function TabContent({
         feedback={feedback}
         ownPosts={ownPosts}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenPostMedia={onOpenPostMedia}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         profile={profile}
@@ -3201,6 +3673,7 @@ function TabContent({
       postsError={postsError}
       postsLoading={postsLoading}
       onOpenMeteorDetail={onOpenMeteorDetail}
+      onOpenPostMedia={onOpenPostMedia}
       onOpenStarProfile={onOpenStarProfile}
       resonance={resonance}
       starLetters={starLetters}
@@ -3211,6 +3684,7 @@ function TabContent({
 function ObserveScreen({
   archive,
   onOpenMeteorDetail,
+  onOpenPostMedia,
   onOpenStarProfile,
   postActions,
   posts,
@@ -3224,6 +3698,7 @@ function ObserveScreen({
       <Timeline
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenPostMedia={onOpenPostMedia}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         posts={posts}
@@ -3267,7 +3742,7 @@ function PlaceholderScreen({ eyebrow, title, text, note }) {
   );
 }
 
-function MeteorDetailScreen({ archive, detail, onOpenStarProfile, postActions, resonance, starLetters }) {
+function MeteorDetailScreen({ archive, detail, onOpenPostMedia, onOpenStarProfile, postActions, resonance, starLetters }) {
   const post = detail.post;
   const isDeleted = Boolean(post?.deletedAt);
 
@@ -3331,6 +3806,7 @@ function MeteorDetailScreen({ archive, detail, onOpenStarProfile, postActions, r
             archive={archive}
             detailMode
             onOpenAuthorProfile={onOpenStarProfile}
+            onOpenMedia={onOpenPostMedia}
             postActions={postActions}
             post={post}
             resonance={resonance}
@@ -3418,6 +3894,7 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
                       key={post.id ?? post.handle}
                       onOpenAuthorProfile={profileRoute.onOpenStarProfile}
                       onOpenDetail={profileRoute.onOpenMeteorDetail}
+                      onOpenMedia={profileRoute.onOpenPostMedia}
                       post={post}
                       resonance={resonance}
                       starLetters={starLetters}
@@ -3761,6 +4238,7 @@ function ProfileScreen({
   auth,
   feedback,
   onOpenMeteorDetail,
+  onOpenPostMedia,
   onOpenStarProfile,
   ownPosts,
   postActions,
@@ -3806,6 +4284,7 @@ function ProfileScreen({
       <OwnPostsPanel
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
+        onOpenPostMedia={onOpenPostMedia}
         onOpenStarProfile={onOpenStarProfile}
         ownPosts={ownPosts}
         postActions={postActions}
@@ -3816,7 +4295,16 @@ function ProfileScreen({
   );
 }
 
-function OwnPostsPanel({ archive, onOpenMeteorDetail, onOpenStarProfile, ownPosts, postActions, resonance, starLetters }) {
+function OwnPostsPanel({
+  archive,
+  onOpenMeteorDetail,
+  onOpenPostMedia,
+  onOpenStarProfile,
+  ownPosts,
+  postActions,
+  resonance,
+  starLetters,
+}) {
   if (!ownPosts.session) {
     return null;
   }
@@ -3853,6 +4341,7 @@ function OwnPostsPanel({ archive, onOpenMeteorDetail, onOpenStarProfile, ownPost
               key={post.id ?? post.handle}
               onOpenAuthorProfile={onOpenStarProfile}
               onOpenDetail={onOpenMeteorDetail}
+              onOpenMedia={onOpenPostMedia}
               postActions={postActions}
               post={post}
               resonance={resonance}
@@ -3865,7 +4354,7 @@ function OwnPostsPanel({ archive, onOpenMeteorDetail, onOpenStarProfile, ownPost
   );
 }
 
-function ArchiveScreen({ archive, onOpenMeteorDetail, onOpenStarProfile, postActions, resonance, starLetters }) {
+function ArchiveScreen({ archive, onOpenMeteorDetail, onOpenPostMedia, onOpenStarProfile, postActions, resonance, starLetters }) {
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel mb-4 p-5 sm:p-6">
@@ -3913,6 +4402,7 @@ function ArchiveScreen({ archive, onOpenMeteorDetail, onOpenStarProfile, postAct
                 key={post.archiveId ?? post.id}
                 onOpenAuthorProfile={onOpenStarProfile}
                 onOpenDetail={onOpenMeteorDetail}
+                onOpenMedia={onOpenPostMedia}
                 postActions={postActions}
                 post={post}
                 resonance={resonance}
@@ -5115,9 +5605,167 @@ function SunoLinkCard({ url }) {
   );
 }
 
+function PostMediaGrid({ media = [], onOpenMedia }) {
+  const visibleMedia = media.filter((item) => item?.url).slice(0, METEOR_IMAGE_MAX_COUNT);
+
+  if (visibleMedia.length === 0) {
+    return null;
+  }
+
+  const gridClass =
+    visibleMedia.length === 1
+      ? "grid-cols-1"
+      : visibleMedia.length === 2
+        ? "grid-cols-2"
+        : "grid-cols-2";
+
+  function handleOpenMedia(event, index) {
+    event.stopPropagation();
+    onOpenMedia?.(visibleMedia, index);
+  }
+
+  return (
+    <div
+      className={`mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-night-950/35 ${gridClass} gap-1`}
+      data-card-action="true"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {visibleMedia.map((item, index) => {
+        const isFeatured = visibleMedia.length === 3 && index === 0;
+        const itemClass = visibleMedia.length === 1
+          ? "aspect-[4/3] max-h-[420px]"
+          : isFeatured
+            ? "aspect-square sm:row-span-2"
+            : "aspect-square";
+
+        return (
+          <button
+            aria-label={`流星便の星影 ${index + 1} / ${visibleMedia.length} を開く`}
+            className={`${itemClass} min-h-0 overflow-hidden bg-white/5 outline-none transition hover:brightness-110 focus-visible:ring-4 focus-visible:ring-comet/25`}
+            data-card-action="true"
+            key={item.id ?? item.storagePath ?? item.url}
+            onClick={(event) => handleOpenMedia(event, index)}
+            type="button"
+          >
+            <img
+              alt=""
+              className="h-full w-full object-cover"
+              draggable={false}
+              loading="lazy"
+              src={item.url}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PostMediaViewerModal({ onClose, onStep, viewer }) {
+  const currentItem = viewer?.items?.[viewer.index];
+  const total = viewer?.items?.length ?? 0;
+  const canGoPrevious = Boolean(viewer && viewer.index > 0);
+  const canGoNext = Boolean(viewer && viewer.index < total - 1);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!viewer) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onCloseRef.current?.();
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [viewer]);
+
+  if (!viewer || !currentItem?.url) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="流星便の星影を見る"
+      aria-modal="true"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-night-950/90 px-3 py-6 backdrop-blur-xl"
+      onClick={onClose}
+      role="dialog"
+    >
+      <div
+        className="flex max-h-[92vh] w-full max-w-5xl flex-col rounded-3xl border border-white/15 bg-night-950/75 p-3 shadow-[0_0_70px_rgba(125,223,255,0.18)]"
+        data-card-action="true"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-xs font-black text-comet">
+            星影を見る
+            <span className="ml-2 text-slate-400">
+              {viewer.index + 1} / {total}
+            </span>
+          </p>
+          <button
+            className="min-h-9 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            閉じる
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-2xl border border-white/10 bg-black/35">
+          <img
+            alt=""
+            className="max-h-[72vh] w-full object-contain"
+            draggable={false}
+            src={currentItem.url}
+          />
+        </div>
+
+        {total > 1 && (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!canGoPrevious}
+              onClick={() => onStep(-1)}
+              type="button"
+            >
+              前の星影
+            </button>
+            <button
+              className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!canGoNext}
+              onClick={() => onStep(1)}
+              type="button"
+            >
+              次の星影
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Timeline({
   archive,
   onOpenMeteorDetail,
+  onOpenPostMedia,
   onOpenStarProfile,
   postActions,
   posts,
@@ -5200,6 +5848,7 @@ function Timeline({
               key={post.id ?? post.handle}
               onOpenAuthorProfile={onOpenStarProfile}
               onOpenDetail={onOpenMeteorDetail}
+              onOpenMedia={onOpenPostMedia}
               postActions={postActions}
               post={post}
               resonance={resonance}
@@ -5217,8 +5866,9 @@ function Composer({ composer }) {
     ? "ログインすると流星便を放流できます。"
     : !composer.hasProfile
       ? "先にプロフィールを保存すると流星便を放流できます。"
-      : "テキスト流星便を公開で放流します。";
-  const canSubmit = composer.canPost && composer.hasProfile && composer.draft.trim() && !composer.saving;
+      : "テキストだけ、星影だけ、テキスト＋星影で放流できます。";
+  const hasImages = composer.imageDrafts.length > 0;
+  const canSubmit = composer.canPost && composer.hasProfile && (composer.draft.trim() || hasImages) && !composer.saving;
 
   return (
     <form className="border-b border-white/10 px-3 py-4 sm:px-5" onSubmit={composer.onSubmit}>
@@ -5236,17 +5886,58 @@ function Composer({ composer }) {
               placeholder="今夜、どの星を観測してほしい？"
               value={composer.draft}
             />
+            <div className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black text-comet">星影を添える</p>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-400">
+                    画像はjpg / png / webp、1枚8MBまで。選択中 {composer.imageDrafts.length} / {composer.maxImages}
+                  </p>
+                </div>
+                <label
+                  className={`inline-flex min-h-10 items-center rounded-2xl px-4 text-xs font-black shadow-glow transition ${
+                    composer.saving || !composer.canPost || !composer.hasProfile || composer.imageDrafts.length >= composer.maxImages
+                      ? "cursor-not-allowed bg-white/10 text-slate-500"
+                      : "cursor-pointer bg-gradient-to-r from-comet via-aurora to-sakura text-night-950 hover:scale-[1.01]"
+                  }`}
+                >
+                  写真フォルダから星影を選ぶ
+                  <input
+                    accept={composer.imageAccept}
+                    className="sr-only"
+                    disabled={composer.saving || !composer.canPost || !composer.hasProfile || composer.imageDrafts.length >= composer.maxImages}
+                    multiple
+                    onChange={composer.onImageFileChange}
+                    type="file"
+                  />
+                </label>
+              </div>
+
+              {composer.imageDrafts.length > 0 && (
+                <PostImageDraftPreview
+                  drafts={composer.imageDrafts}
+                  disabled={composer.saving}
+                  onMove={composer.onMoveImage}
+                  onRemove={composer.onRemoveImage}
+                />
+              )}
+            </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-2 text-xs text-slate-400">
                 <span className="rounded-full bg-white/10 px-3 py-1">{helperText}</span>
                 <span className="rounded-full bg-white/10 px-3 py-1">星文メモ</span>
+                {composer.uploadProgress && (
+                  <span className="rounded-full bg-comet/10 px-3 py-1 font-bold text-comet">
+                    {composer.uploadProgress}
+                  </span>
+                )}
               </div>
               <button
                 className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 text-sm font-black text-night-950 shadow-glow transition disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!canSubmit}
                 type="submit"
               >
-                {composer.saving ? "放流中..." : "流星便を放流する"}
+                {composer.saving ? (hasImages ? "星影を送信中..." : "流星便を放流中...") : "流星便を放流する"}
               </button>
             </div>
             {(composer.message || composer.error) && (
@@ -5265,11 +5956,60 @@ function Composer({ composer }) {
   );
 }
 
+function PostImageDraftPreview({ disabled, drafts, onMove, onRemove }) {
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {drafts.map((draft, index) => (
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-night-950/55" key={draft.id}>
+          <img
+            alt=""
+            className="aspect-square w-full object-cover"
+            draggable={false}
+            src={draft.previewUrl}
+          />
+          <div className="space-y-2 p-2">
+            <p className="truncate text-[11px] font-bold text-slate-400">
+              {index + 1} / {METEOR_IMAGE_MAX_COUNT}
+            </p>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                className="min-h-8 rounded-xl border border-white/10 bg-white/5 text-[11px] font-black text-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={disabled || index === 0}
+                onClick={() => onMove(draft.id, -1)}
+                type="button"
+              >
+                前へ
+              </button>
+              <button
+                className="min-h-8 rounded-xl border border-white/10 bg-white/5 text-[11px] font-black text-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={disabled || index === drafts.length - 1}
+                onClick={() => onMove(draft.id, 1)}
+                type="button"
+              >
+                後ろ
+              </button>
+              <button
+                className="min-h-8 rounded-xl border border-sakura/30 bg-sakura/10 text-[11px] font-black text-sakura disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={disabled}
+                onClick={() => onRemove(draft.id)}
+                type="button"
+              >
+                削除
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PostCard({
   archive,
   detailMode = false,
   onOpenAuthorProfile,
   onOpenDetail,
+  onOpenMedia,
   post,
   postActions,
   resonance,
@@ -5285,10 +6025,11 @@ function PostCard({
   const postEditDraft = postActions?.editDrafts?.[post.id] ?? post.text;
   const postEditLength = getTrimmedCharacterLength(postEditDraft);
   const isPostEditOverLimit = postEditLength > POST_MAX_LENGTH;
+  const postMedia = post.media ?? [];
   const youtubeVideoId = !isPostEditing ? findFirstYouTubeVideoId(post.text) : null;
   const isPostUpdating = postActions?.updatingId === post.id;
   const isPostDeleting = postActions?.deletingId === post.id;
-  const canSavePostEdit = Boolean(postEditDraft.trim()) && !isPostEditOverLimit && !isPostUpdating;
+  const canSavePostEdit = (Boolean(postEditDraft.trim()) || postMedia.length > 0) && !isPostEditOverLimit && !isPostUpdating;
   const postStarLetters = starLetters?.itemsByPostId?.[post.id] ?? [];
   const isStarLettersOpen = showStarLetters || starLetters?.openPostId === post.id;
   const isStarLetterSaving = starLetters?.savingPostId === post.id;
@@ -5409,6 +6150,7 @@ function PostCard({
               placeholder="流星便の本文を編集する"
               value={postEditDraft}
             />
+            <PostMediaGrid media={postMedia} onOpenMedia={onOpenMedia} />
             {isPostEditOverLimit && (
               <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
                 流星便は500文字以内で放流してください
@@ -5441,11 +6183,14 @@ function PostCard({
           </form>
         ) : (
           <>
-            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
-              <LinkedText>{post.text}</LinkedText>
-            </p>
+            {post.text ? (
+              <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
+                <LinkedText>{post.text}</LinkedText>
+              </p>
+            ) : null}
             <YouTubeEmbed videoId={youtubeVideoId} />
             <SunoLinkCard url={sunoUrl} />
+            <PostMediaGrid media={postMedia} onOpenMedia={onOpenMedia} />
           </>
         )}
         <div className="mt-4 flex flex-wrap gap-2">
