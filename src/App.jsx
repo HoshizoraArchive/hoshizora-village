@@ -4338,7 +4338,19 @@ function AvatarCropper({ disabled, imageUrl, offset, onFrameSizeChange, onImageL
             style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
           />
         </div>
-        <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-white/25" />
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute inset-x-0 top-0 h-[9%] bg-night-950/52" />
+          <div className="absolute inset-x-0 bottom-0 h-[9%] bg-night-950/52" />
+          <div className="absolute bottom-[9%] left-0 top-[9%] w-[9%] bg-night-950/52" />
+          <div className="absolute bottom-[9%] right-0 top-[9%] w-[9%] bg-night-950/52" />
+          <div className="absolute inset-[9%] rounded-[1.65rem] border border-comet/65 bg-white/[0.025] shadow-[0_0_28px_rgba(125,223,255,0.16),inset_0_0_22px_rgba(255,255,255,0.06)]">
+            <div className="absolute inset-y-0 left-1/3 w-px bg-white/10" />
+            <div className="absolute inset-y-0 left-2/3 w-px bg-white/10" />
+            <div className="absolute inset-x-0 top-1/3 h-px bg-white/10" />
+            <div className="absolute inset-x-0 top-2/3 h-px bg-white/10" />
+          </div>
+          <div className="absolute inset-0 rounded-3xl ring-1 ring-inset ring-white/25" />
+        </div>
       </div>
 
       <div className="mt-4">
@@ -5047,11 +5059,11 @@ function PostCard({
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
       <div className="p-4 sm:p-5">
-        <div className="flex gap-3">
+        <div className="flex items-start gap-3">
           {canOpenAuthorProfile ? (
             <button
               aria-label={`${post.name}の星座を開く`}
-              className="flex-none rounded-2xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
+              className="inline-flex flex-none self-start rounded-2xl outline-none transition hover:scale-[1.02] focus-visible:ring-4 focus-visible:ring-comet/25"
               data-card-action="true"
               onClick={handleOpenAuthorProfile}
               type="button"
@@ -5061,11 +5073,11 @@ function PostCard({
           ) : (
             <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
           )}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 pt-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
-                  className="font-black text-white transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
+                  className="min-w-0 max-w-full truncate text-left font-black text-white transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
                   data-card-action="true"
                   onClick={handleOpenAuthorProfile}
                   type="button"
@@ -5078,6 +5090,8 @@ function PostCard({
               <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
                 {post.badge}
               </span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
                   className="text-sm text-slate-500 transition hover:text-comet focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/20"
@@ -5092,123 +5106,123 @@ function PostCard({
               )}
               <span className="text-sm text-slate-500">· {post.time}</span>
             </div>
-            {post.archivedTime && (
-              <p className="mt-2 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
-            )}
-            {isPostEditing ? (
-              <form
-                className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3"
-                data-card-action="true"
-                onSubmit={(event) => postActions?.onUpdate?.(event, post)}
-              >
-                <textarea
-                  className="min-h-28 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isPostUpdating}
-                  maxLength={POST_MAX_LENGTH + 1}
-                  onChange={(event) => postActions?.onEditChange?.(post.id, event.target.value)}
-                  placeholder="流星便の本文を編集する"
-                  value={postEditDraft}
-                />
-                {isPostEditOverLimit && (
-                  <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
-                    流星便は500文字以内で放流してください
-                  </p>
-                )}
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs leading-5 text-slate-500">
-                    <span className={isPostEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
-                      {postEditLength}/{POST_MAX_LENGTH}
-                    </span>
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={isPostUpdating}
-                      onClick={() => postActions?.onCancelEdit?.(post.id)}
-                      type="button"
-                    >
-                      キャンセル
-                    </button>
-                    <button
-                      className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={!canSavePostEdit}
-                      type="submit"
-                    >
-                      {isPostUpdating ? "保存中..." : "保存"}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            ) : (
-              <>
-                <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
-                  <LinkedText>{post.text}</LinkedText>
-                </p>
-                <YouTubeEmbed videoId={youtubeVideoId} />
-                <SunoLinkCard url={sunoUrl} />
-              </>
-            )}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {post.tags.map((tag) => (
-                <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-            <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
-              <ActionButton
-                disabled={isResonanceSaving || !resonance?.onResonate}
-                icon="♡"
-                label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
-                onClick={() => resonance?.onResonate?.(post.id)}
-              />
-              <ActionButton
-                active={isStarLettersOpen}
-                disabled={!starLetters?.onToggle}
-                icon="✎"
-                label={starLetterLabel}
-                onClick={() => starLetters?.onToggle?.(post.id)}
-              />
-              <ActionButton
-                active={isArchived}
-                disabled={isArchiveSaving || !archive?.onToggleArchive}
-                icon="✦"
-                label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
-                onClick={() => archive?.onToggleArchive?.(post.id)}
-              />
-              {isOwnPost && !post.deletedAt && (
-                <>
-                  <ActionButton
-                    active={isPostEditing}
-                    disabled={isPostUpdating || isPostDeleting || !postActions?.onStartEdit}
-                    icon="✐"
-                    label={isPostEditing ? "編集中" : "編集"}
-                    onClick={() => postActions?.onStartEdit?.(post)}
-                    variant="edit"
-                  />
-                  <ActionButton
-                    disabled={isPostDeleting || isPostUpdating || !postActions?.onDelete}
-                    icon="×"
-                    label={isPostDeleting ? "削除中..." : "削除"}
-                    onClick={() => postActions?.onDelete?.(post)}
-                    variant="danger"
-                  />
-                </>
-              )}
-            </div>
-            {isStarLettersOpen && (
-              <StarLettersPanel
-                draft={starLetters?.drafts?.[post.id] ?? ""}
-                letters={postStarLetters}
-                loading={starLetters?.loading}
-                onChange={(value) => starLetters?.onChange?.(post.id, value)}
-                onSubmit={(event) => starLetters?.onSubmit?.(event, post.id)}
-                saving={isStarLetterSaving}
-                starLetters={starLetters}
-              />
-            )}
           </div>
         </div>
+        {post.archivedTime && (
+          <p className="mt-3 text-[11px] font-bold text-comet/80">Archive: {post.archivedTime}</p>
+        )}
+        {isPostEditing ? (
+          <form
+            className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3"
+            data-card-action="true"
+            onSubmit={(event) => postActions?.onUpdate?.(event, post)}
+          >
+            <textarea
+              className="min-h-28 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isPostUpdating}
+              maxLength={POST_MAX_LENGTH + 1}
+              onChange={(event) => postActions?.onEditChange?.(post.id, event.target.value)}
+              placeholder="流星便の本文を編集する"
+              value={postEditDraft}
+            />
+            {isPostEditOverLimit && (
+              <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+                流星便は500文字以内で放流してください
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs leading-5 text-slate-500">
+                <span className={isPostEditOverLimit ? "font-black text-sakura" : "text-slate-600"}>
+                  {postEditLength}/{POST_MAX_LENGTH}
+                </span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isPostUpdating}
+                  onClick={() => postActions?.onCancelEdit?.(post.id)}
+                  type="button"
+                >
+                  キャンセル
+                </button>
+                <button
+                  className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canSavePostEdit}
+                  type="submit"
+                >
+                  {isPostUpdating ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <>
+            <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
+              <LinkedText>{post.text}</LinkedText>
+            </p>
+            <YouTubeEmbed videoId={youtubeVideoId} />
+            <SunoLinkCard url={sunoUrl} />
+          </>
+        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {post.tags.map((tag) => (
+            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
+        <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
+          <ActionButton
+            disabled={isResonanceSaving || !resonance?.onResonate}
+            icon="♡"
+            label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
+            onClick={() => resonance?.onResonate?.(post.id)}
+          />
+          <ActionButton
+            active={isStarLettersOpen}
+            disabled={!starLetters?.onToggle}
+            icon="✎"
+            label={starLetterLabel}
+            onClick={() => starLetters?.onToggle?.(post.id)}
+          />
+          <ActionButton
+            active={isArchived}
+            disabled={isArchiveSaving || !archive?.onToggleArchive}
+            icon="✦"
+            label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
+            onClick={() => archive?.onToggleArchive?.(post.id)}
+          />
+          {isOwnPost && !post.deletedAt && (
+            <>
+              <ActionButton
+                active={isPostEditing}
+                disabled={isPostUpdating || isPostDeleting || !postActions?.onStartEdit}
+                icon="✐"
+                label={isPostEditing ? "編集中" : "編集"}
+                onClick={() => postActions?.onStartEdit?.(post)}
+                variant="edit"
+              />
+              <ActionButton
+                disabled={isPostDeleting || isPostUpdating || !postActions?.onDelete}
+                icon="×"
+                label={isPostDeleting ? "削除中..." : "削除"}
+                onClick={() => postActions?.onDelete?.(post)}
+                variant="danger"
+              />
+            </>
+          )}
+        </div>
+        {isStarLettersOpen && (
+          <StarLettersPanel
+            draft={starLetters?.drafts?.[post.id] ?? ""}
+            letters={postStarLetters}
+            loading={starLetters?.loading}
+            onChange={(value) => starLetters?.onChange?.(post.id, value)}
+            onSubmit={(event) => starLetters?.onSubmit?.(event, post.id)}
+            saving={isStarLetterSaving}
+            starLetters={starLetters}
+          />
+        )}
       </div>
     </article>
   );
