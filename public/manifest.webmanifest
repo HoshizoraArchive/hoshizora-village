@@ -9,9 +9,15 @@
   "theme_color": "#050816",
   "icons": [
     {
-      "src": "/images/hoshizora-village-app-icon.svg",
-      "sizes": "1024x1024",
-      "type": "image/svg+xml",
+      "src": "/images/icons/hoshizora-village-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icons/hoshizora-village-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]
