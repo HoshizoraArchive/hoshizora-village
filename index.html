@@ -2,12 +2,16 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
       content="星を観測し合う村のような、共鳴型AI SNSプロトタイプ。"
     />
     <meta name="theme-color" content="#050816" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="星空Village" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="星空Village" />
     <meta
@@ -16,7 +20,21 @@
     />
     <meta property="og:locale" content="ja_JP" />
     <title>星空Village</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/images/hoshizora-village-app-icon.svg" />
+    <style>
+      html,
+      body,
+      #root {
+        min-height: 100%;
+        background-color: #030511;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

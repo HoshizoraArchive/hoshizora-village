@@ -8,12 +8,16 @@
   }
 
   html {
+    min-height: 100%;
+    background: #030511;
     scroll-behavior: smooth;
   }
 
   body {
     margin: 0;
     min-width: 320px;
+    min-height: 100%;
+    background-color: #030511;
     background:
       radial-gradient(circle at 16% 8%, rgb(125 223 255 / 0.13), transparent 28%),
       radial-gradient(circle at 86% 12%, rgb(255 139 207 / 0.12), transparent 30%),
@@ -24,6 +28,15 @@
       sans-serif;
   }
 
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background:
+      radial-gradient(circle at 16% 8%, rgb(125 223 255 / 0.1), transparent 28%),
+      radial-gradient(circle at 86% 12%, rgb(255 139 207 / 0.09), transparent 30%),
+      linear-gradient(145deg, #02030b 0%, #061027 48%, #170822 100%);
+  }
+
   button,
   textarea {
     font: inherit;
@@ -31,6 +44,20 @@
 }
 
 @layer components {
+  .app-shell {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background-color: #030511;
+  }
+
+  @media (display-mode: standalone) {
+    .app-shell {
+      padding-top: env(safe-area-inset-top);
+      padding-right: env(safe-area-inset-right);
+      padding-left: env(safe-area-inset-left);
+    }
+  }
+
   .glass-panel {
     border: 1px solid rgb(255 255 255 / 0.12);
     border-radius: 24px;
