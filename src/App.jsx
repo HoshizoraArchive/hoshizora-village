@@ -296,6 +296,17 @@ function attachMediaToPosts(posts, mediaByPostId) {
   }));
 }
 
+async function hydratePostsWithMedia(posts) {
+  const safePosts = posts ?? [];
+  const { mediaByPostId, error } = await readPostMediaForPostIds(safePosts.map((post) => post.id));
+
+  if (error) {
+    return { posts: safePosts, error };
+  }
+
+  return { posts: attachMediaToPosts(safePosts, mediaByPostId), error: null };
+}
+
 function getRouteFromLocation() {
   const meteorMatch = window.location.pathname.match(/^\/meteor\/([^/?#]+)\/?$/);
 
@@ -1184,7 +1195,27 @@ function App() {
         return;
       }
 
-      setDetailPost(mapSavedPost(post, profileRowsError ? null : authorProfile));
+      const knownPost =
+        detailPost?.id === post.id
+          ? detailPost
+          : [savedPosts, ownPosts, archivedPosts, publicProfilePosts]
+              .flat()
+              .find((currentPost) => currentPost?.id === post.id);
+      const basePost = {
+        ...mapSavedPost(post, profileRowsError ? null : authorProfile),
+        media: knownPost?.media ?? [],
+      };
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia([basePost]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("流星便詳細の画像読み込みに失敗しました。", mediaError);
+      }
+
+      setDetailPost(hydratedPosts[0] ?? basePost);
       setDetailPostLoading(false);
     }
 
@@ -1282,9 +1313,20 @@ function App() {
         return;
       }
 
+      const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profileRow));
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("公開プロフィールの画像読み込みに失敗しました。", mediaError);
+      }
+
       setPublicProfile(profileRow);
       setPublicProfileTags(tagRows ?? []);
-      setPublicProfilePosts((postRows ?? []).map((post) => mapSavedPost(post, profileRow)));
+      setPublicProfilePosts(hydratedPosts);
       setPublicProfileLoading(false);
     }
 
@@ -1402,7 +1444,18 @@ function App() {
         return;
       }
 
-      setOwnPosts((data ?? []).map((post) => mapSavedPost(post, profile)));
+      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profile));
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("わたしの流星便の画像読み込みに失敗しました。", mediaError);
+      }
+
+      setOwnPosts(hydratedPosts);
     }
 
     readOwnPosts();
@@ -1510,8 +1563,17 @@ function App() {
           return post ? mapArchivedPost(archive, post, profilesById.get(post.author_id)) : null;
         })
         .filter(Boolean);
+      const { posts: hydratedArchives, error: mediaError } = await hydratePostsWithMedia(mappedArchives);
 
-      setArchivedPosts(mappedArchives);
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("Archiveの画像読み込みに失敗しました。", mediaError);
+      }
+
+      setArchivedPosts(hydratedArchives);
       setArchivesLoading(false);
     }
 
@@ -1704,7 +1766,18 @@ function App() {
         return;
       }
 
-      setSavedPosts((data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id))));
+      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id)));
+      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (mediaError && !isMissingPostMediaError(mediaError)) {
+        console.warn("公開流星便の画像読み込みに失敗しました。", mediaError);
+      }
+
+      setSavedPosts(hydratedPosts);
       setPostsLoading(false);
     }
 
@@ -2526,8 +2599,8 @@ function App() {
 
     const body = (postEditDrafts[post.id] ?? "").trim();
 
-    if (!body) {
-      setPostActionError("流星便の本文を入力してください。");
+    if (!body && (post.media?.length ?? 0) === 0) {
+      setPostActionError("本文を書くか、星影が必要です。");
       return;
     }
 
@@ -5952,10 +6025,11 @@ function PostCard({
   const postEditDraft = postActions?.editDrafts?.[post.id] ?? post.text;
   const postEditLength = getTrimmedCharacterLength(postEditDraft);
   const isPostEditOverLimit = postEditLength > POST_MAX_LENGTH;
+  const postMedia = post.media ?? [];
   const youtubeVideoId = !isPostEditing ? findFirstYouTubeVideoId(post.text) : null;
   const isPostUpdating = postActions?.updatingId === post.id;
   const isPostDeleting = postActions?.deletingId === post.id;
-  const canSavePostEdit = Boolean(postEditDraft.trim()) && !isPostEditOverLimit && !isPostUpdating;
+  const canSavePostEdit = (Boolean(postEditDraft.trim()) || postMedia.length > 0) && !isPostEditOverLimit && !isPostUpdating;
   const postStarLetters = starLetters?.itemsByPostId?.[post.id] ?? [];
   const isStarLettersOpen = showStarLetters || starLetters?.openPostId === post.id;
   const isStarLetterSaving = starLetters?.savingPostId === post.id;
@@ -6076,6 +6150,7 @@ function PostCard({
               placeholder="流星便の本文を編集する"
               value={postEditDraft}
             />
+            <PostMediaGrid media={postMedia} onOpenMedia={onOpenMedia} />
             {isPostEditOverLimit && (
               <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
                 流星便は500文字以内で放流してください
@@ -6115,7 +6190,7 @@ function PostCard({
             ) : null}
             <YouTubeEmbed videoId={youtubeVideoId} />
             <SunoLinkCard url={sunoUrl} />
-            <PostMediaGrid media={post.media ?? []} onOpenMedia={onOpenMedia} />
+            <PostMediaGrid media={postMedia} onOpenMedia={onOpenMedia} />
           </>
         )}
         <div className="mt-4 flex flex-wrap gap-2">
