@@ -6,7 +6,7 @@ const bottomNavItems = [
   { id: "rconnect", label: "R.Connect", icon: "bell" },
   { id: "post", label: "流星便投稿", icon: "plus", primary: true },
   { id: "archive", label: "Archive", icon: "bookmark" },
-  { id: "profile", label: "わたしの星座", icon: "constellation" },
+  { id: "profile", label: "My Const.", ariaLabel: "My Constellation", icon: "constellation" },
 ];
 
 const STAR_LETTER_MAX_LENGTH = 500;
@@ -347,14 +347,6 @@ function getAvatarText(value) {
   return value.trim().charAt(0) || defaultProfileView.avatar;
 }
 
-function formatCount(value) {
-  if (!Number.isFinite(value)) {
-    return "未集計";
-  }
-
-  return value.toLocaleString("ja-JP");
-}
-
 function formatPostTime(createdAt) {
   const date = new Date(createdAt);
 
@@ -636,7 +628,6 @@ function App() {
   const [avatarCropPreparing, setAvatarCropPreparing] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarModal, setAvatarModal] = useState(null);
-  const [profileResonanceCount, setProfileResonanceCount] = useState(null);
   const [savedPosts, setSavedPosts] = useState([]);
   const [ownPosts, setOwnPosts] = useState([]);
   const [ownPostsLoading, setOwnPostsLoading] = useState(false);
@@ -1063,7 +1054,6 @@ function App() {
       setProfileMessage("");
       setProfileError("");
       setProfileScreenMode("view");
-      setProfileResonanceCount(null);
       return;
     }
 
@@ -1578,63 +1568,6 @@ function App() {
     }
 
     readArchivedPosts();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [session?.user?.id]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const userId = session?.user?.id;
-
-    if (!userId) {
-      setProfileResonanceCount(null);
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function readProfileResonanceCount() {
-      const { data: ownPostRows, error: ownPostsError } = await runPostQuery((columns, supportsSoftDelete) => {
-        let query = supabase.from("posts").select(columns).eq("author_id", userId);
-
-        if (supportsSoftDelete) {
-          query = query.is("deleted_at", null);
-        }
-
-        return query;
-      });
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (ownPostsError) {
-        setProfileResonanceCount(null);
-        return;
-      }
-
-      const ownPostIds = (ownPostRows ?? []).map((post) => post.id).filter(Boolean);
-
-      if (ownPostIds.length === 0) {
-        setProfileResonanceCount(0);
-        return;
-      }
-
-      const { count, error } = await supabase
-        .from("resonances")
-        .select("id", { count: "exact", head: true })
-        .in("post_id", ownPostIds);
-
-      if (!isMounted) {
-        return;
-      }
-
-      setProfileResonanceCount(error ? null : (count ?? 0));
-    }
-
-    readProfileResonanceCount();
 
     return () => {
       isMounted = false;
@@ -2737,10 +2670,6 @@ function App() {
       return;
     }
 
-    if (targetPost.authorId === session.user.id) {
-      setProfileResonanceCount((currentCount) => (Number.isFinite(currentCount) ? currentCount + 1 : currentCount));
-    }
-
     setSavedPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === postId
@@ -3235,8 +3164,8 @@ function App() {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: "星空Villageのわたしの星座",
-          text: "星空Villageのわたしの星座です。",
+          title: "星空VillageのMy Constellation",
+          text: "星空VillageのMy Constellationです。",
           url: starProfileUrl,
         });
         setProfileShareMessage("星座URLを共有できます");
@@ -3324,7 +3253,6 @@ function App() {
     onShareProfile: handleShareStarProfile,
     onStartEdit: handleStartProfileEdit,
     onSubmit: handleProfileSubmit,
-    resonanceCount: profileResonanceCount,
     saving: profileSaving,
     shareError: profileShareError,
     shareMessage: profileShareMessage,
@@ -4044,13 +3972,13 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
           </button>
         </div>
         <div className="mt-3">
-          <p className="text-xs font-black text-comet">わたしの星座</p>
+          <p className="text-xs font-black text-comet">My Constellation</p>
           <h2 className="mt-1 text-lg font-black text-white">{displayName}</h2>
           <p className="text-sm text-slate-400">{username}</p>
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
           {profile.constellation_note && (
             <div className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 px-3 py-2">
-              <p className="text-[11px] font-black text-comet">星座メモ</p>
+              <p className="text-[11px] font-black text-comet">My Star Chart</p>
               <p className="mt-1 text-xs leading-5 text-slate-200">{profile.constellation_note}</p>
             </div>
           )}
@@ -4748,7 +4676,6 @@ function ProfileCard({ profile }) {
   const avatarUrl = profile.data?.avatar_url;
   const constellationNote = profile.data?.constellation_note;
   const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
-  const resonanceValue = formatCount(profile.resonanceCount);
   const canShareStarProfile = Boolean(profile.data?.username);
   const canOpenAvatar = Boolean(avatarUrl);
   const statusMessage = profile.error || profile.shareError || profile.message || profile.shareMessage;
@@ -4798,15 +4725,10 @@ function ProfileCard({ profile }) {
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
           {constellationNote && (
             <div className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 px-3 py-2">
-              <p className="text-[11px] font-black text-comet">わたしの星座</p>
+              <p className="text-[11px] font-black text-comet">My Star Chart</p>
               <p className="mt-1 text-xs leading-5 text-slate-200">{constellationNote}</p>
             </div>
           )}
-        </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
-          <Stat label="観測" value="未集計" />
-          <Stat label="観測者" value="未集計" />
-          <Stat label="共鳴" value={resonanceValue} />
         </div>
 
         {profile.canEdit && (
@@ -4845,7 +4767,7 @@ function ProfileEditScreen({ profile }) {
           <p className="text-xs font-black text-comet">profile edit</p>
           <h2 className="mt-1 text-2xl font-black text-white">プロフィール編集</h2>
           <p className="mt-2 text-sm leading-7 text-slate-400">
-            表示名、星影、わたしの星座を編集できます。
+            表示名、星影、My Star Chartを編集できます。
           </p>
         </div>
         <button
@@ -5249,7 +5171,7 @@ function ProfileEditor({ profile }) {
       </label>
 
       <label className="block text-xs font-bold text-slate-400">
-        わたしの星座
+        My Star Chart
         <textarea
           className="mt-1 min-h-20 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-slate-600 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
           onChange={(event) => profile.onChange("constellation_note", event.target.value)}
@@ -5310,6 +5232,7 @@ function BottomNav({ activeTab, onTabChange }) {
             return (
               <button
                 aria-current={isActive ? "page" : undefined}
+                aria-label={item.ariaLabel ?? item.label}
                 className={buttonClass}
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
@@ -5371,12 +5294,7 @@ function BottomNavIcon({ icon }) {
     );
   }
 
-  return (
-    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
-      <path d="M6 16 11 8l4 5 3-6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-      <path d="M6 16h.01M11 8h.01M15 13h.01M18 7h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="3" />
-    </svg>
-  );
+  return <span aria-hidden="true" className="text-xl leading-none">✩</span>;
 }
 
 function AuthPanel({ auth }) {
@@ -6463,15 +6381,6 @@ function ActionButton({ active = false, disabled = false, icon, label, onClick, 
       <span className="text-comet">{icon}</span>
       <span>{label}</span>
     </button>
-  );
-}
-
-function Stat({ label, value }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="mt-1 font-black text-white">{value}</p>
-    </div>
   );
 }
 
