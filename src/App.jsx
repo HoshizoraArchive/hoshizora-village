@@ -3486,7 +3486,7 @@ function App() {
   };
 
   return (
-    <div className="relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
+    <div className="app-shell relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
       <SkyBackdrop />
       <StardustForeground />
 
