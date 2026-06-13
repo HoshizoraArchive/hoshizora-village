@@ -4402,10 +4402,50 @@ function AvatarCropper({
   zoom,
 }) {
   const guideRef = useRef(null);
-  const [dragState, setDragState] = useState(null);
+  const imageRef = useRef(null);
+  const dragStateRef = useRef(null);
+  const latestVisualOffsetRef = useRef(offset);
+  const animationFrameRef = useRef(null);
   const coverScale = getAvatarCoverScale(imageSize, frameSize);
   const displayedWidth = imageSize?.width && frameSize ? imageSize.width * coverScale * zoom : null;
   const displayedHeight = imageSize?.height && frameSize ? imageSize.height * coverScale * zoom : null;
+
+  function applyImageTransform(nextOffset) {
+    if (!imageRef.current) {
+      return;
+    }
+
+    imageRef.current.style.transform = `translate(-50%, -50%) translate3d(${nextOffset.x}px, ${nextOffset.y}px, 0)`;
+  }
+
+  function scheduleVisualOffset(nextOffset) {
+    latestVisualOffsetRef.current = nextOffset;
+
+    if (animationFrameRef.current) {
+      return;
+    }
+
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      applyImageTransform(latestVisualOffsetRef.current);
+    });
+  }
+
+  function flushVisualOffset() {
+    if (animationFrameRef.current) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    applyImageTransform(latestVisualOffsetRef.current);
+  }
+
+  function getMeasuredFrameSize() {
+    const rect = guideRef.current?.getBoundingClientRect();
+    const measuredSize = rect ? Math.round(Math.min(rect.width, rect.height)) : 0;
+
+    return measuredSize || frameSize;
+  }
 
   useEffect(() => {
     const guide = guideRef.current;
@@ -4440,40 +4480,101 @@ function AvatarCropper({
     };
   }, [imageUrl, onFrameSizeChange]);
 
+  useEffect(() => {
+    latestVisualOffsetRef.current = offset;
+
+    if (!dragStateRef.current) {
+      applyImageTransform(offset);
+    }
+  }, [displayedHeight, displayedWidth, offset]);
+
+  useEffect(
+    () => () => {
+      if (animationFrameRef.current) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
+    },
+    [],
+  );
+
   function handlePointerDown(event) {
-    if (disabled) {
+    if (disabled || !imageSize?.width || !imageSize?.height) {
       return;
     }
 
-    event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    setDragState({
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; dragging still works without it.
+    }
+
+    const safeStartOffset = constrainAvatarCropOffset(
+      latestVisualOffsetRef.current,
+      zoom,
+      imageSize,
+      getMeasuredFrameSize(),
+    );
+
+    latestVisualOffsetRef.current = safeStartOffset;
+    flushVisualOffset();
+    dragStateRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      startOffset: offset,
-    });
+      startOffset: safeStartOffset,
+      target: event.currentTarget,
+    };
   }
 
   function handlePointerMove(event) {
+    const dragState = dragStateRef.current;
+
     if (!dragState || dragState.pointerId !== event.pointerId) {
       return;
     }
 
-    event.preventDefault();
-    onOffsetChange({
-      x: dragState.startOffset.x + event.clientX - dragState.startX,
-      y: dragState.startOffset.y + event.clientY - dragState.startY,
-    });
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    const nextOffset = constrainAvatarCropOffset(
+      {
+        x: dragState.startOffset.x + event.clientX - dragState.startX,
+        y: dragState.startOffset.y + event.clientY - dragState.startY,
+      },
+      zoom,
+      imageSize,
+      getMeasuredFrameSize(),
+    );
+
+    scheduleVisualOffset(nextOffset);
   }
 
   function handlePointerEnd(event) {
+    const dragState = dragStateRef.current;
+
     if (!dragState || dragState.pointerId !== event.pointerId) {
       return;
     }
 
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-    setDragState(null);
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    const finalOffset = latestVisualOffsetRef.current;
+
+    dragStateRef.current = null;
+    try {
+      dragState.target?.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Some mobile browsers release capture before the pointerup callback.
+    }
+    flushVisualOffset();
+    onOffsetChange(finalOffset);
   }
 
   return (
@@ -4498,10 +4599,10 @@ function AvatarCropper({
         className="relative mx-auto mt-4 aspect-square w-full max-w-[320px] touch-none overflow-hidden rounded-3xl border border-comet/30 bg-night-950/70 shadow-[0_0_35px_rgba(125,223,255,0.16)]"
         onPointerCancel={handlePointerEnd}
         onPointerDown={handlePointerDown}
-        onPointerLeave={handlePointerEnd}
+        onLostPointerCapture={handlePointerEnd}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", userSelect: "none", WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
       >
         <img
           alt=""
@@ -4513,6 +4614,8 @@ function AvatarCropper({
               height: event.currentTarget.naturalHeight,
             })
           }
+          onDragStart={(event) => event.preventDefault()}
+          ref={imageRef}
           src={imageUrl}
           style={
             displayedWidth && displayedHeight
@@ -4521,6 +4624,9 @@ function AvatarCropper({
                   left: "50%",
                   top: "50%",
                   transform: `translate(-50%, -50%) translate3d(${offset.x}px, ${offset.y}px, 0)`,
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  willChange: "transform",
                   width: `${displayedWidth}px`,
                 }
               : undefined
