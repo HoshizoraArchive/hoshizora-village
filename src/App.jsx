@@ -21,7 +21,7 @@ const AVATAR_BUCKET = "avatars";
 const AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024;
 const AVATAR_CROP_SIZE = 512;
 const AVATAR_CROP_MIN_ZOOM = 1;
-const AVATAR_CROP_MAX_ZOOM = 3;
+const AVATAR_CROP_MAX_ZOOM = 6;
 const AVATAR_CROP_PREVIEW_FALLBACK_SIZE = 260;
 const AVATAR_CROP_OUTPUT_TYPE = "image/jpeg";
 const AVATAR_CROP_OUTPUT_EXTENSION = "jpg";
@@ -508,11 +508,16 @@ function App() {
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
   const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarCroppedBlob, setAvatarCroppedBlob] = useState(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
+  const [avatarCropFile, setAvatarCropFile] = useState(null);
+  const [avatarCropPreviewUrl, setAvatarCropPreviewUrl] = useState("");
+  const [avatarCropModalOpen, setAvatarCropModalOpen] = useState(false);
   const [avatarCropZoom, setAvatarCropZoom] = useState(AVATAR_CROP_MIN_ZOOM);
   const [avatarCropOffset, setAvatarCropOffset] = useState({ x: 0, y: 0 });
   const [avatarImageSize, setAvatarImageSize] = useState(null);
   const [avatarCropFrameSize, setAvatarCropFrameSize] = useState(AVATAR_CROP_PREVIEW_FALLBACK_SIZE);
+  const [avatarCropPreparing, setAvatarCropPreparing] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarModal, setAvatarModal] = useState(null);
   const [profileResonanceCount, setProfileResonanceCount] = useState(null);
@@ -599,6 +604,14 @@ function App() {
       }
     };
   }, [avatarPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarCropPreviewUrl) {
+        URL.revokeObjectURL(avatarCropPreviewUrl);
+      }
+    };
+  }, [avatarCropPreviewUrl]);
 
   useEffect(() => {
     if (!avatarModal) {
@@ -1614,9 +1627,19 @@ function App() {
     setAvatarImageSize(null);
   }
 
+  function clearAvatarCropDraft() {
+    setAvatarCropFile(null);
+    setAvatarCropPreviewUrl("");
+    setAvatarCropModalOpen(false);
+    setAvatarCropPreparing(false);
+    resetAvatarCrop();
+  }
+
   function clearSelectedAvatar() {
     setAvatarFile(null);
+    setAvatarCroppedBlob(null);
     setAvatarPreviewUrl("");
+    clearAvatarCropDraft();
     resetAvatarCrop();
   }
 
@@ -1640,30 +1663,28 @@ function App() {
 
     setProfileMessage("");
     setProfileError("");
+    event.target.value = "";
 
     if (!file) {
-      clearSelectedAvatar();
       return;
     }
 
     if (!AVATAR_ALLOWED_TYPES[file.type]) {
-      clearSelectedAvatar();
-      event.target.value = "";
+      clearAvatarCropDraft();
       setProfileError("jpg / jpeg / png / webp の画像を選んでください。");
       return;
     }
 
     if (file.size > AVATAR_MAX_SIZE_BYTES) {
-      clearSelectedAvatar();
-      event.target.value = "";
+      clearAvatarCropDraft();
       setProfileError("画像は5MBまで選べます。");
       return;
     }
 
-    setAvatarFile(file);
-    setAvatarPreviewUrl(URL.createObjectURL(file));
+    setAvatarCropFile(file);
+    setAvatarCropPreviewUrl(URL.createObjectURL(file));
     resetAvatarCrop();
-    setProfileMessage("星影を選びました。位置を調整して保存できます。");
+    setAvatarCropModalOpen(true);
   }
 
   function handleAvatarCropImageLoad(imageSize) {
@@ -1701,7 +1722,39 @@ function App() {
   function handleAvatarCropReset() {
     setAvatarCropZoom(AVATAR_CROP_MIN_ZOOM);
     setAvatarCropOffset({ x: 0, y: 0 });
-    setProfileMessage("星影の位置をリセットしました。");
+  }
+
+  function handleCancelAvatarCrop() {
+    clearAvatarCropDraft();
+  }
+
+  async function handleUseCroppedAvatar() {
+    if (!avatarCropFile) {
+      return;
+    }
+
+    setAvatarCropPreparing(true);
+    setProfileMessage("");
+    setProfileError("");
+
+    try {
+      const croppedAvatarBlob = await createCroppedAvatarBlob({
+        file: avatarCropFile,
+        frameSize: avatarCropFrameSize,
+        offset: avatarCropOffset,
+        zoom: avatarCropZoom,
+      });
+      const croppedPreviewUrl = URL.createObjectURL(croppedAvatarBlob);
+
+      setAvatarFile(avatarCropFile);
+      setAvatarCroppedBlob(croppedAvatarBlob);
+      setAvatarPreviewUrl(croppedPreviewUrl);
+      setProfileMessage("この星影を選びました。保存するとプロフィールに反映されます。");
+      clearAvatarCropDraft();
+    } catch (cropError) {
+      setProfileError(cropError.message);
+      setAvatarCropPreparing(false);
+    }
   }
 
   function handleStartProfileEdit() {
@@ -1786,24 +1839,26 @@ function App() {
 
       setAvatarUploading(true);
 
-      let croppedAvatarBlob;
+      let nextCroppedAvatarBlob = avatarCroppedBlob;
 
-      try {
-        croppedAvatarBlob = await createCroppedAvatarBlob({
-          file: avatarFile,
-          frameSize: avatarCropFrameSize,
-          offset: avatarCropOffset,
-          zoom: avatarCropZoom,
-        });
-      } catch (cropError) {
-        setAvatarUploading(false);
-        setProfileSaving(false);
-        setProfileError(cropError.message);
-        return;
+      if (!nextCroppedAvatarBlob) {
+        try {
+          nextCroppedAvatarBlob = await createCroppedAvatarBlob({
+            file: avatarFile,
+            frameSize: avatarCropFrameSize,
+            offset: avatarCropOffset,
+            zoom: avatarCropZoom,
+          });
+        } catch (cropError) {
+          setAvatarUploading(false);
+          setProfileSaving(false);
+          setProfileError(cropError.message);
+          return;
+        }
       }
 
       const filePath = `${session.user.id}/avatar-cropped-${Date.now()}.${AVATAR_CROP_OUTPUT_EXTENSION}`;
-      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, croppedAvatarBlob, {
+      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, nextCroppedAvatarBlob, {
         cacheControl: "3600",
         contentType: AVATAR_CROP_OUTPUT_TYPE,
         upsert: false,
@@ -2797,22 +2852,13 @@ function App() {
     data: profile,
     error: profileError,
     avatarAccept: AVATAR_ACCEPT,
-    avatarCropFrameSize,
-    avatarCropOffset,
-    avatarCropZoom,
     avatarFileName: avatarFile?.name ?? "",
-    avatarImageSize,
     avatarPreviewUrl,
     avatarUploading,
     form: profileForm,
     loading: profileLoading,
     message: profileMessage,
     onArchiveNotificationSettingSubmit: handleArchiveNotificationSettingSubmit,
-    onAvatarCropFrameSizeChange: handleAvatarCropFrameSizeChange,
-    onAvatarCropImageLoad: handleAvatarCropImageLoad,
-    onAvatarCropOffsetChange: handleAvatarCropOffsetChange,
-    onAvatarCropReset: handleAvatarCropReset,
-    onAvatarCropZoomChange: handleAvatarCropZoomChange,
     onAvatarFileChange: handleProfileAvatarFileChange,
     onChange: handleProfileFieldChange,
     onBackToProfile: handleBackToProfile,
@@ -2959,6 +3005,24 @@ function App() {
     tags: publicProfileTags,
     username: publicProfileUsername,
   };
+  const avatarCropState = {
+    disabled: avatarCropPreparing,
+    fileName: avatarCropFile?.name ?? "",
+    frameSize: avatarCropFrameSize,
+    imageSize: avatarImageSize,
+    imageUrl: avatarCropPreviewUrl,
+    isOpen: avatarCropModalOpen,
+    offset: avatarCropOffset,
+    onCancel: handleCancelAvatarCrop,
+    onFrameSizeChange: handleAvatarCropFrameSizeChange,
+    onImageLoad: handleAvatarCropImageLoad,
+    onOffsetChange: handleAvatarCropOffsetChange,
+    onReset: handleAvatarCropReset,
+    onUse: handleUseCroppedAvatar,
+    onZoomChange: handleAvatarCropZoomChange,
+    preparing: avatarCropPreparing,
+    zoom: avatarCropZoom,
+  };
 
   return (
     <div className="relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
@@ -2993,6 +3057,7 @@ function App() {
 
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
       <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
+      <AvatarCropModal crop={avatarCropState} />
     </div>
   );
 }
@@ -3365,6 +3430,107 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
         ) : null}
       </section>
     </main>
+  );
+}
+
+function AvatarCropModal({ crop }) {
+  const onCancelRef = useRef(crop.onCancel);
+
+  useEffect(() => {
+    onCancelRef.current = crop.onCancel;
+  }, [crop.onCancel]);
+
+  useEffect(() => {
+    if (!crop.isOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onCancelRef.current();
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [crop.isOpen]);
+
+  if (!crop.isOpen || !crop.imageUrl) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="星影を切り取る"
+      aria-modal="true"
+      className="fixed inset-0 z-50 overflow-y-auto bg-night-950/88 px-3 py-4 backdrop-blur-xl"
+      role="dialog"
+    >
+      <div className="mx-auto flex min-h-full max-w-xl items-center">
+        <div className="w-full rounded-3xl border border-white/15 bg-night-950/90 p-4 shadow-[0_0_70px_rgba(125,223,255,0.18)] sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black text-comet">星影を切り取る</p>
+              <h2 className="mt-1 text-xl font-black text-white">星影を切り取る</h2>
+              <p className="mt-2 text-xs leading-6 text-slate-400">
+                ドラッグして位置を調整し、スライダーで大きさを変えられます。
+              </p>
+            </div>
+            <button
+              className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={crop.preparing}
+              onClick={crop.onCancel}
+              type="button"
+            >
+              キャンセル
+            </button>
+          </div>
+
+          <AvatarCropper
+            disabled={crop.disabled}
+            frameSize={crop.frameSize}
+            imageSize={crop.imageSize}
+            imageUrl={crop.imageUrl}
+            offset={crop.offset}
+            onFrameSizeChange={crop.onFrameSizeChange}
+            onImageLoad={crop.onImageLoad}
+            onOffsetChange={crop.onOffsetChange}
+            onReset={crop.onReset}
+            onZoomChange={crop.onZoomChange}
+            zoom={crop.zoom}
+          />
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 truncate text-xs font-bold text-slate-500">{crop.fileName}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={crop.preparing}
+                onClick={crop.onCancel}
+                type="button"
+              >
+                キャンセル
+              </button>
+              <button
+                className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={crop.preparing || !crop.imageSize}
+                onClick={crop.onUse}
+                type="button"
+              >
+                {crop.preparing ? "準備中..." : "この星影を使う"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -4222,19 +4388,34 @@ function AvatarFrame({ avatar, avatarUrl, className = "h-12 w-12 rounded-2xl tex
   return <div className={`${baseClass} ${className}`}>{avatar}</div>;
 }
 
-function AvatarCropper({ disabled, imageUrl, offset, onFrameSizeChange, onImageLoad, onOffsetChange, onReset, onZoomChange, zoom }) {
-  const frameRef = useRef(null);
+function AvatarCropper({
+  disabled,
+  frameSize,
+  imageSize,
+  imageUrl,
+  offset,
+  onFrameSizeChange,
+  onImageLoad,
+  onOffsetChange,
+  onReset,
+  onZoomChange,
+  zoom,
+}) {
+  const guideRef = useRef(null);
   const [dragState, setDragState] = useState(null);
+  const coverScale = getAvatarCoverScale(imageSize, frameSize);
+  const displayedWidth = imageSize?.width && frameSize ? imageSize.width * coverScale * zoom : null;
+  const displayedHeight = imageSize?.height && frameSize ? imageSize.height * coverScale * zoom : null;
 
   useEffect(() => {
-    const frame = frameRef.current;
+    const guide = guideRef.current;
 
-    if (!frame) {
+    if (!guide) {
       return undefined;
     }
 
     function updateFrameSize() {
-      const rect = frame.getBoundingClientRect();
+      const rect = guide.getBoundingClientRect();
       const nextSize = Math.round(Math.min(rect.width, rect.height));
 
       if (nextSize > 0) {
@@ -4252,7 +4433,7 @@ function AvatarCropper({ disabled, imageUrl, offset, onFrameSizeChange, onImageL
     }
 
     const observer = new ResizeObserver(updateFrameSize);
-    observer.observe(frame);
+    observer.observe(guide);
 
     return () => {
       observer.disconnect();
@@ -4314,36 +4495,46 @@ function AvatarCropper({ disabled, imageUrl, offset, onFrameSizeChange, onImageL
 
       <div
         aria-label="星影の正方形プレビュー"
-        className="relative mx-auto mt-4 aspect-square w-full max-w-[260px] touch-none overflow-hidden rounded-3xl border border-comet/30 bg-night-950/70 shadow-[0_0_35px_rgba(125,223,255,0.16)]"
+        className="relative mx-auto mt-4 aspect-square w-full max-w-[320px] touch-none overflow-hidden rounded-3xl border border-comet/30 bg-night-950/70 shadow-[0_0_35px_rgba(125,223,255,0.16)]"
         onPointerCancel={handlePointerEnd}
         onPointerDown={handlePointerDown}
         onPointerLeave={handlePointerEnd}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
-        ref={frameRef}
         style={{ touchAction: "none" }}
       >
-        <div className="absolute inset-0" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0)` }}>
-          <img
-            alt=""
-            className="h-full w-full select-none object-cover"
-            draggable={false}
-            onLoad={(event) =>
-              onImageLoad({
-                width: event.currentTarget.naturalWidth,
-                height: event.currentTarget.naturalHeight,
-              })
-            }
-            src={imageUrl}
-            style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
-          />
-        </div>
+        <img
+          alt=""
+          className={displayedWidth && displayedHeight ? "absolute max-w-none select-none" : "h-full w-full select-none object-cover"}
+          draggable={false}
+          onLoad={(event) =>
+            onImageLoad({
+              width: event.currentTarget.naturalWidth,
+              height: event.currentTarget.naturalHeight,
+            })
+          }
+          src={imageUrl}
+          style={
+            displayedWidth && displayedHeight
+              ? {
+                  height: `${displayedHeight}px`,
+                  left: "50%",
+                  top: "50%",
+                  transform: `translate(-50%, -50%) translate3d(${offset.x}px, ${offset.y}px, 0)`,
+                  width: `${displayedWidth}px`,
+                }
+              : undefined
+          }
+        />
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute inset-x-0 top-0 h-[9%] bg-night-950/52" />
           <div className="absolute inset-x-0 bottom-0 h-[9%] bg-night-950/52" />
           <div className="absolute bottom-[9%] left-0 top-[9%] w-[9%] bg-night-950/52" />
           <div className="absolute bottom-[9%] right-0 top-[9%] w-[9%] bg-night-950/52" />
-          <div className="absolute inset-[9%] rounded-[1.65rem] border border-comet/65 bg-white/[0.025] shadow-[0_0_28px_rgba(125,223,255,0.16),inset_0_0_22px_rgba(255,255,255,0.06)]">
+          <div
+            className="absolute inset-[9%] rounded-[1.65rem] border border-comet/65 bg-white/[0.025] shadow-[0_0_28px_rgba(125,223,255,0.16),inset_0_0_22px_rgba(255,255,255,0.06)]"
+            ref={guideRef}
+          >
             <div className="absolute inset-y-0 left-1/3 w-px bg-white/10" />
             <div className="absolute inset-y-0 left-2/3 w-px bg-white/10" />
             <div className="absolute inset-x-0 top-1/3 h-px bg-white/10" />
@@ -4438,19 +4629,6 @@ function ProfileEditor({ profile }) {
             )}
           </div>
         </div>
-        {profile.avatarPreviewUrl ? (
-          <AvatarCropper
-            disabled={profile.loading || profile.saving || profile.avatarUploading}
-            imageUrl={profile.avatarPreviewUrl}
-            offset={profile.avatarCropOffset}
-            onFrameSizeChange={profile.onAvatarCropFrameSizeChange}
-            onImageLoad={profile.onAvatarCropImageLoad}
-            onOffsetChange={profile.onAvatarCropOffsetChange}
-            onReset={profile.onAvatarCropReset}
-            onZoomChange={profile.onAvatarCropZoomChange}
-            zoom={profile.avatarCropZoom}
-          />
-        ) : null}
       </div>
 
       <label className="block text-xs font-bold text-slate-400">
