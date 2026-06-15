@@ -18,7 +18,7 @@ Databaseには以下を保存します。
 
 - `profiles`: ユーザープロフィール
 - `posts`: 流星便
-- `post_media`: 流星便画像
+- `post_media`: 流星便画像 / 短尺動画
 - `profile_tags`: わたしの星座
 - `post_tags`: 流星便タグ
 - `resonances`: 共鳴
@@ -30,7 +30,7 @@ Databaseには以下を保存します。
 
 ### Storage
 
-Supabase Storageは、プロフィール画像アップロードMVPで `avatars` bucket、流星便画像投稿MVPで `meteor-media` bucket を使います。
+Supabase Storageは、プロフィール画像アップロードMVPで `avatars` bucket、流星便画像投稿MVPで `meteor-media` bucket、流星便動画投稿MVPで `meteor-video` bucket を使います。
 
 - bucket名: `avatars`
 - public read: 有効
@@ -44,13 +44,21 @@ Supabase Storageは、プロフィール画像アップロードMVPで `avatars`
 - 許可MIME type: `image/jpeg`, `image/png`, `image/webp`
 - 保存パス: `{userId}/{uploadBatchId}/{sortOrder}-{randomId}.{ext}`
 
+- bucket名: `meteor-video`
+- public read: 有効
+- 最大サイズ: 100MB
+- 許可MIME type: `video/mp4`, `video/quicktime`, `video/webm`
+- 保存パス: `{userId}/{uploadBatchId}/video-{randomId}.{ext}`
+
 Storage policy方針:
 
 - 誰でも `avatars` bucket の画像をselect可能
 - 誰でも `meteor-media` bucket の画像をselect可能
+- 誰でも `meteor-video` bucket の動画をselect可能
 - ログイン済みユーザーだけがinsert可能
 - insertできるのは `auth.uid()` と同じ名前のフォルダ配下のみ
 - `meteor-media` はログイン済みユーザーが自分のフォルダ配下だけdelete可能
+- `meteor-video` はログイン済みユーザーが自分のフォルダ配下だけdelete可能
 - 他人のフォルダにはアップロードできない
 - `service_role` はフロントエンドでは使わない
 
@@ -58,6 +66,7 @@ Storage policy方針:
 
 - `supabase/migrations/20260611_add_avatar_storage.sql`
 - `supabase/migrations/20260613_add_meteor_image_media.sql`
+- `supabase/migrations/20260616_add_meteor_video_media.sql`
 
 ### 将来の拡張
 
@@ -131,49 +140,55 @@ RLS方針:
 
 - `followers` 公開は初期MVPでは使いません。将来の観測者機能で検討します。
 - 画像投稿MVPでは、画像ファイル本体は `meteor-media` bucket、画像メタデータは `post_media` に保存します。
-- `image` は `post_media` を使うため `media_url` は必須にしていません。
-- `audio/video` は `media_url` を必須にしています。
+- 動画投稿MVPでは、動画本体は `meteor-video` bucket、動画サムネイルは `meteor-media` bucket、動画メタデータは `post_media` に保存します。
+- `image` / `video` は `post_media` を使うため `media_url` は必須にしていません。
+- `audio` は `media_url` を必須にしています。
 - `youtube` は `youtube_url` と `youtube_video_id` を必須にしています。
 - 画像のみ投稿では、`posts.body` に空文字 `""` を保存できます。
 - 流星便削除MVPでは物理削除せず、`deleted_at` を入れて画面上から非表示にします。共鳴、Archive、星文、通知は保持します。
 
 ### post_media
 
-流星便に添える画像メタデータを保存します。
+流星便に添える画像 / 短尺動画メタデータを保存します。
 
 主なカラム:
 
 - `id`: メディアID
 - `post_id`: 対象流星便
 - `uploader_id`: アップロードしたユーザー
-- `media_type`: MVPでは `image` のみ
-- `storage_path`: `meteor-media` bucket 内のStorage path
-- `sort_order`: 同一流星便内の表示順。0から3まで
-- `mime_type`: `image/jpeg`, `image/png`, `image/webp`
-- `size_bytes`: ファイルサイズ。MVPでは8MB以内
+- `media_type`: `image` または `video`
+- `storage_path`: 画像は `meteor-media`、動画は `meteor-video` bucket 内のStorage path
+- `thumbnail_storage_path`: 動画カード用サムネイルの `meteor-media` bucket 内Storage path。任意
+- `duration_seconds`: 動画の再生時間。動画は35秒以内
+- `sort_order`: 画像は0から3まで。動画は0固定
+- `mime_type`: 画像は `image/jpeg`, `image/png`, `image/webp`。動画は `video/mp4`, `video/quicktime`, `video/webm`
+- `size_bytes`: 画像は8MB以内。動画は100MB以内
 - `created_at`: 作成日時
 
 制約:
 
 - 1投稿につき最大4枚
+- 1投稿につき動画は最大1本
+- 画像と動画は同一投稿に混在させない
+- 動画は35秒以内、100MB以内
 - 同一投稿内で `sort_order` は重複しない
 - `storage_path` は重複しない
 - 公開URLはDBに固定保存せず、クライアント側で `storage_path` から生成する
 
 RLS方針:
 
-- 公開中かつ削除されていない流星便の画像はselect可能
-- 投稿者本人は自分の流星便に紐づく画像をselect可能
+- 公開中かつ削除されていない流星便の画像 / 動画メタデータはselect可能
+- 投稿者本人は自分の流星便に紐づく画像 / 動画メタデータをselect可能
 - insertはログインユーザーのみ
 - insert時は `uploader_id = auth.uid()` かつ対象流星便の `author_id = auth.uid()` の場合のみ許可
-- deleteは自分がアップロードした画像行のみ許可
+- deleteは自分がアップロードしたメディア行のみ許可
 - updateはMVPでは許可しない
 
-### 30秒制限
+### 短尺動画制限
 
-音声・動画は30秒以内のみ投稿可能にする方針です。
+音声は30秒以内、流星便動画投稿MVPの動画は35秒以内のみ投稿可能にする方針です。
 
-DBでは `posts.duration_seconds` を保存し、`audio` / `video` の場合は `duration_seconds <= 30` の制約を入れています。
+DBでは、音声の `posts.duration_seconds` は30秒以内、動画の `post_media.duration_seconds` は35秒以内の制約を入れています。
 
 ただし、DB制約だけではアップロードされた実ファイルの長さを完全には検証できません。実装時は以下でも検証します。
 

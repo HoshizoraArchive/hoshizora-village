@@ -129,6 +129,76 @@ begin
 end
 $$;
 
+-- Storage bucket for meteor letter short video attachments.
+-- Public read is allowed for videos attached to public posts.
+-- Authenticated users may upload/delete only inside their own auth.uid() folder.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'meteor-video',
+  'meteor-video',
+  true,
+  104857600,
+  array['video/mp4', 'video/quicktime', 'video/webm']
+)
+on conflict (id) do update
+set
+  name = excluded.name,
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'meteor_video_public_read'
+  ) then
+    create policy meteor_video_public_read
+    on storage.objects
+    for select
+    to public
+    using (bucket_id = 'meteor-video');
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'meteor_video_insert_own_folder'
+  ) then
+    create policy meteor_video_insert_own_folder
+    on storage.objects
+    for insert
+    to authenticated
+    with check (
+      bucket_id = 'meteor-video'
+      and (storage.foldername(name))[1] = auth.uid()::text
+    );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'meteor_video_delete_own_folder'
+  ) then
+    create policy meteor_video_delete_own_folder
+    on storage.objects
+    for delete
+    to authenticated
+    using (
+      bucket_id = 'meteor-video'
+      and (storage.foldername(name))[1] = auth.uid()::text
+    );
+  end if;
+end
+$$;
+
 -- Private schema for trigger/helper functions that should not be exposed through the Data API.
 create schema if not exists app_private;
 revoke all on schema app_private from public, anon, authenticated;
@@ -179,48 +249,92 @@ create table if not exists public.posts (
   deleted_at timestamptz,
   constraint posts_body_or_media_present check (
     char_length(trim(body)) > 0
-    or type = 'image'
+    or type in ('image', 'video')
     or media_url is not null
     or youtube_url is not null
   ),
   constraint posts_media_requirements check (
-    type in ('text', 'image')
-    or (type in ('audio', 'video') and media_url is not null)
+    type in ('text', 'image', 'video')
+    or (type = 'audio' and media_url is not null)
     or (type = 'youtube' and youtube_url is not null and youtube_video_id is not null)
   ),
   constraint posts_duration_non_negative check (duration_seconds is null or duration_seconds >= 0),
   constraint posts_audio_video_duration_limit check (
-    type not in ('audio', 'video')
-    or (duration_seconds is not null and duration_seconds <= 30)
+    (type <> 'audio' or (duration_seconds is not null and duration_seconds <= 30))
+    and (type <> 'video' or duration_seconds is null or duration_seconds <= 35)
   )
 );
 
 comment on table public.posts is '流星便。本文、投稿タイプ、メディアURL、YouTube情報、公開範囲、作成日時を保存する。';
 comment on column public.posts.type is 'MVPでは text, image, audio, video, youtube のみ許可する。';
 comment on column public.posts.visibility is 'MVPでは public/private のみ。followers は将来の観測者機能で検討する。';
-comment on column public.posts.duration_seconds is 'audio/video の長さ。DBでは30秒以下を制約するが、クライアント側とサーバー側でも検証する。';
-comment on column public.posts.media_url is 'image/audio/video のファイルURL。Storage実装前は外部URLまたは将来の保存先を想定する。';
+comment on column public.posts.duration_seconds is 'audioの長さ。post_media動画ではnull許容とし、動画秒数はpost_media.duration_secondsへ保存する。';
+comment on column public.posts.media_url is 'audioなどのファイルURL。画像/動画投稿MVPではpost_mediaを正として扱う。';
 comment on column public.posts.deleted_at is '流星便のソフト削除時刻。null のものだけ通常一覧に表示する。';
 
--- post_media: 流星便に添える画像.
--- MVPでは画像のみ。Storage pathを保存し、公開URLはクライアント側で生成する。
+-- post_media: 流星便に添える画像/動画.
+-- Storage pathを保存し、公開URLはクライアント側で生成する。
 create table if not exists public.post_media (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
   uploader_id uuid not null references public.profiles(id) on delete cascade,
-  media_type text not null default 'image' check (media_type in ('image')),
-  storage_path text not null,
-  sort_order integer not null check (sort_order between 0 and 3),
-  mime_type text check (mime_type is null or mime_type in ('image/jpeg', 'image/png', 'image/webp')),
-  size_bytes bigint check (size_bytes is null or (size_bytes > 0 and size_bytes <= 8388608)),
+  media_type text not null default 'image' check (media_type in ('image', 'video')),
+  storage_path text not null check (char_length(trim(storage_path)) > 0),
+  thumbnail_storage_path text,
+  duration_seconds numeric,
+  sort_order integer not null check (
+    (media_type = 'image' and sort_order between 0 and 3)
+    or (media_type = 'video' and sort_order = 0)
+  ),
+  mime_type text check (
+    (media_type = 'image' and (mime_type is null or mime_type in ('image/jpeg', 'image/png', 'image/webp')))
+    or (media_type = 'video' and mime_type is not null and mime_type in ('video/mp4', 'video/quicktime', 'video/webm'))
+  ),
+  size_bytes bigint check (
+    (media_type = 'image' and (size_bytes is null or (size_bytes > 0 and size_bytes <= 8388608)))
+    or (media_type = 'video' and size_bytes is not null and size_bytes > 0 and size_bytes <= 104857600)
+  ),
   created_at timestamptz not null default now(),
+  constraint post_media_video_duration_check check (
+    media_type <> 'video'
+    or (duration_seconds is not null and duration_seconds > 0 and duration_seconds <= 35)
+  ),
   unique (post_id, sort_order),
   unique (storage_path)
 );
 
-comment on table public.post_media is '流星便に添えるメディア。画像投稿MVPでは最大4枚の画像を保存する。';
-comment on column public.post_media.storage_path is 'meteor-media bucket 内のStorage path。公開URLはクライアント側で生成する。';
-comment on column public.post_media.sort_order is '同一流星便内の表示順。MVPでは0から3まで。';
+comment on table public.post_media is '流星便に添えるメディア。画像は最大4枚、動画は1投稿1本まで保存する。';
+comment on column public.post_media.storage_path is '画像はmeteor-media、動画はmeteor-video bucket 内のStorage path。公開URLはクライアント側で生成する。';
+comment on column public.post_media.thumbnail_storage_path is '動画カード用サムネイルのmeteor-media bucket内Storage path。未設定時はクライアントでプレースホルダー表示する。';
+comment on column public.post_media.duration_seconds is '動画の再生時間。動画は35秒以内。画像ではnull。';
+comment on column public.post_media.sort_order is '画像は0から3までの表示順。動画は0固定。';
+
+create or replace function app_private.prevent_mixed_post_media()
+returns trigger
+language plpgsql
+as $$
+begin
+  if exists (
+    select 1
+    from public.post_media existing
+    where existing.post_id = new.post_id
+      and existing.media_type <> new.media_type
+      and existing.id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid)
+  ) then
+    raise exception 'A post cannot mix image and video media.';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.prevent_mixed_post_media() from public, anon, authenticated;
+
+drop trigger if exists post_media_prevent_mixed_media on public.post_media;
+create trigger post_media_prevent_mixed_media
+before insert or update on public.post_media
+for each row
+execute function app_private.prevent_mixed_post_media();
 
 -- profile_tags: わたしの星座.
 create table if not exists public.profile_tags (
@@ -559,6 +673,11 @@ create index if not exists post_media_post_id_idx on public.post_media(post_id);
 create index if not exists post_media_post_sort_order_idx on public.post_media(post_id, sort_order);
 create index if not exists post_media_uploader_id_idx on public.post_media(uploader_id);
 create index if not exists post_media_storage_path_idx on public.post_media(storage_path);
+create index if not exists post_media_media_type_idx on public.post_media(media_type);
+create index if not exists post_media_thumbnail_storage_path_idx on public.post_media(thumbnail_storage_path);
+create unique index if not exists post_media_one_video_per_post_idx
+on public.post_media(post_id)
+where media_type = 'video';
 create index if not exists profile_tags_profile_id_idx on public.profile_tags(profile_id);
 create index if not exists post_tags_post_id_idx on public.post_tags(post_id);
 create index if not exists post_tags_label_idx on public.post_tags(label);

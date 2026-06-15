@@ -33,6 +33,7 @@ const AVATAR_ALLOWED_TYPES = {
 };
 const AVATAR_ACCEPT = Object.keys(AVATAR_ALLOWED_TYPES).join(",");
 const METEOR_MEDIA_BUCKET = "meteor-media";
+const METEOR_VIDEO_BUCKET = "meteor-video";
 const METEOR_IMAGE_MAX_COUNT = 4;
 const METEOR_IMAGE_MAX_SIZE_BYTES = 8 * 1024 * 1024;
 const METEOR_IMAGE_ALLOWED_TYPES = {
@@ -41,7 +42,27 @@ const METEOR_IMAGE_ALLOWED_TYPES = {
   "image/webp": "webp",
 };
 const METEOR_IMAGE_ACCEPT = Object.keys(METEOR_IMAGE_ALLOWED_TYPES).join(",");
-const VISIBLE_POST_TYPES = ["text", "image"];
+const METEOR_VIDEO_MAX_DURATION_SECONDS = 35;
+const METEOR_VIDEO_MAX_SIZE_BYTES = 100 * 1024 * 1024;
+const METEOR_VIDEO_THUMBNAIL_MAX_WIDTH = 640;
+const METEOR_VIDEO_THUMBNAIL_TYPE = "image/jpeg";
+const METEOR_VIDEO_THUMBNAIL_EXTENSION = "jpg";
+const METEOR_VIDEO_THUMBNAIL_QUALITY = 0.72;
+const METEOR_VIDEO_ALLOWED_TYPES = {
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+};
+const METEOR_VIDEO_ACCEPT = Object.keys(METEOR_VIDEO_ALLOWED_TYPES).join(",");
+const METEOR_THUMBNAIL_ALLOWED_TYPES = METEOR_IMAGE_ALLOWED_TYPES;
+const METEOR_THUMBNAIL_ACCEPT = METEOR_IMAGE_ACCEPT;
+const METEOR_THUMBNAIL_MAX_SIZE_BYTES = METEOR_IMAGE_MAX_SIZE_BYTES;
+const POST_MEDIA_SELECT_COLUMNS =
+  "id, post_id, uploader_id, media_type, storage_path, thumbnail_storage_path, duration_seconds, sort_order, mime_type, size_bytes, created_at";
+const POST_MEDIA_LEGACY_SELECT_COLUMNS =
+  "id, post_id, uploader_id, media_type, storage_path, sort_order, mime_type, size_bytes, created_at";
+const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
+const VISIBLE_POST_TYPES = ["text", "image", "video"];
 
 const emptyProfileForm = {
   display_name: "",
@@ -191,6 +212,16 @@ function isMissingPostMediaError(error) {
   return error?.code === "42P01" || error?.code === "PGRST205" || message.includes("post_media");
 }
 
+function isMissingVideoPostMediaColumnError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return (
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    message.includes("thumbnail_storage_path") ||
+    message.includes("duration_seconds")
+  );
+}
+
 function createClientId() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -199,12 +230,48 @@ function getMeteorImageExtension(file) {
   return METEOR_IMAGE_ALLOWED_TYPES[file?.type] ?? null;
 }
 
+function getMeteorVideoExtension(file) {
+  return METEOR_VIDEO_ALLOWED_TYPES[file?.type] ?? null;
+}
+
 function createMeteorMediaPath(userId, uploadBatchId, sortOrder, file) {
   const extension = getMeteorImageExtension(file) || "jpg";
   return `${userId}/${uploadBatchId}/${sortOrder}-${createClientId()}.${extension}`;
 }
 
+function createMeteorVideoPath(userId, uploadBatchId, file) {
+  const extension = getMeteorVideoExtension(file) || "mp4";
+  return `${userId}/${uploadBatchId}/video-${createClientId()}.${extension}`;
+}
+
+function createMeteorVideoThumbnailPath(userId, uploadBatchId, extension = METEOR_VIDEO_THUMBNAIL_EXTENSION) {
+  return `${userId}/${uploadBatchId}/thumbnail-${createClientId()}.${extension}`;
+}
+
 function createPostImageDraft(file) {
+  return {
+    id: createClientId(),
+    file,
+    name: file.name,
+    previewUrl: URL.createObjectURL(file),
+    size: file.size,
+    type: file.type,
+  };
+}
+
+function createPostVideoDraft(file, metadata) {
+  return {
+    id: createClientId(),
+    durationSeconds: metadata.durationSeconds,
+    file,
+    name: file.name,
+    previewUrl: URL.createObjectURL(file),
+    size: file.size,
+    type: file.type,
+  };
+}
+
+function createPostThumbnailDraft(file) {
   return {
     id: createClientId(),
     file,
@@ -219,6 +286,142 @@ function revokePostImageDraft(draft) {
   if (draft?.previewUrl) {
     URL.revokeObjectURL(draft.previewUrl);
   }
+}
+
+function revokePostVideoDraft(draft) {
+  if (draft?.previewUrl) {
+    URL.revokeObjectURL(draft.previewUrl);
+  }
+}
+
+function revokePostThumbnailDraft(draft) {
+  if (draft?.previewUrl) {
+    URL.revokeObjectURL(draft.previewUrl);
+  }
+}
+
+function formatMediaDuration(seconds) {
+  const safeSeconds = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function formatFileSize(bytes) {
+  const safeBytes = Number(bytes) || 0;
+
+  if (safeBytes >= 1024 * 1024) {
+    return `${(safeBytes / 1024 / 1024).toFixed(1)}MB`;
+  }
+
+  return `${Math.max(1, Math.round(safeBytes / 1024))}KB`;
+}
+
+function loadVideoMetadataFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    let settled = false;
+
+    function cleanup() {
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+    }
+
+    function settle(callback, value) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      callback(value);
+    }
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      const durationSeconds = video.duration;
+
+      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+        settle(reject, new Error("動画の再生時間を確認できませんでした。"));
+        return;
+      }
+
+      settle(resolve, {
+        durationSeconds,
+        height: video.videoHeight || null,
+        width: video.videoWidth || null,
+      });
+    };
+    video.onerror = () => settle(reject, new Error("この動画はブラウザで再生確認できませんでした。"));
+    video.src = objectUrl;
+  });
+}
+
+function createVideoThumbnailBlob(file, durationSeconds) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    let settled = false;
+
+    function cleanup() {
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+    }
+
+    function settle(callback, value) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      callback(value);
+    }
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      const targetTime = Math.min(Math.max(0.2, Number(durationSeconds || video.duration) * 0.06), 1.2);
+      video.currentTime = Number.isFinite(targetTime) ? targetTime : 0.2;
+    };
+    video.onseeked = () => {
+      const sourceWidth = video.videoWidth || 640;
+      const sourceHeight = video.videoHeight || 360;
+      const scale = Math.min(1, METEOR_VIDEO_THUMBNAIL_MAX_WIDTH / sourceWidth);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        settle(reject, new Error("動画サムネイルを生成できませんでした。"));
+        return;
+      }
+
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            settle(resolve, blob);
+            return;
+          }
+
+          settle(reject, new Error("動画サムネイルを生成できませんでした。"));
+        },
+        METEOR_VIDEO_THUMBNAIL_TYPE,
+        METEOR_VIDEO_THUMBNAIL_QUALITY,
+      );
+    };
+    video.onerror = () => settle(reject, new Error("動画サムネイルを生成できませんでした。"));
+    video.src = objectUrl;
+  });
 }
 
 function applyVisiblePostTypeFilter(query) {
@@ -243,21 +446,29 @@ async function runPostQuery(buildQuery) {
 
 function mapPostMediaRows(mediaRows) {
   return (mediaRows ?? [])
-    .filter((row) => row?.media_type === "image" && row.storage_path)
+    .filter((row) => (row?.media_type === "image" || row?.media_type === "video") && row.storage_path)
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((row) => {
-      const { data } = supabase.storage.from(METEOR_MEDIA_BUCKET).getPublicUrl(row.storage_path);
+      const mediaType = row.media_type === "video" ? "video" : "image";
+      const bucket = mediaType === "video" ? METEOR_VIDEO_BUCKET : METEOR_MEDIA_BUCKET;
+      const { data } = supabase.storage.from(bucket).getPublicUrl(row.storage_path);
+      const thumbnailData = row.thumbnail_storage_path
+        ? supabase.storage.from(METEOR_MEDIA_BUCKET).getPublicUrl(row.thumbnail_storage_path).data
+        : null;
 
       return {
         id: row.id,
         postId: row.post_id,
         storagePath: row.storage_path,
+        thumbnailStoragePath: row.thumbnail_storage_path ?? null,
         sortOrder: row.sort_order ?? 0,
-        mediaType: row.media_type,
+        mediaType,
         mimeType: row.mime_type ?? "",
         sizeBytes: row.size_bytes ?? null,
+        durationSeconds: row.duration_seconds ?? null,
         createdAt: row.created_at ?? null,
         url: data.publicUrl,
+        thumbnailUrl: thumbnailData?.publicUrl ?? null,
       };
     });
 }
@@ -269,12 +480,26 @@ async function readPostMediaForPostIds(postIds) {
     return { mediaByPostId: new Map(), error: null };
   }
 
-  const { data, error } = await supabase
+  const result = await supabase
     .from("post_media")
-    .select("id, post_id, uploader_id, media_type, storage_path, sort_order, mime_type, size_bytes, created_at")
+    .select(POST_MEDIA_SELECT_COLUMNS)
     .in("post_id", uniquePostIds)
-    .eq("media_type", "image")
     .order("sort_order", { ascending: true });
+
+  let data = result.data;
+  let error = result.error;
+
+  if (error && isMissingVideoPostMediaColumnError(error)) {
+    const fallbackResult = await supabase
+      .from("post_media")
+      .select(POST_MEDIA_LEGACY_SELECT_COLUMNS)
+      .in("post_id", uniquePostIds)
+      .eq("media_type", "image")
+      .order("sort_order", { ascending: true });
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     return { mediaByPostId: new Map(), error };
@@ -287,6 +512,21 @@ async function readPostMediaForPostIds(postIds) {
   }
 
   return { mediaByPostId, error: null };
+}
+
+async function insertPostMediaRows(mediaRows) {
+  const result = await supabase.from("post_media").insert(mediaRows).select(POST_MEDIA_SELECT_COLUMNS);
+
+  if (
+    result.error &&
+    isMissingVideoPostMediaColumnError(result.error) &&
+    mediaRows.every((row) => row.media_type === "image")
+  ) {
+    const legacyRows = mediaRows.map(({ duration_seconds, thumbnail_storage_path, ...row }) => row);
+    return supabase.from("post_media").insert(legacyRows).select(POST_MEDIA_LEGACY_SELECT_COLUMNS);
+  }
+
+  return result;
 }
 
 function attachMediaToPosts(posts, mediaByPostId) {
@@ -637,6 +877,11 @@ function App() {
   const [postDraft, setPostDraft] = useState("");
   const [postImageDrafts, setPostImageDrafts] = useState([]);
   const postImageDraftsRef = useRef([]);
+  const [postVideoDraft, setPostVideoDraft] = useState(null);
+  const postVideoDraftRef = useRef(null);
+  const [postThumbnailDraft, setPostThumbnailDraft] = useState(null);
+  const postThumbnailDraftRef = useRef(null);
+  const [postVideoPreparing, setPostVideoPreparing] = useState(false);
   const [postSaving, setPostSaving] = useState(false);
   const [postMessage, setPostMessage] = useState("");
   const [postError, setPostError] = useState("");
@@ -728,11 +973,22 @@ function App() {
     postImageDraftsRef.current = postImageDrafts;
   }, [postImageDrafts]);
 
+  useEffect(() => {
+    postVideoDraftRef.current = postVideoDraft;
+  }, [postVideoDraft]);
+
+  useEffect(() => {
+    postThumbnailDraftRef.current = postThumbnailDraft;
+  }, [postThumbnailDraft]);
+
   useEffect(
     () => () => {
       for (const draft of postImageDraftsRef.current) {
         revokePostImageDraft(draft);
       }
+
+      revokePostVideoDraft(postVideoDraftRef.current);
+      revokePostThumbnailDraft(postThumbnailDraftRef.current);
     },
     [],
   );
@@ -2221,6 +2477,20 @@ function App() {
     });
   }
 
+  function clearPostVideoDraft() {
+    setPostVideoDraft((currentDraft) => {
+      revokePostVideoDraft(currentDraft);
+      return null;
+    });
+  }
+
+  function clearPostThumbnailDraft() {
+    setPostThumbnailDraft((currentDraft) => {
+      revokePostThumbnailDraft(currentDraft);
+      return null;
+    });
+  }
+
   function handlePostImageFileChange(event) {
     const selectedFiles = Array.from(event.target.files ?? []);
 
@@ -2229,6 +2499,11 @@ function App() {
     setPostError("");
 
     if (postSaving || selectedFiles.length === 0) {
+      return;
+    }
+
+    if (postVideoDraft) {
+      setPostError("動画が選択済みです。画像を添える場合は先に動画を削除してください。");
       return;
     }
 
@@ -2268,6 +2543,112 @@ function App() {
       setPostError([...new Set(errors)].join(" "));
       return nextDrafts;
     });
+  }
+
+  async function handlePostVideoFileChange(event) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+
+    event.target.value = "";
+    setPostMessage("");
+    setPostError("");
+
+    if (postSaving || postVideoPreparing || selectedFiles.length === 0) {
+      return;
+    }
+
+    if (postImageDrafts.length > 0) {
+      setPostError("画像が選択済みです。動画を添える場合は先に星影を削除してください。");
+      return;
+    }
+
+    if (selectedFiles.length > 1) {
+      setPostError("動画は1投稿につき1本まで選べます。");
+      return;
+    }
+
+    const file = selectedFiles[0];
+
+    if (!METEOR_VIDEO_ALLOWED_TYPES[file.type]) {
+      setPostError("動画はmp4 / mov / webmから選んでください。");
+      return;
+    }
+
+    if (file.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
+      setPostError("動画は1本100MBまで選べます。");
+      return;
+    }
+
+    setPostVideoPreparing(true);
+
+    try {
+      const metadata = await loadVideoMetadataFromFile(file);
+
+      if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS) {
+        setPostError("動画は35秒以内で選んでください。");
+        return;
+      }
+
+      setPostVideoDraft((currentDraft) => {
+        revokePostVideoDraft(currentDraft);
+        return createPostVideoDraft(file, metadata);
+      });
+      clearPostThumbnailDraft();
+    } catch (_error) {
+      setPostError("この動画はブラウザで再生確認できませんでした。mp4 / mov / webmの別ファイルを選んでください。");
+    } finally {
+      setPostVideoPreparing(false);
+    }
+  }
+
+  function handleRemovePostVideoDraft() {
+    if (postSaving) {
+      return;
+    }
+
+    clearPostVideoDraft();
+    clearPostThumbnailDraft();
+  }
+
+  function handlePostThumbnailFileChange(event) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+
+    event.target.value = "";
+    setPostMessage("");
+    setPostError("");
+
+    if (postSaving || selectedFiles.length === 0) {
+      return;
+    }
+
+    if (!postVideoDraft) {
+      setPostError("サムネイルは動画を選んだ後に選べます。");
+      return;
+    }
+
+    const file = selectedFiles[0];
+
+    if (!METEOR_THUMBNAIL_ALLOWED_TYPES[file.type]) {
+      setPostError("サムネイル画像はjpg / jpeg / png / webpから選んでください。");
+      return;
+    }
+
+    if (file.size > METEOR_THUMBNAIL_MAX_SIZE_BYTES) {
+      setPostError("サムネイル画像は1枚8MBまで選べます。");
+      return;
+    }
+
+    setPostThumbnailDraft((currentDraft) => {
+      revokePostThumbnailDraft(currentDraft);
+      return createPostThumbnailDraft(file);
+    });
+  }
+
+  function handleRemovePostThumbnailDraft() {
+    if (postSaving) {
+      return;
+    }
+
+    clearPostThumbnailDraft();
   }
 
   function handleRemovePostImageDraft(draftId) {
@@ -2315,6 +2696,20 @@ function App() {
     }
   }
 
+  async function removeUploadedMeteorVideos(storagePaths) {
+    const paths = (storagePaths ?? []).filter(Boolean);
+
+    if (paths.length === 0) {
+      return;
+    }
+
+    const { error } = await supabase.storage.from(METEOR_VIDEO_BUCKET).remove(paths);
+
+    if (error) {
+      console.warn("アップロード済み動画の後始末に失敗しました。", error);
+    }
+  }
+
   async function handlePostSubmit(event) {
     event.preventDefault();
     setPostMessage("");
@@ -2333,43 +2728,125 @@ function App() {
 
     const body = postDraft.trim();
     const imageDrafts = postImageDrafts;
+    const videoDraft = postVideoDraft;
+    const thumbnailDraft = postThumbnailDraft;
+    const hasVideo = Boolean(videoDraft);
+    const hasImages = imageDrafts.length > 0;
 
-    if (!body && imageDrafts.length === 0) {
-      setPostError("本文を書くか、星影を1枚以上添えてください。");
+    if (hasImages && hasVideo) {
+      setPostError("画像と動画は同時に添付できません。どちらか一方を選んでください。");
+      return;
+    }
+
+    if (!body && !hasImages && !hasVideo) {
+      setPostError("本文を書くか、星影または動画を1つ添えてください。");
       return;
     }
 
     setPostSaving(true);
 
-    const uploadedMedia = [];
+    const uploadedImageMedia = [];
+    const uploadedVideoPaths = [];
+    const uploadedThumbnailPaths = [];
     let createdPostId = null;
 
     try {
       const uploadBatchId = createClientId();
+      let videoMediaRow = null;
 
-      for (const [index, draft] of imageDrafts.entries()) {
-        setPostUploadProgress(`${index + 1} / ${imageDrafts.length}枚を送信中`);
-
-        const storagePath = createMeteorMediaPath(session.user.id, uploadBatchId, index, draft.file);
-        const { error: uploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(storagePath, draft.file, {
+      if (hasVideo) {
+        setPostUploadProgress("動画を送信中");
+        const videoStoragePath = createMeteorVideoPath(session.user.id, uploadBatchId, videoDraft.file);
+        const { error: videoUploadError } = await supabase.storage.from(METEOR_VIDEO_BUCKET).upload(videoStoragePath, videoDraft.file, {
           cacheControl: "3600",
-          contentType: draft.file.type,
+          contentType: videoDraft.file.type,
           upsert: false,
         });
 
-        if (uploadError) {
-          throw new Error(`星影のアップロードに失敗しました。${uploadError.message}`);
+        if (videoUploadError) {
+          console.warn("動画アップロードに失敗しました。", videoUploadError);
+          throw new Error("動画の送信に失敗しました。時間をおいてもう一度試してください。");
         }
 
-        uploadedMedia.push({
-          storage_path: storagePath,
-          sort_order: index,
-          mime_type: draft.file.type,
-          size_bytes: draft.file.size,
-        });
+        uploadedVideoPaths.push(videoStoragePath);
+
+        let thumbnailStoragePath = null;
+        setPostUploadProgress("サムネイルを送信中");
+
+        if (thumbnailDraft) {
+          const thumbnailExtension = getMeteorImageExtension(thumbnailDraft.file) || "jpg";
+          thumbnailStoragePath = createMeteorVideoThumbnailPath(session.user.id, uploadBatchId, thumbnailExtension);
+          const { error: thumbnailUploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(thumbnailStoragePath, thumbnailDraft.file, {
+            cacheControl: "3600",
+            contentType: thumbnailDraft.file.type,
+            upsert: false,
+          });
+
+          if (thumbnailUploadError) {
+            console.warn("動画サムネイルアップロードに失敗しました。", thumbnailUploadError);
+            throw new Error("サムネイルの送信に失敗しました。時間をおいてもう一度試してください。");
+          }
+
+          uploadedThumbnailPaths.push(thumbnailStoragePath);
+        } else {
+          try {
+            const thumbnailBlob = await createVideoThumbnailBlob(videoDraft.file, videoDraft.durationSeconds);
+            thumbnailStoragePath = createMeteorVideoThumbnailPath(session.user.id, uploadBatchId);
+            const { error: generatedThumbnailUploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(thumbnailStoragePath, thumbnailBlob, {
+              cacheControl: "3600",
+              contentType: METEOR_VIDEO_THUMBNAIL_TYPE,
+              upsert: false,
+            });
+
+            if (generatedThumbnailUploadError) {
+              console.warn("自動生成サムネイルのアップロードに失敗しました。", generatedThumbnailUploadError);
+              thumbnailStoragePath = null;
+            } else {
+              uploadedThumbnailPaths.push(thumbnailStoragePath);
+            }
+          } catch (thumbnailError) {
+            console.warn("動画サムネイルの自動生成に失敗しました。", thumbnailError);
+            thumbnailStoragePath = null;
+          }
+        }
+
+        videoMediaRow = {
+          duration_seconds: Math.round(videoDraft.durationSeconds * 1000) / 1000,
+          media_type: "video",
+          mime_type: videoDraft.file.type,
+          size_bytes: videoDraft.file.size,
+          sort_order: 0,
+          storage_path: videoStoragePath,
+          thumbnail_storage_path: thumbnailStoragePath,
+        };
+      } else {
+        for (const [index, draft] of imageDrafts.entries()) {
+          setPostUploadProgress(`${index + 1} / ${imageDrafts.length}枚を送信中`);
+
+          const storagePath = createMeteorMediaPath(session.user.id, uploadBatchId, index, draft.file);
+          const { error: uploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(storagePath, draft.file, {
+            cacheControl: "3600",
+            contentType: draft.file.type,
+            upsert: false,
+          });
+
+          if (uploadError) {
+            console.warn("星影アップロードに失敗しました。", uploadError);
+            throw new Error("星影の送信に失敗しました。時間をおいてもう一度試してください。");
+          }
+
+          uploadedImageMedia.push({
+            storage_path: storagePath,
+            sort_order: index,
+            mime_type: draft.file.type,
+            size_bytes: draft.file.size,
+          });
+        }
       }
 
-      const postType = uploadedMedia.length > 0 ? "image" : "text";
+      setPostUploadProgress("流星便を保存中");
+
+      const postType = hasVideo ? "video" : uploadedImageMedia.length > 0 ? "image" : "text";
       const { data, error } = await supabase
         .from("posts")
         .insert({
@@ -2382,15 +2859,31 @@ function App() {
         .single();
 
       if (error) {
-        throw error;
+        console.warn("流星便の作成に失敗しました。", error);
+        throw new Error("流星便の保存に失敗しました。時間をおいてもう一度試してください。");
       }
 
       createdPostId = data.id;
 
       let media = [];
 
-      if (uploadedMedia.length > 0) {
-        const mediaRows = uploadedMedia.map((item) => ({
+      if (videoMediaRow) {
+        const { data: insertedMedia, error: mediaError } = await insertPostMediaRows([
+          {
+            post_id: data.id,
+            uploader_id: session.user.id,
+            ...videoMediaRow,
+          },
+        ]);
+
+        if (mediaError) {
+          console.warn("動画メタデータ保存に失敗しました。", mediaError);
+          throw new Error("動画メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
+        }
+
+        media = mapPostMediaRows(insertedMedia);
+      } else if (uploadedImageMedia.length > 0) {
+        const mediaRows = uploadedImageMedia.map((item) => ({
           post_id: data.id,
           uploader_id: session.user.id,
           media_type: "image",
@@ -2399,13 +2892,11 @@ function App() {
           mime_type: item.mime_type,
           size_bytes: item.size_bytes,
         }));
-        const { data: insertedMedia, error: mediaError } = await supabase
-          .from("post_media")
-          .insert(mediaRows)
-          .select("id, post_id, uploader_id, media_type, storage_path, sort_order, mime_type, size_bytes, created_at");
+        const { data: insertedMedia, error: mediaError } = await insertPostMediaRows(mediaRows);
 
         if (mediaError) {
-          throw mediaError;
+          console.warn("星影メタデータ保存に失敗しました。", mediaError);
+          throw new Error("星影メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
         }
 
         media = mapPostMediaRows(insertedMedia);
@@ -2419,12 +2910,30 @@ function App() {
       setOwnPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
       setPostDraft("");
       clearPostImageDrafts();
+      clearPostVideoDraft();
+      clearPostThumbnailDraft();
+      setPostUploadProgress("完了");
       setPostMessage("流星便を放流しました。");
       setActiveTab("observe");
     } catch (error) {
-      await removeUploadedMeteorMedia(uploadedMedia.map((item) => item.storage_path));
+      setPostUploadProgress("失敗");
+      await removeUploadedMeteorMedia([
+        ...uploadedImageMedia.map((item) => item.storage_path),
+        ...uploadedThumbnailPaths,
+      ]);
+      await removeUploadedMeteorVideos(uploadedVideoPaths);
 
       if (createdPostId) {
+        const { error: postMediaCleanupError } = await supabase
+          .from("post_media")
+          .delete()
+          .eq("post_id", createdPostId)
+          .eq("uploader_id", session.user.id);
+
+        if (postMediaCleanupError) {
+          console.warn("半端に作成された流星便メディアの削除に失敗しました。", postMediaCleanupError);
+        }
+
         const { error: softDeleteError } = await supabase
           .from("posts")
           .update({ deleted_at: new Date().toISOString() })
@@ -2436,7 +2945,7 @@ function App() {
         }
       }
 
-      setPostError(error?.message ?? "流星便の放流に失敗しました。");
+      setPostError(error?.message || "流星便の放流に失敗しました。時間をおいてもう一度試してください。");
     }
 
     setPostSaving(false);
@@ -3285,9 +3794,18 @@ function App() {
     onImageFileChange: handlePostImageFileChange,
     onMoveImage: handleMovePostImageDraft,
     onRemoveImage: handleRemovePostImageDraft,
+    onRemoveThumbnail: handleRemovePostThumbnailDraft,
+    onRemoveVideo: handleRemovePostVideoDraft,
     onSubmit: handlePostSubmit,
+    onThumbnailFileChange: handlePostThumbnailFileChange,
+    onVideoFileChange: handlePostVideoFileChange,
     saving: postSaving,
+    thumbnailAccept: METEOR_THUMBNAIL_ACCEPT,
+    thumbnailDraft: postThumbnailDraft,
     uploadProgress: postUploadProgress,
+    videoAccept: METEOR_VIDEO_ACCEPT,
+    videoDraft: postVideoDraft,
+    videoPreparing: postVideoPreparing,
   };
   const resonance = {
     error: resonanceError,
@@ -5524,58 +6042,173 @@ function SunoLinkCard({ url }) {
 }
 
 function PostMediaGrid({ media = [], onOpenMedia }) {
-  const visibleMedia = media.filter((item) => item?.url).slice(0, METEOR_IMAGE_MAX_COUNT);
+  const videoItem = media.find((item) => item?.mediaType === "video" && item.url);
+  const visibleImages = media
+    .filter((item) => item?.mediaType !== "video" && item?.url)
+    .slice(0, METEOR_IMAGE_MAX_COUNT);
 
-  if (visibleMedia.length === 0) {
+  if (!videoItem && visibleImages.length === 0) {
     return null;
   }
 
   const gridClass =
-    visibleMedia.length === 1
+    visibleImages.length === 1
       ? "grid-cols-1"
-      : visibleMedia.length === 2
+      : visibleImages.length === 2
         ? "grid-cols-2"
         : "grid-cols-2";
 
   function handleOpenMedia(event, index) {
     event.stopPropagation();
-    onOpenMedia?.(visibleMedia, index);
+    onOpenMedia?.(visibleImages, index);
+  }
+
+  return (
+    <>
+      {videoItem && <PostVideoAttachment item={videoItem} onOpenMedia={onOpenMedia} />}
+      {visibleImages.length > 0 && (
+        <div
+          className={`mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-night-950/35 ${gridClass} gap-1`}
+          data-card-action="true"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {visibleImages.map((item, index) => {
+            const isFeatured = visibleImages.length === 3 && index === 0;
+            const itemClass = visibleImages.length === 1
+              ? "aspect-[4/3] max-h-[420px]"
+              : isFeatured
+                ? "aspect-square sm:row-span-2"
+                : "aspect-square";
+
+            return (
+              <button
+                aria-label={`流星便の星影 ${index + 1} / ${visibleImages.length} を開く`}
+                className={`${itemClass} min-h-0 overflow-hidden bg-white/5 outline-none transition hover:brightness-110 focus-visible:ring-4 focus-visible:ring-comet/25`}
+                data-card-action="true"
+                key={item.id ?? item.storagePath ?? item.url}
+                onClick={(event) => handleOpenMedia(event, index)}
+                type="button"
+              >
+                <img
+                  alt=""
+                  className="h-full w-full object-cover"
+                  draggable={false}
+                  loading="lazy"
+                  src={item.url}
+                />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+function PostVideoAttachment({ item, onOpenMedia }) {
+  const videoRef = useRef(null);
+  const [hasLoadedVideo, setHasLoadedVideo] = useState(false);
+  const mediaId = item.id ?? item.storagePath ?? item.url;
+
+  useEffect(() => {
+    function handleOtherVideoPlay(event) {
+      if (event.detail?.mediaId === mediaId) {
+        return;
+      }
+
+      videoRef.current?.pause();
+    }
+
+    window.addEventListener(POST_INLINE_VIDEO_PLAY_EVENT, handleOtherVideoPlay);
+
+    return () => {
+      window.removeEventListener(POST_INLINE_VIDEO_PLAY_EVENT, handleOtherVideoPlay);
+      videoRef.current?.pause();
+    };
+  }, [mediaId]);
+
+  function stopCardAction(event) {
+    event.stopPropagation();
+  }
+
+  function requestInlinePlay(event) {
+    event.stopPropagation();
+    window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }));
+    setHasLoadedVideo(true);
+    window.requestAnimationFrame(() => {
+      videoRef.current?.play?.().catch(() => {
+        // Browser autoplay rules can still block; controls remain available.
+      });
+    });
+  }
+
+  function handleOpenViewer(event) {
+    event.stopPropagation();
+    videoRef.current?.pause();
+    onOpenMedia?.([item], 0);
   }
 
   return (
     <div
-      className={`mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-night-950/35 ${gridClass} gap-1`}
+      className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.22)]"
       data-card-action="true"
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClick={stopCardAction}
+      onPointerDown={stopCardAction}
     >
-      {visibleMedia.map((item, index) => {
-        const isFeatured = visibleMedia.length === 3 && index === 0;
-        const itemClass = visibleMedia.length === 1
-          ? "aspect-[4/3] max-h-[420px]"
-          : isFeatured
-            ? "aspect-square sm:row-span-2"
-            : "aspect-square";
-
-        return (
+      <div className="relative aspect-video bg-black">
+        {hasLoadedVideo ? (
+          <video
+            className="h-full w-full bg-black object-contain"
+            controls
+            onPlay={() => window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }))}
+            playsInline
+            poster={item.thumbnailUrl ?? undefined}
+            preload="none"
+            ref={videoRef}
+            src={item.url}
+          />
+        ) : (
           <button
-            aria-label={`流星便の星影 ${index + 1} / ${visibleMedia.length} を開く`}
-            className={`${itemClass} min-h-0 overflow-hidden bg-white/5 outline-none transition hover:brightness-110 focus-visible:ring-4 focus-visible:ring-comet/25`}
-            data-card-action="true"
-            key={item.id ?? item.storagePath ?? item.url}
-            onClick={(event) => handleOpenMedia(event, index)}
+            aria-label="流星便動画を再生"
+            className="group relative h-full w-full overflow-hidden bg-night-950 text-left outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
+            onClick={requestInlinePlay}
             type="button"
           >
-            <img
-              alt=""
-              className="h-full w-full object-cover"
-              draggable={false}
-              loading="lazy"
-              src={item.url}
-            />
+            {item.thumbnailUrl ? (
+              <img
+                alt=""
+                className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                draggable={false}
+                loading="lazy"
+                src={item.thumbnailUrl}
+              />
+            ) : (
+              <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(125,223,255,0.22),transparent_35%),linear-gradient(135deg,rgba(5,8,22,1),rgba(44,24,86,0.9),rgba(3,7,18,1))]">
+                <div className="text-center">
+                  <p className="text-4xl">✦</p>
+                  <p className="mt-2 text-xs font-black text-comet">流星便動画</p>
+                </div>
+              </div>
+            )}
+            <span className="absolute inset-0 bg-night-950/15" />
+            <span className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/20 text-2xl text-white shadow-[0_0_30px_rgba(125,223,255,0.35)] backdrop-blur-md transition group-hover:scale-105">
+              ▶
+            </span>
           </button>
-        );
-      })}
+        )}
+        <button
+          className="absolute right-3 top-3 min-h-9 rounded-full border border-white/15 bg-night-950/70 px-3 text-[11px] font-black text-white backdrop-blur-md transition hover:border-comet/35 hover:bg-comet/20"
+          onClick={handleOpenViewer}
+          type="button"
+        >
+          拡大
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[11px] font-bold text-slate-400">
+        <span>いちばん光る35秒</span>
+        {item.durationSeconds ? <span>{formatMediaDuration(item.durationSeconds)}</span> : null}
+      </div>
     </div>
   );
 }
@@ -5586,6 +6219,8 @@ function PostMediaViewerModal({ onClose, onStep, viewer }) {
   const canGoPrevious = Boolean(viewer && viewer.index > 0);
   const canGoNext = Boolean(viewer && viewer.index < total - 1);
   const onCloseRef = useRef(onClose);
+  const videoRef = useRef(null);
+  const isVideo = currentItem?.mediaType === "video";
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -5613,13 +6248,27 @@ function PostMediaViewerModal({ onClose, onStep, viewer }) {
     };
   }, [viewer]);
 
+  useEffect(() => {
+    if (!viewer || !isVideo) {
+      return undefined;
+    }
+
+    window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId: "viewer" } }));
+
+    return () => {
+      videoRef.current?.pause();
+      videoRef.current?.removeAttribute("src");
+      videoRef.current?.load();
+    };
+  }, [isVideo, viewer, currentItem?.url]);
+
   if (!viewer || !currentItem?.url) {
     return null;
   }
 
   return (
     <div
-      aria-label="流星便の星影を見る"
+      aria-label={isVideo ? "流星便の動画を見る" : "流星便の星影を見る"}
       aria-modal="true"
       className="fixed inset-0 z-[70] flex items-center justify-center bg-night-950/90 px-3 py-6 backdrop-blur-xl"
       onClick={onClose}
@@ -5632,7 +6281,7 @@ function PostMediaViewerModal({ onClose, onStep, viewer }) {
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-xs font-black text-comet">
-            星影を見る
+            {isVideo ? "動画を見る" : "星影を見る"}
             <span className="ml-2 text-slate-400">
               {viewer.index + 1} / {total}
             </span>
@@ -5647,15 +6296,27 @@ function PostMediaViewerModal({ onClose, onStep, viewer }) {
         </div>
 
         <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-2xl border border-white/10 bg-black/35">
-          <img
-            alt=""
-            className="max-h-[72vh] w-full object-contain"
-            draggable={false}
-            src={currentItem.url}
-          />
+          {isVideo ? (
+            <video
+              className="max-h-[72vh] w-full bg-black object-contain"
+              controls
+              playsInline
+              poster={currentItem.thumbnailUrl ?? undefined}
+              preload="metadata"
+              ref={videoRef}
+              src={currentItem.url}
+            />
+          ) : (
+            <img
+              alt=""
+              className="max-h-[72vh] w-full object-contain"
+              draggable={false}
+              src={currentItem.url}
+            />
+          )}
         </div>
 
-        {total > 1 && (
+        {!isVideo && total > 1 && (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button
               className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -5784,9 +6445,23 @@ function Composer({ composer }) {
     ? "ログインすると流星便を放流できます。"
     : !composer.hasProfile
       ? "先にプロフィールを保存すると流星便を放流できます。"
-      : "テキストだけ、星影だけ、テキスト＋星影で放流できます。";
+      : "テキストだけ、星影だけ、動画だけ、組み合わせでも放流できます。";
   const hasImages = composer.imageDrafts.length > 0;
-  const canSubmit = composer.canPost && composer.hasProfile && (composer.draft.trim() || hasImages) && !composer.saving;
+  const hasVideo = Boolean(composer.videoDraft);
+  const imageInputDisabled =
+    composer.saving ||
+    !composer.canPost ||
+    !composer.hasProfile ||
+    hasVideo ||
+    composer.imageDrafts.length >= composer.maxImages;
+  const videoInputDisabled =
+    composer.saving || composer.videoPreparing || !composer.canPost || !composer.hasProfile || hasImages;
+  const canSubmit =
+    composer.canPost &&
+    composer.hasProfile &&
+    (composer.draft.trim() || hasImages || hasVideo) &&
+    !composer.saving &&
+    !composer.videoPreparing;
 
   return (
     <form className="border-b border-white/10 px-3 py-4 sm:px-5" onSubmit={composer.onSubmit}>
@@ -5814,7 +6489,7 @@ function Composer({ composer }) {
                 </div>
                 <label
                   className={`inline-flex min-h-10 items-center rounded-2xl px-4 text-xs font-black shadow-glow transition ${
-                    composer.saving || !composer.canPost || !composer.hasProfile || composer.imageDrafts.length >= composer.maxImages
+                    imageInputDisabled
                       ? "cursor-not-allowed bg-white/10 text-slate-500"
                       : "cursor-pointer bg-gradient-to-r from-comet via-aurora to-sakura text-night-950 hover:scale-[1.01]"
                   }`}
@@ -5823,13 +6498,19 @@ function Composer({ composer }) {
                   <input
                     accept={composer.imageAccept}
                     className="sr-only"
-                    disabled={composer.saving || !composer.canPost || !composer.hasProfile || composer.imageDrafts.length >= composer.maxImages}
+                    disabled={imageInputDisabled}
                     multiple
                     onChange={composer.onImageFileChange}
                     type="file"
                   />
                 </label>
               </div>
+
+              {hasVideo && (
+                <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-3 py-2 text-[11px] leading-5 text-sakura">
+                  動画が選択済みです。画像を添える場合は先に動画を削除してください。
+                </p>
+              )}
 
               {composer.imageDrafts.length > 0 && (
                 <PostImageDraftPreview
@@ -5838,6 +6519,83 @@ function Composer({ composer }) {
                   onMove={composer.onMoveImage}
                   onRemove={composer.onRemoveImage}
                 />
+              )}
+            </div>
+            <div className="mt-3 rounded-2xl border border-aurora/20 bg-aurora/10 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black text-aurora">動画を添える</p>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-400">
+                    いちばん光る35秒を、流星便に。動画は35秒以内・1本100MBまで
+                  </p>
+                </div>
+                <label
+                  className={`inline-flex min-h-10 items-center rounded-2xl px-4 text-xs font-black shadow-glow transition ${
+                    videoInputDisabled
+                      ? "cursor-not-allowed bg-white/10 text-slate-500"
+                      : "cursor-pointer bg-gradient-to-r from-aurora via-comet to-sakura text-night-950 hover:scale-[1.01]"
+                  }`}
+                >
+                  {composer.videoPreparing ? "動画を確認中..." : hasVideo ? "別の動画を選ぶ" : "動画を選ぶ"}
+                  <input
+                    accept={composer.videoAccept}
+                    className="sr-only"
+                    disabled={videoInputDisabled}
+                    onChange={composer.onVideoFileChange}
+                    type="file"
+                  />
+                </label>
+              </div>
+
+              {hasImages && (
+                <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-3 py-2 text-[11px] leading-5 text-sakura">
+                  画像が選択済みです。動画を添える場合は先に星影を削除してください。
+                </p>
+              )}
+
+              {composer.videoDraft && (
+                <PostVideoDraftPreview
+                  disabled={composer.saving}
+                  draft={composer.videoDraft}
+                  onRemove={composer.onRemoveVideo}
+                />
+              )}
+
+              {composer.videoDraft && (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-black text-comet">投稿カード用サムネイル</p>
+                      <p className="mt-1 text-[11px] leading-5 text-slate-400">
+                        任意。未設定なら動画から自動生成を試します。
+                      </p>
+                    </div>
+                    <label
+                      className={`inline-flex min-h-9 items-center rounded-2xl px-3 text-[11px] font-black transition ${
+                        composer.saving
+                          ? "cursor-not-allowed bg-white/10 text-slate-500"
+                          : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
+                      }`}
+                    >
+                      サムネイルを選ぶ
+                      <input
+                        accept={composer.thumbnailAccept}
+                        className="sr-only"
+                        disabled={composer.saving}
+                        onChange={composer.onThumbnailFileChange}
+                        type="file"
+                      />
+                    </label>
+                  </div>
+
+                  {composer.thumbnailDraft && (
+                    <PostThumbnailDraftPreview
+                      disabled={composer.saving}
+                      draft={composer.thumbnailDraft}
+                      onRemove={composer.onRemoveThumbnail}
+                    />
+                  )}
+                </div>
               )}
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -5855,7 +6613,7 @@ function Composer({ composer }) {
                 disabled={!canSubmit}
                 type="submit"
               >
-                {composer.saving ? (hasImages ? "星影を送信中..." : "流星便を放流中...") : "流星便を放流する"}
+                {composer.saving ? (hasVideo ? "動画を送信中..." : hasImages ? "星影を送信中..." : "流星便を放流中...") : "流星便を放流する"}
               </button>
             </div>
             {(composer.message || composer.error) && (
@@ -5918,6 +6676,69 @@ function PostImageDraftPreview({ disabled, drafts, onMove, onRemove }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function PostVideoDraftPreview({ disabled, draft, onRemove }) {
+  if (!draft) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-night-950/55">
+      <video
+        className="aspect-video w-full bg-black object-contain"
+        controls
+        playsInline
+        preload="metadata"
+        src={draft.previewUrl}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2 p-3">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-black text-white">{draft.name || "選択中の動画"}</p>
+          <p className="mt-1 text-[11px] font-bold text-slate-400">
+            {formatMediaDuration(draft.durationSeconds)} / {formatFileSize(draft.size)}
+          </p>
+        </div>
+        <button
+          className="min-h-9 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 text-[11px] font-black text-sakura disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={disabled}
+          onClick={onRemove}
+          type="button"
+        >
+          動画を削除
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PostThumbnailDraftPreview({ disabled, draft, onRemove }) {
+  if (!draft) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3">
+      <img
+        alt=""
+        className="h-20 w-28 rounded-2xl border border-white/10 object-cover"
+        draggable={false}
+        src={draft.previewUrl}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-black text-white">{draft.name || "選択中のサムネイル"}</p>
+        <p className="mt-1 text-[11px] font-bold text-slate-400">{formatFileSize(draft.size)}</p>
+      </div>
+      <button
+        className="min-h-9 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 text-[11px] font-black text-sakura disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={disabled}
+        onClick={onRemove}
+        type="button"
+      >
+        削除
+      </button>
     </div>
   );
 }
