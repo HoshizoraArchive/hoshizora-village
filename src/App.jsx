@@ -44,10 +44,15 @@ const METEOR_IMAGE_ALLOWED_TYPES = {
 const METEOR_IMAGE_ACCEPT = Object.keys(METEOR_IMAGE_ALLOWED_TYPES).join(",");
 const METEOR_VIDEO_MAX_DURATION_SECONDS = 35;
 const METEOR_VIDEO_MAX_SIZE_BYTES = 100 * 1024 * 1024;
-const METEOR_VIDEO_THUMBNAIL_MAX_WIDTH = 640;
 const METEOR_VIDEO_THUMBNAIL_TYPE = "image/jpeg";
 const METEOR_VIDEO_THUMBNAIL_EXTENSION = "jpg";
-const METEOR_VIDEO_THUMBNAIL_QUALITY = 0.72;
+const METEOR_VIDEO_THUMBNAIL_QUALITY = 0.82;
+const METEOR_VIDEO_COVER_OUTPUT_WIDTH = 960;
+const METEOR_VIDEO_COVER_OUTPUT_HEIGHT = 540;
+const METEOR_VIDEO_COVER_PREVIEW_FALLBACK_WIDTH = 320;
+const METEOR_VIDEO_COVER_PREVIEW_FALLBACK_HEIGHT = 180;
+const METEOR_VIDEO_TRIM_ERROR_MESSAGE =
+  "この星映は端末内で切り取れませんでした。別の動画を選ぶか、端末の写真アプリで35秒以内に編集してください。";
 const METEOR_VIDEO_ALLOWED_TYPES = {
   "video/mp4": "mp4",
   "video/quicktime": "mov",
@@ -140,6 +145,35 @@ function isSameAvatarCropOffset(currentOffset, nextOffset) {
   return Math.abs(currentOffset.x - nextOffset.x) < 0.5 && Math.abs(currentOffset.y - nextOffset.y) < 0.5;
 }
 
+function getPostCoverCropScale(imageSize, frameSize) {
+  if (!imageSize?.width || !imageSize?.height || !frameSize?.width || !frameSize?.height) {
+    return 1;
+  }
+
+  return Math.max(frameSize.width / imageSize.width, frameSize.height / imageSize.height);
+}
+
+function constrainPostCoverCropOffset(offset, zoom, imageSize, frameSize) {
+  if (!imageSize?.width || !imageSize?.height || !frameSize?.width || !frameSize?.height) {
+    return offset;
+  }
+
+  const coverScale = getPostCoverCropScale(imageSize, frameSize);
+  const displayedWidth = imageSize.width * coverScale * zoom;
+  const displayedHeight = imageSize.height * coverScale * zoom;
+  const maxX = Math.max(0, (displayedWidth - frameSize.width) / 2);
+  const maxY = Math.max(0, (displayedHeight - frameSize.height) / 2);
+
+  return {
+    x: clampNumber(offset.x, -maxX, maxX),
+    y: clampNumber(offset.y, -maxY, maxY),
+  };
+}
+
+function isSamePostCoverCropOffset(currentOffset, nextOffset) {
+  return Math.abs(currentOffset.x - nextOffset.x) < 0.5 && Math.abs(currentOffset.y - nextOffset.y) < 0.5;
+}
+
 function loadImageFromFile(file) {
   return new Promise((resolve, reject) => {
     const imageUrl = URL.createObjectURL(file);
@@ -156,6 +190,59 @@ function loadImageFromFile(file) {
     };
 
     image.src = imageUrl;
+  });
+}
+
+async function createCroppedPostCoverBlob({ file, frameSize, offset, zoom }) {
+  const image = await loadImageFromFile(file);
+  const sourceSize = {
+    width: image.naturalWidth || image.width,
+    height: image.naturalHeight || image.height,
+  };
+  const safeFrameSize = frameSize?.width && frameSize?.height
+    ? frameSize
+    : {
+        width: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_WIDTH,
+        height: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_HEIGHT,
+      };
+  const outputSize = {
+    width: METEOR_VIDEO_COVER_OUTPUT_WIDTH,
+    height: METEOR_VIDEO_COVER_OUTPUT_HEIGHT,
+  };
+  const coverScale = getPostCoverCropScale(sourceSize, outputSize);
+  const outputOffsetScaleX = outputSize.width / safeFrameSize.width;
+  const outputOffsetScaleY = outputSize.height / safeFrameSize.height;
+  const drawWidth = sourceSize.width * coverScale * zoom;
+  const drawHeight = sourceSize.height * coverScale * zoom;
+  const drawX = (outputSize.width - drawWidth) / 2 + offset.x * outputOffsetScaleX;
+  const drawY = (outputSize.height - drawHeight) / 2 + offset.y * outputOffsetScaleY;
+  const canvas = document.createElement("canvas");
+  canvas.width = outputSize.width;
+  canvas.height = outputSize.height;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("星映の表紙の準備に失敗しました。");
+  }
+
+  context.fillStyle = "#050816";
+  context.fillRect(0, 0, outputSize.width, outputSize.height);
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+
+        reject(new Error("星映の表紙の切り取りに失敗しました。"));
+      },
+      METEOR_VIDEO_THUMBNAIL_TYPE,
+      METEOR_VIDEO_THUMBNAIL_QUALITY,
+    );
   });
 }
 
@@ -248,6 +335,45 @@ function createMeteorVideoThumbnailPath(userId, uploadBatchId, extension = METEO
   return `${userId}/${uploadBatchId}/thumbnail-${createClientId()}.${extension}`;
 }
 
+function getSafeDisplayFileName(name, fallback) {
+  const fileName = String(name ?? "").split(/[\\/]/).pop()?.trim() ?? "";
+  const compactName = fileName.replace(/\s+/g, " ");
+
+  if (!compactName || /^[0-9a-f]{8}-[0-9a-f-]{18,}$/i.test(compactName)) {
+    return fallback;
+  }
+
+  return compactName.length > 44 ? `${compactName.slice(0, 18)}...${compactName.slice(-18)}` : compactName;
+}
+
+function getFileNameBase(name, fallback = "hoshiutsushi") {
+  const fileName = String(name ?? "").split(/[\\/]/).pop()?.trim() ?? "";
+  const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+  const safeBase = withoutExtension
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}_-]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+
+  return safeBase || fallback;
+}
+
+function createVideoCoverFileName(sourceName) {
+  return `${getFileNameBase(sourceName, "hoshiutsushi-cover")}-cover.${METEOR_VIDEO_THUMBNAIL_EXTENSION}`;
+}
+
+function createTrimmedVideoFileName(sourceName, mimeType) {
+  const extension = METEOR_VIDEO_ALLOWED_TYPES[mimeType] === "webm" ? "webm" : "mp4";
+  return `${getFileNameBase(sourceName, "hoshiutsushi")}-trimmed.${extension}`;
+}
+
+function createFileFromBlob(blob, fileName, type = blob.type) {
+  return new File([blob], fileName, {
+    lastModified: Date.now(),
+    type: type || blob.type || "application/octet-stream",
+  });
+}
+
 function createPostImageDraft(file) {
   return {
     id: createClientId(),
@@ -260,22 +386,30 @@ function createPostImageDraft(file) {
 }
 
 function createPostVideoDraft(file, metadata) {
+  const displayName = getSafeDisplayFileName(metadata?.displayName ?? metadata?.originalName ?? file.name, "選択した星映");
+
   return {
     id: createClientId(),
     durationSeconds: metadata.durationSeconds,
+    displayName,
     file,
-    name: file.name,
+    name: displayName,
+    originalName: metadata?.originalName ?? file.name,
     previewUrl: URL.createObjectURL(file),
     size: file.size,
     type: file.type,
+    wasTrimmed: Boolean(metadata?.wasTrimmed),
   };
 }
 
-function createPostThumbnailDraft(file) {
+function createPostThumbnailDraft(file, options = {}) {
+  const displayName = getSafeDisplayFileName(options.displayName ?? file.name, "星映の表紙");
+
   return {
     id: createClientId(),
+    displayName,
     file,
-    name: file.name,
+    name: displayName,
     previewUrl: URL.createObjectURL(file),
     size: file.size,
     type: file.type,
@@ -346,7 +480,7 @@ function loadVideoMetadataFromFile(file) {
       const durationSeconds = video.duration;
 
       if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-        settle(reject, new Error("動画の再生時間を確認できませんでした。"));
+        settle(reject, new Error("星映の再生時間を確認できませんでした。"));
         return;
       }
 
@@ -356,12 +490,12 @@ function loadVideoMetadataFromFile(file) {
         width: video.videoWidth || null,
       });
     };
-    video.onerror = () => settle(reject, new Error("この動画はブラウザで再生確認できませんでした。"));
+    video.onerror = () => settle(reject, new Error("この星映はブラウザで再生確認できませんでした。"));
     video.src = objectUrl;
   });
 }
 
-function createVideoThumbnailBlob(file, durationSeconds) {
+function createVideoCoverBlob(file, durationSeconds) {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const video = document.createElement("video");
@@ -387,25 +521,32 @@ function createVideoThumbnailBlob(file, durationSeconds) {
     video.muted = true;
     video.playsInline = true;
     video.onloadedmetadata = () => {
-      const targetTime = Math.min(Math.max(0.2, Number(durationSeconds || video.duration) * 0.06), 1.2);
+      const safeDuration = Math.max(0.05, Number(durationSeconds || video.duration) || 0.05);
+      const targetTime = Math.min(Math.max(0.05, safeDuration * 0.06), Math.max(0.05, safeDuration - 0.05), 1.2);
       video.currentTime = Number.isFinite(targetTime) ? targetTime : 0.2;
     };
     video.onseeked = () => {
       const sourceWidth = video.videoWidth || 640;
       const sourceHeight = video.videoHeight || 360;
-      const scale = Math.min(1, METEOR_VIDEO_THUMBNAIL_MAX_WIDTH / sourceWidth);
+      const scale = Math.max(METEOR_VIDEO_COVER_OUTPUT_WIDTH / sourceWidth, METEOR_VIDEO_COVER_OUTPUT_HEIGHT / sourceHeight);
+      const drawWidth = sourceWidth * scale;
+      const drawHeight = sourceHeight * scale;
+      const drawX = (METEOR_VIDEO_COVER_OUTPUT_WIDTH - drawWidth) / 2;
+      const drawY = (METEOR_VIDEO_COVER_OUTPUT_HEIGHT - drawHeight) / 2;
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+      canvas.width = METEOR_VIDEO_COVER_OUTPUT_WIDTH;
+      canvas.height = METEOR_VIDEO_COVER_OUTPUT_HEIGHT;
 
       const context = canvas.getContext("2d");
 
       if (!context) {
-        settle(reject, new Error("動画サムネイルを生成できませんでした。"));
+        settle(reject, new Error("星映の表紙を生成できませんでした。"));
         return;
       }
 
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#050816";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(video, drawX, drawY, drawWidth, drawHeight);
       canvas.toBlob(
         (blob) => {
           if (blob) {
@@ -413,15 +554,78 @@ function createVideoThumbnailBlob(file, durationSeconds) {
             return;
           }
 
-          settle(reject, new Error("動画サムネイルを生成できませんでした。"));
+          settle(reject, new Error("星映の表紙を生成できませんでした。"));
         },
         METEOR_VIDEO_THUMBNAIL_TYPE,
         METEOR_VIDEO_THUMBNAIL_QUALITY,
       );
     };
-    video.onerror = () => settle(reject, new Error("動画サムネイルを生成できませんでした。"));
+    video.onerror = () => settle(reject, new Error("星映の表紙を生成できませんでした。"));
     video.src = objectUrl;
   });
+}
+
+async function createVideoCoverFile(file, durationSeconds, displayName = "自動生成した星映の表紙") {
+  const coverBlob = await createVideoCoverBlob(file, durationSeconds);
+  const coverFile = createFileFromBlob(coverBlob, createVideoCoverFileName(file.name), METEOR_VIDEO_THUMBNAIL_TYPE);
+
+  return createPostThumbnailDraft(coverFile, { displayName });
+}
+
+async function createTrimmedVideoFile({ endSeconds, file, onConversionReady, onProgress, startSeconds }) {
+  const {
+    ALL_FORMATS,
+    BlobSource,
+    BufferTarget,
+    Conversion,
+    Input,
+    Mp4OutputFormat,
+    Output,
+    WebMOutputFormat,
+  } = await import("mediabunny");
+  const outputMimeType = file.type === "video/webm" ? "video/webm" : "video/mp4";
+  const outputFormat = outputMimeType === "video/webm" ? new WebMOutputFormat() : new Mp4OutputFormat();
+  const input = new Input({
+    formats: ALL_FORMATS,
+    source: new BlobSource(file),
+  });
+  const outputTarget = new BufferTarget();
+  const output = new Output({
+    format: outputFormat,
+    target: outputTarget,
+  });
+  const conversion = await Conversion.init({
+    input,
+    output,
+    showWarnings: false,
+    tracks: "all",
+    trim: {
+      end: endSeconds,
+      start: startSeconds,
+    },
+  });
+
+  onConversionReady?.(conversion);
+
+  if (!conversion.isValid) {
+    throw new Error("星映を切り取れませんでした。");
+  }
+
+  conversion.onProgress = (progress) => {
+    onProgress?.(clampNumber(Number(progress) || 0, 0, 1));
+  };
+
+  await conversion.execute();
+
+  if (!outputTarget.buffer) {
+    throw new Error("星映を切り取れませんでした。");
+  }
+
+  return createFileFromBlob(
+    new Blob([outputTarget.buffer], { type: outputMimeType }),
+    createTrimmedVideoFileName(file.name, outputMimeType),
+    outputMimeType,
+  );
 }
 
 function applyVisiblePostTypeFilter(query) {
@@ -882,6 +1086,24 @@ function App() {
   const [postThumbnailDraft, setPostThumbnailDraft] = useState(null);
   const postThumbnailDraftRef = useRef(null);
   const [postVideoPreparing, setPostVideoPreparing] = useState(false);
+  const [postVideoTrimDraft, setPostVideoTrimDraft] = useState(null);
+  const [postVideoTrimStart, setPostVideoTrimStart] = useState(0);
+  const [postVideoTrimProgress, setPostVideoTrimProgress] = useState(0);
+  const [postVideoTrimProcessing, setPostVideoTrimProcessing] = useState(false);
+  const [postVideoTrimError, setPostVideoTrimError] = useState("");
+  const postVideoTrimConversionRef = useRef(null);
+  const postVideoTrimCancelRequestedRef = useRef(false);
+  const [postCoverCropFile, setPostCoverCropFile] = useState(null);
+  const [postCoverCropPreviewUrl, setPostCoverCropPreviewUrl] = useState("");
+  const [postCoverCropModalOpen, setPostCoverCropModalOpen] = useState(false);
+  const [postCoverCropZoom, setPostCoverCropZoom] = useState(AVATAR_CROP_MIN_ZOOM);
+  const [postCoverCropOffset, setPostCoverCropOffset] = useState({ x: 0, y: 0 });
+  const [postCoverImageSize, setPostCoverImageSize] = useState(null);
+  const [postCoverCropFrameSize, setPostCoverCropFrameSize] = useState({
+    height: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_HEIGHT,
+    width: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_WIDTH,
+  });
+  const [postCoverCropPreparing, setPostCoverCropPreparing] = useState(false);
   const [postSaving, setPostSaving] = useState(false);
   const [postMessage, setPostMessage] = useState("");
   const [postError, setPostError] = useState("");
@@ -968,6 +1190,22 @@ function App() {
       }
     };
   }, [avatarCropPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (postVideoTrimDraft?.previewUrl) {
+        URL.revokeObjectURL(postVideoTrimDraft.previewUrl);
+      }
+    };
+  }, [postVideoTrimDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (postCoverCropPreviewUrl) {
+        URL.revokeObjectURL(postCoverCropPreviewUrl);
+      }
+    };
+  }, [postCoverCropPreviewUrl]);
 
   useEffect(() => {
     postImageDraftsRef.current = postImageDrafts;
@@ -2491,6 +2729,265 @@ function App() {
     });
   }
 
+  function resetPostCoverCrop() {
+    setPostCoverCropZoom(AVATAR_CROP_MIN_ZOOM);
+    setPostCoverCropOffset({ x: 0, y: 0 });
+    setPostCoverImageSize(null);
+  }
+
+  function clearPostCoverCropDraft() {
+    setPostCoverCropFile(null);
+    setPostCoverCropPreviewUrl("");
+    setPostCoverCropModalOpen(false);
+    setPostCoverCropPreparing(false);
+    resetPostCoverCrop();
+  }
+
+  function openPostCoverCrop(file) {
+    setPostCoverCropFile(file);
+    setPostCoverCropPreviewUrl(URL.createObjectURL(file));
+    resetPostCoverCrop();
+    setPostCoverCropModalOpen(true);
+  }
+
+  function clearPostVideoTrimDraft() {
+    setPostVideoTrimDraft(null);
+    setPostVideoTrimStart(0);
+    setPostVideoTrimProgress(0);
+    setPostVideoTrimProcessing(false);
+    setPostVideoTrimError("");
+    postVideoTrimConversionRef.current = null;
+    postVideoTrimCancelRequestedRef.current = false;
+  }
+
+  async function prepareAutomaticVideoCoverDraft(file, durationSeconds) {
+    try {
+      const generatedCoverDraft = await createVideoCoverFile(file, durationSeconds);
+
+      setPostThumbnailDraft((currentDraft) => {
+        revokePostThumbnailDraft(currentDraft);
+        return generatedCoverDraft;
+      });
+    } catch (thumbnailError) {
+      console.warn("星映の表紙の自動生成に失敗しました。", thumbnailError);
+    }
+  }
+
+  async function applySelectedPostVideo(file, metadata) {
+    setPostVideoDraft((currentDraft) => {
+      revokePostVideoDraft(currentDraft);
+      return createPostVideoDraft(file, metadata);
+    });
+    clearPostThumbnailDraft();
+    await prepareAutomaticVideoCoverDraft(file, metadata.durationSeconds);
+  }
+
+  function openPostVideoTrimDraft(file, metadata) {
+    setPostVideoTrimDraft((currentDraft) => {
+      if (currentDraft?.previewUrl) {
+        URL.revokeObjectURL(currentDraft.previewUrl);
+      }
+
+      return {
+        durationSeconds: metadata.durationSeconds,
+        file,
+        name: getSafeDisplayFileName(file.name, "選択した星映"),
+        previewUrl: URL.createObjectURL(file),
+      };
+    });
+    setPostVideoTrimStart(0);
+    setPostVideoTrimProgress(0);
+    setPostVideoTrimProcessing(false);
+    setPostVideoTrimError("");
+    postVideoTrimConversionRef.current = null;
+    postVideoTrimCancelRequestedRef.current = false;
+  }
+
+  function handlePostCoverCropImageLoad(imageSize) {
+    setPostCoverImageSize(imageSize);
+    setPostCoverCropOffset((currentOffset) => {
+      const nextOffset = constrainPostCoverCropOffset(currentOffset, postCoverCropZoom, imageSize, postCoverCropFrameSize);
+      return isSamePostCoverCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handlePostCoverCropFrameSizeChange(nextFrameSize) {
+    setPostCoverCropFrameSize((currentFrameSize) =>
+      currentFrameSize.width === nextFrameSize.width && currentFrameSize.height === nextFrameSize.height
+        ? currentFrameSize
+        : nextFrameSize,
+    );
+    setPostCoverCropOffset((currentOffset) => {
+      const nextOffset = constrainPostCoverCropOffset(currentOffset, postCoverCropZoom, postCoverImageSize, nextFrameSize);
+      return isSamePostCoverCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handlePostCoverCropOffsetChange(nextOffset) {
+    setPostCoverCropOffset((currentOffset) => {
+      const safeOffset = constrainPostCoverCropOffset(nextOffset, postCoverCropZoom, postCoverImageSize, postCoverCropFrameSize);
+      return isSamePostCoverCropOffset(currentOffset, safeOffset) ? currentOffset : safeOffset;
+    });
+  }
+
+  function handlePostCoverCropZoomChange(nextZoom) {
+    const safeZoom = clampNumber(Number(nextZoom) || AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MAX_ZOOM);
+    setPostCoverCropZoom(safeZoom);
+    setPostCoverCropOffset((currentOffset) => {
+      const nextOffset = constrainPostCoverCropOffset(currentOffset, safeZoom, postCoverImageSize, postCoverCropFrameSize);
+      return isSamePostCoverCropOffset(currentOffset, nextOffset) ? currentOffset : nextOffset;
+    });
+  }
+
+  function handlePostCoverCropReset() {
+    setPostCoverCropZoom(AVATAR_CROP_MIN_ZOOM);
+    setPostCoverCropOffset({ x: 0, y: 0 });
+  }
+
+  function handleCancelPostCoverCrop() {
+    if (postCoverCropPreparing) {
+      return;
+    }
+
+    clearPostCoverCropDraft();
+  }
+
+  async function handleUsePostCoverCrop() {
+    if (!postCoverCropFile) {
+      return;
+    }
+
+    setPostCoverCropPreparing(true);
+    setPostMessage("");
+    setPostError("");
+
+    try {
+      const coverBlob = await createCroppedPostCoverBlob({
+        file: postCoverCropFile,
+        frameSize: postCoverCropFrameSize,
+        offset: postCoverCropOffset,
+        zoom: postCoverCropZoom,
+      });
+      const coverFile = createFileFromBlob(
+        coverBlob,
+        createVideoCoverFileName(postCoverCropFile.name),
+        METEOR_VIDEO_THUMBNAIL_TYPE,
+      );
+
+      setPostThumbnailDraft((currentDraft) => {
+        revokePostThumbnailDraft(currentDraft);
+        return createPostThumbnailDraft(coverFile, { displayName: "星映の表紙" });
+      });
+      setPostMessage("星映の表紙を選びました。");
+      clearPostCoverCropDraft();
+    } catch (cropError) {
+      setPostError(cropError.message || "星映の表紙の切り取りに失敗しました。");
+      setPostCoverCropPreparing(false);
+    }
+  }
+
+  function handleEditPostThumbnailDraft() {
+    if (postSaving || !postThumbnailDraft?.file) {
+      return;
+    }
+
+    openPostCoverCrop(postThumbnailDraft.file);
+  }
+
+  async function handleCancelPostVideoTrim() {
+    if (postVideoTrimProcessing) {
+      postVideoTrimCancelRequestedRef.current = true;
+      try {
+        await postVideoTrimConversionRef.current?.cancel?.();
+      } catch (cancelError) {
+        console.warn("星映の切り取りキャンセルに失敗しました。", cancelError);
+      }
+      return;
+    }
+
+    clearPostVideoTrimDraft();
+  }
+
+  function handlePostVideoTrimStartChange(value) {
+    const safeStart = clampNumber(
+      Number(value) || 0,
+      0,
+      Math.max(0, Number(postVideoTrimDraft?.durationSeconds || 0) - METEOR_VIDEO_MAX_DURATION_SECONDS),
+    );
+    setPostVideoTrimStart(safeStart);
+  }
+
+  function handlePostVideoTrimReset() {
+    setPostVideoTrimStart(0);
+    setPostVideoTrimError("");
+  }
+
+  async function handleUseTrimmedPostVideo() {
+    if (!postVideoTrimDraft || postVideoTrimProcessing) {
+      return;
+    }
+
+    const trimStart = clampNumber(
+      postVideoTrimStart,
+      0,
+      Math.max(0, postVideoTrimDraft.durationSeconds - METEOR_VIDEO_MAX_DURATION_SECONDS),
+    );
+    const trimEnd = Math.min(postVideoTrimDraft.durationSeconds, trimStart + METEOR_VIDEO_MAX_DURATION_SECONDS);
+
+    setPostVideoTrimProcessing(true);
+    setPostVideoTrimProgress(0);
+    setPostVideoTrimError("");
+    postVideoTrimCancelRequestedRef.current = false;
+    setPostError("");
+    setPostMessage("");
+
+    try {
+      const trimmedFile = await createTrimmedVideoFile({
+        endSeconds: trimEnd,
+        file: postVideoTrimDraft.file,
+        onConversionReady: (conversion) => {
+          postVideoTrimConversionRef.current = conversion;
+          if (postVideoTrimCancelRequestedRef.current) {
+            void conversion.cancel();
+          }
+        },
+        onProgress: setPostVideoTrimProgress,
+        startSeconds: trimStart,
+      });
+      const metadata = await loadVideoMetadataFromFile(trimmedFile);
+
+      if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS + 0.05) {
+        throw new Error("切り取り後の星映が35秒を超えています。");
+      }
+
+      if (trimmedFile.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
+        throw new Error("切り取り後の星映が100MBを超えています。別の範囲を選んでください。");
+      }
+
+      await applySelectedPostVideo(trimmedFile, {
+        ...metadata,
+        displayName: postVideoTrimDraft.name,
+        durationSeconds: Math.min(metadata.durationSeconds, METEOR_VIDEO_MAX_DURATION_SECONDS),
+        originalName: postVideoTrimDraft.file.name,
+        wasTrimmed: true,
+      });
+      setPostMessage("星映を切り取りました。投稿前に再生確認できます。");
+      clearPostVideoTrimDraft();
+    } catch (trimError) {
+      if (trimError?.name === "ConversionCanceledError") {
+        setPostVideoTrimError("星映の切り取りをキャンセルしました。");
+      } else if (trimError?.message?.includes("100MB")) {
+        setPostVideoTrimError(trimError.message);
+      } else {
+        console.warn("星映の切り取りに失敗しました。", trimError);
+        setPostVideoTrimError(METEOR_VIDEO_TRIM_ERROR_MESSAGE);
+      }
+      setPostVideoTrimProcessing(false);
+      postVideoTrimConversionRef.current = null;
+      postVideoTrimCancelRequestedRef.current = false;
+    }
+  }
+
   function handlePostImageFileChange(event) {
     const selectedFiles = Array.from(event.target.files ?? []);
 
@@ -2503,7 +3000,7 @@ function App() {
     }
 
     if (postVideoDraft) {
-      setPostError("動画が選択済みです。画像を添える場合は先に動画を削除してください。");
+      setPostError("星映が選択済みです。画像を添える場合は先に星映を削除してください。");
       return;
     }
 
@@ -2557,24 +3054,24 @@ function App() {
     }
 
     if (postImageDrafts.length > 0) {
-      setPostError("画像が選択済みです。動画を添える場合は先に星影を削除してください。");
+      setPostError("画像が選択済みです。星映を添える場合は先に星影を削除してください。");
       return;
     }
 
     if (selectedFiles.length > 1) {
-      setPostError("動画は1投稿につき1本まで選べます。");
+      setPostError("星映は1投稿につき1本まで選べます。");
       return;
     }
 
     const file = selectedFiles[0];
 
     if (!METEOR_VIDEO_ALLOWED_TYPES[file.type]) {
-      setPostError("動画はmp4 / mov / webmから選んでください。");
+      setPostError("星映はmp4 / mov / webmから選んでください。");
       return;
     }
 
     if (file.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
-      setPostError("動画は1本100MBまで選べます。");
+      setPostError("星映は1本100MBまで選べます。");
       return;
     }
 
@@ -2584,17 +3081,18 @@ function App() {
       const metadata = await loadVideoMetadataFromFile(file);
 
       if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS) {
-        setPostError("動画は35秒以内で選んでください。");
+        openPostVideoTrimDraft(file, metadata);
+        setPostMessage("35秒を超える星映です。使いたい部分だけ切り取ってください。");
         return;
       }
 
-      setPostVideoDraft((currentDraft) => {
-        revokePostVideoDraft(currentDraft);
-        return createPostVideoDraft(file, metadata);
+      await applySelectedPostVideo(file, {
+        ...metadata,
+        displayName: file.name,
+        originalName: file.name,
       });
-      clearPostThumbnailDraft();
     } catch (_error) {
-      setPostError("この動画はブラウザで再生確認できませんでした。mp4 / mov / webmの別ファイルを選んでください。");
+      setPostError("この星映はブラウザで再生確認できませんでした。mp4 / mov / webmの別ファイルを選んでください。");
     } finally {
       setPostVideoPreparing(false);
     }
@@ -2607,6 +3105,8 @@ function App() {
 
     clearPostVideoDraft();
     clearPostThumbnailDraft();
+    clearPostVideoTrimDraft();
+    clearPostCoverCropDraft();
   }
 
   function handlePostThumbnailFileChange(event) {
@@ -2621,26 +3121,23 @@ function App() {
     }
 
     if (!postVideoDraft) {
-      setPostError("サムネイルは動画を選んだ後に選べます。");
+      setPostError("星映の表紙は星映を選んだ後に選べます。");
       return;
     }
 
     const file = selectedFiles[0];
 
     if (!METEOR_THUMBNAIL_ALLOWED_TYPES[file.type]) {
-      setPostError("サムネイル画像はjpg / jpeg / png / webpから選んでください。");
+      setPostError("星映の表紙はjpg / jpeg / png / webpから選んでください。");
       return;
     }
 
     if (file.size > METEOR_THUMBNAIL_MAX_SIZE_BYTES) {
-      setPostError("サムネイル画像は1枚8MBまで選べます。");
+      setPostError("星映の表紙は1枚8MBまで選べます。");
       return;
     }
 
-    setPostThumbnailDraft((currentDraft) => {
-      revokePostThumbnailDraft(currentDraft);
-      return createPostThumbnailDraft(file);
-    });
+    openPostCoverCrop(file);
   }
 
   function handleRemovePostThumbnailDraft() {
@@ -2734,12 +3231,12 @@ function App() {
     const hasImages = imageDrafts.length > 0;
 
     if (hasImages && hasVideo) {
-      setPostError("画像と動画は同時に添付できません。どちらか一方を選んでください。");
+      setPostError("星影と星映は同時に添付できません。どちらか一方を選んでください。");
       return;
     }
 
     if (!body && !hasImages && !hasVideo) {
-      setPostError("本文を書くか、星影または動画を1つ添えてください。");
+      setPostError("本文を書くか、星影または星映を1つ添えてください。");
       return;
     }
 
@@ -2755,7 +3252,7 @@ function App() {
       let videoMediaRow = null;
 
       if (hasVideo) {
-        setPostUploadProgress("動画を送信中");
+        setPostUploadProgress("星映を送信中");
         const videoStoragePath = createMeteorVideoPath(session.user.id, uploadBatchId, videoDraft.file);
         const { error: videoUploadError } = await supabase.storage.from(METEOR_VIDEO_BUCKET).upload(videoStoragePath, videoDraft.file, {
           cacheControl: "3600",
@@ -2764,14 +3261,14 @@ function App() {
         });
 
         if (videoUploadError) {
-          console.warn("動画アップロードに失敗しました。", videoUploadError);
-          throw new Error("動画の送信に失敗しました。時間をおいてもう一度試してください。");
+          console.warn("星映アップロードに失敗しました。", videoUploadError);
+          throw new Error("星映の送信に失敗しました。時間をおいてもう一度試してください。");
         }
 
         uploadedVideoPaths.push(videoStoragePath);
 
         let thumbnailStoragePath = null;
-        setPostUploadProgress("サムネイルを送信中");
+        setPostUploadProgress("星映の表紙を送信中");
 
         if (thumbnailDraft) {
           const thumbnailExtension = getMeteorImageExtension(thumbnailDraft.file) || "jpg";
@@ -2783,14 +3280,14 @@ function App() {
           });
 
           if (thumbnailUploadError) {
-            console.warn("動画サムネイルアップロードに失敗しました。", thumbnailUploadError);
-            throw new Error("サムネイルの送信に失敗しました。時間をおいてもう一度試してください。");
+            console.warn("星映の表紙アップロードに失敗しました。", thumbnailUploadError);
+            throw new Error("星映の表紙の送信に失敗しました。時間をおいてもう一度試してください。");
           }
 
           uploadedThumbnailPaths.push(thumbnailStoragePath);
         } else {
           try {
-            const thumbnailBlob = await createVideoThumbnailBlob(videoDraft.file, videoDraft.durationSeconds);
+            const thumbnailBlob = await createVideoCoverBlob(videoDraft.file, videoDraft.durationSeconds);
             thumbnailStoragePath = createMeteorVideoThumbnailPath(session.user.id, uploadBatchId);
             const { error: generatedThumbnailUploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(thumbnailStoragePath, thumbnailBlob, {
               cacheControl: "3600",
@@ -2799,19 +3296,19 @@ function App() {
             });
 
             if (generatedThumbnailUploadError) {
-              console.warn("自動生成サムネイルのアップロードに失敗しました。", generatedThumbnailUploadError);
+              console.warn("自動生成した星映の表紙のアップロードに失敗しました。", generatedThumbnailUploadError);
               thumbnailStoragePath = null;
             } else {
               uploadedThumbnailPaths.push(thumbnailStoragePath);
             }
           } catch (thumbnailError) {
-            console.warn("動画サムネイルの自動生成に失敗しました。", thumbnailError);
+            console.warn("星映の表紙の自動生成に失敗しました。", thumbnailError);
             thumbnailStoragePath = null;
           }
         }
 
         videoMediaRow = {
-          duration_seconds: Math.round(videoDraft.durationSeconds * 1000) / 1000,
+          duration_seconds: Math.min(METEOR_VIDEO_MAX_DURATION_SECONDS, Math.round(videoDraft.durationSeconds * 1000) / 1000),
           media_type: "video",
           mime_type: videoDraft.file.type,
           size_bytes: videoDraft.file.size,
@@ -2877,8 +3374,8 @@ function App() {
         ]);
 
         if (mediaError) {
-          console.warn("動画メタデータ保存に失敗しました。", mediaError);
-          throw new Error("動画メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
+          console.warn("星映メタデータ保存に失敗しました。", mediaError);
+          throw new Error("星映メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
         }
 
         media = mapPostMediaRows(insertedMedia);
@@ -3793,6 +4290,7 @@ function App() {
     onChange: setPostDraft,
     onImageFileChange: handlePostImageFileChange,
     onMoveImage: handleMovePostImageDraft,
+    onEditThumbnail: handleEditPostThumbnailDraft,
     onRemoveImage: handleRemovePostImageDraft,
     onRemoveThumbnail: handleRemovePostThumbnailDraft,
     onRemoveVideo: handleRemovePostVideoDraft,
@@ -3805,7 +4303,7 @@ function App() {
     uploadProgress: postUploadProgress,
     videoAccept: METEOR_VIDEO_ACCEPT,
     videoDraft: postVideoDraft,
-    videoPreparing: postVideoPreparing,
+    videoPreparing: postVideoPreparing || postVideoTrimProcessing || postCoverCropPreparing,
   };
   const resonance = {
     error: resonanceError,
@@ -3930,6 +4428,36 @@ function App() {
     preparing: avatarCropPreparing,
     zoom: avatarCropZoom,
   };
+  const postCoverCropState = {
+    disabled: postCoverCropPreparing,
+    fileName: postCoverCropFile?.name ?? "",
+    frameSize: postCoverCropFrameSize,
+    imageSize: postCoverImageSize,
+    imageUrl: postCoverCropPreviewUrl,
+    isOpen: postCoverCropModalOpen,
+    offset: postCoverCropOffset,
+    onCancel: handleCancelPostCoverCrop,
+    onFrameSizeChange: handlePostCoverCropFrameSizeChange,
+    onImageLoad: handlePostCoverCropImageLoad,
+    onOffsetChange: handlePostCoverCropOffsetChange,
+    onReset: handlePostCoverCropReset,
+    onUse: handleUsePostCoverCrop,
+    onZoomChange: handlePostCoverCropZoomChange,
+    preparing: postCoverCropPreparing,
+    zoom: postCoverCropZoom,
+  };
+  const postVideoTrimState = {
+    draft: postVideoTrimDraft,
+    error: postVideoTrimError,
+    isOpen: Boolean(postVideoTrimDraft),
+    onCancel: handleCancelPostVideoTrim,
+    onConfirm: handleUseTrimmedPostVideo,
+    onReset: handlePostVideoTrimReset,
+    onStartChange: handlePostVideoTrimStartChange,
+    processing: postVideoTrimProcessing,
+    progress: postVideoTrimProgress,
+    startSeconds: postVideoTrimStart,
+  };
 
   return (
     <div className="app-shell relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
@@ -3966,6 +4494,8 @@ function App() {
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
       <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
       <AvatarCropModal crop={avatarCropState} />
+      <PostCoverCropModal crop={postCoverCropState} />
+      <PostVideoTrimModal trim={postVideoTrimState} />
       <PostMediaViewerModal
         viewer={mediaViewer}
         onClose={handleCloseMediaViewer}
@@ -4448,6 +4978,306 @@ function AvatarCropModal({ crop }) {
                 type="button"
               >
                 {crop.preparing ? "準備中..." : "この星影を使う"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PostCoverCropModal({ crop }) {
+  const onCancelRef = useRef(crop.onCancel);
+
+  useEffect(() => {
+    onCancelRef.current = crop.onCancel;
+  }, [crop.onCancel]);
+
+  useEffect(() => {
+    if (!crop.isOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onCancelRef.current();
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [crop.isOpen]);
+
+  if (!crop.isOpen || !crop.imageUrl) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-label="星映の表紙を切り取る"
+      aria-modal="true"
+      className="fixed inset-0 z-50 overflow-y-auto bg-night-950/88 px-3 py-4 backdrop-blur-xl"
+      role="dialog"
+    >
+      <div className="mx-auto flex min-h-full max-w-2xl items-center">
+        <div className="w-full rounded-3xl border border-white/15 bg-night-950/90 p-4 shadow-[0_0_70px_rgba(125,223,255,0.18)] sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black text-comet">星映の表紙</p>
+              <h2 className="mt-1 text-xl font-black text-white">星映の表紙を切り取る</h2>
+              <p className="mt-2 text-xs leading-6 text-slate-400">
+                ドラッグして位置を調整し、スライダーで大きさを変えられます。
+              </p>
+            </div>
+            <button
+              className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={crop.preparing}
+              onClick={crop.onCancel}
+              type="button"
+            >
+              キャンセル
+            </button>
+          </div>
+
+          <PostCoverCropper
+            disabled={crop.disabled}
+            frameSize={crop.frameSize}
+            imageSize={crop.imageSize}
+            imageUrl={crop.imageUrl}
+            offset={crop.offset}
+            onFrameSizeChange={crop.onFrameSizeChange}
+            onImageLoad={crop.onImageLoad}
+            onOffsetChange={crop.onOffsetChange}
+            onReset={crop.onReset}
+            onZoomChange={crop.onZoomChange}
+            zoom={crop.zoom}
+          />
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 truncate text-xs font-bold text-slate-500">{crop.fileName}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={crop.preparing}
+                onClick={crop.onCancel}
+                type="button"
+              >
+                キャンセル
+              </button>
+              <button
+                className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={crop.preparing || !crop.imageSize}
+                onClick={crop.onUse}
+                type="button"
+              >
+                {crop.preparing ? "準備中..." : "この表紙にする"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PostVideoTrimModal({ trim }) {
+  const videoRef = useRef(null);
+  const onCancelRef = useRef(trim.onCancel);
+  const draft = trim.draft;
+  const durationSeconds = Number(draft?.durationSeconds || 0);
+  const maxStart = Math.max(0, durationSeconds - METEOR_VIDEO_MAX_DURATION_SECONDS);
+  const startSeconds = clampNumber(trim.startSeconds, 0, maxStart);
+  const endSeconds = Math.min(durationSeconds, startSeconds + METEOR_VIDEO_MAX_DURATION_SECONDS);
+  const selectedLength = Math.max(0, endSeconds - startSeconds);
+
+  useEffect(() => {
+    onCancelRef.current = trim.onCancel;
+  }, [trim.onCancel]);
+
+  useEffect(() => {
+    if (!trim.isOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onCancelRef.current();
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [trim.isOpen]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video || !trim.isOpen) {
+      return;
+    }
+
+    video.pause();
+    video.currentTime = startSeconds;
+  }, [startSeconds, trim.isOpen]);
+
+  if (!trim.isOpen || !draft?.previewUrl) {
+    return null;
+  }
+
+  function handlePreviewRange() {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.currentTime = startSeconds;
+    video.play?.().catch(() => {
+      // Controls remain available if the browser blocks programmatic play.
+    });
+  }
+
+  function handleTimeUpdate(event) {
+    const video = event.currentTarget;
+
+    if (video.currentTime >= endSeconds) {
+      video.pause();
+      video.currentTime = endSeconds;
+    }
+  }
+
+  return (
+    <div
+      aria-label="星映を切り取る"
+      aria-modal="true"
+      className="fixed inset-0 z-[60] overflow-y-auto bg-night-950/90 px-3 py-4 backdrop-blur-xl"
+      role="dialog"
+    >
+      <div className="mx-auto flex min-h-full max-w-2xl items-center">
+        <div className="w-full rounded-3xl border border-white/15 bg-night-950/92 p-4 shadow-[0_0_80px_rgba(125,223,255,0.18)] sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black text-aurora">星映（ほしうつし）</p>
+              <h2 className="mt-1 text-xl font-black text-white">星映を切り取る</h2>
+              <p className="mt-2 text-xs leading-6 text-slate-400">いちばん光る35秒を選んでください。</p>
+            </div>
+            <button
+              className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={trim.onCancel}
+              type="button"
+            >
+              キャンセル
+            </button>
+          </div>
+
+          <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black">
+            <video
+              className="aspect-video w-full bg-black object-contain"
+              controls
+              onTimeUpdate={handleTimeUpdate}
+              playsInline
+              preload="metadata"
+              ref={videoRef}
+              src={draft.previewUrl}
+            />
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-aurora/20 bg-aurora/10 p-3">
+            <div className="grid gap-2 text-xs font-bold text-slate-300 sm:grid-cols-2">
+              <p>動画全体の時間：{formatMediaDuration(durationSeconds)}</p>
+              <p>選択範囲の長さ：{formatMediaDuration(selectedLength)}</p>
+              <p>選択開始時間：{formatMediaDuration(startSeconds)}</p>
+              <p>選択終了時間：{formatMediaDuration(endSeconds)}</p>
+            </div>
+
+            <div className="mt-4">
+              <input
+                aria-label="星映の開始位置"
+                className="w-full accent-cyan-300"
+                disabled={trim.processing}
+                max={maxStart}
+                min={0}
+                onChange={(event) => trim.onStartChange(event.target.value)}
+                step="0.1"
+                type="range"
+                value={startSeconds}
+              />
+              <div className="mt-2 flex justify-between text-[11px] font-black text-slate-500">
+                <span>0:00</span>
+                <span>{formatMediaDuration(maxStart)}</span>
+              </div>
+            </div>
+
+            {trim.processing && (
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between text-[11px] font-black text-comet">
+                  <span>星映を切り取り中...</span>
+                  <span>{Math.round(trim.progress * 100)}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-comet via-aurora to-sakura transition-[width]"
+                    style={{ width: `${Math.round(trim.progress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {trim.error && (
+              <p className="mt-3 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+                {trim.error}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 truncate text-xs font-bold text-slate-500">{draft.name}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={trim.processing}
+                onClick={trim.onReset}
+                type="button"
+              >
+                位置をリセット
+              </button>
+              <button
+                className="min-h-10 rounded-2xl border border-comet/25 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={trim.processing}
+                onClick={handlePreviewRange}
+                type="button"
+              >
+                選択範囲を再生
+              </button>
+              <button
+                className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={trim.onCancel}
+                type="button"
+              >
+                キャンセル
+              </button>
+              <button
+                className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={trim.processing || selectedLength <= 0 || selectedLength > METEOR_VIDEO_MAX_DURATION_SECONDS + 0.1}
+                onClick={trim.onConfirm}
+                type="button"
+              >
+                決定
               </button>
             </div>
           </div>
@@ -4995,7 +5825,7 @@ function GuideScreen({ onBack, onOpenFeedback }) {
     "星文通知",
     "プロフィール単体URL / アカウント共有",
     "プロフィール画像アップロード",
-    "画像 / 音声 / 動画投稿",
+    "星影 / 音声 / 星映投稿",
     "YouTube URL埋め込み再生",
     "Sunoリンクカード表示",
     "Push通知",
@@ -5601,6 +6431,289 @@ function AvatarCropper({
   );
 }
 
+function PostCoverCropper({
+  disabled,
+  frameSize,
+  imageSize,
+  imageUrl,
+  offset,
+  onFrameSizeChange,
+  onImageLoad,
+  onOffsetChange,
+  onReset,
+  onZoomChange,
+  zoom,
+}) {
+  const frameRef = useRef(null);
+  const imageRef = useRef(null);
+  const dragStateRef = useRef(null);
+  const latestVisualOffsetRef = useRef(offset);
+  const animationFrameRef = useRef(null);
+  const coverScale = getPostCoverCropScale(imageSize, frameSize);
+  const displayedWidth = imageSize?.width && frameSize?.width ? imageSize.width * coverScale * zoom : null;
+  const displayedHeight = imageSize?.height && frameSize?.height ? imageSize.height * coverScale * zoom : null;
+
+  function applyImageTransform(nextOffset) {
+    if (!imageRef.current) {
+      return;
+    }
+
+    imageRef.current.style.transform = `translate(-50%, -50%) translate3d(${nextOffset.x}px, ${nextOffset.y}px, 0)`;
+  }
+
+  function scheduleVisualOffset(nextOffset) {
+    latestVisualOffsetRef.current = nextOffset;
+
+    if (animationFrameRef.current) {
+      return;
+    }
+
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      applyImageTransform(latestVisualOffsetRef.current);
+    });
+  }
+
+  function flushVisualOffset() {
+    if (animationFrameRef.current) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    applyImageTransform(latestVisualOffsetRef.current);
+  }
+
+  function getMeasuredFrameSize() {
+    const rect = frameRef.current?.getBoundingClientRect();
+
+    if (!rect) {
+      return frameSize;
+    }
+
+    return {
+      height: Math.round(rect.height) || frameSize.height,
+      width: Math.round(rect.width) || frameSize.width,
+    };
+  }
+
+  useEffect(() => {
+    const frame = frameRef.current;
+
+    if (!frame) {
+      return undefined;
+    }
+
+    function updateFrameSize() {
+      const rect = frame.getBoundingClientRect();
+      const nextSize = {
+        height: Math.round(rect.height),
+        width: Math.round(rect.width),
+      };
+
+      if (nextSize.width > 0 && nextSize.height > 0) {
+        onFrameSizeChange(nextSize);
+      }
+    }
+
+    updateFrameSize();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateFrameSize);
+      return () => {
+        window.removeEventListener("resize", updateFrameSize);
+      };
+    }
+
+    const observer = new ResizeObserver(updateFrameSize);
+    observer.observe(frame);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [imageUrl, onFrameSizeChange]);
+
+  useEffect(() => {
+    latestVisualOffsetRef.current = offset;
+
+    if (!dragStateRef.current) {
+      applyImageTransform(offset);
+    }
+  }, [displayedHeight, displayedWidth, offset]);
+
+  useEffect(
+    () => () => {
+      if (animationFrameRef.current) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  function handlePointerDown(event) {
+    if (disabled || !imageSize?.width || !imageSize?.height) {
+      return;
+    }
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; dragging still works without it.
+    }
+
+    const safeStartOffset = constrainPostCoverCropOffset(
+      latestVisualOffsetRef.current,
+      zoom,
+      imageSize,
+      getMeasuredFrameSize(),
+    );
+
+    latestVisualOffsetRef.current = safeStartOffset;
+    flushVisualOffset();
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startOffset: safeStartOffset,
+      startX: event.clientX,
+      startY: event.clientY,
+      target: event.currentTarget,
+    };
+  }
+
+  function handlePointerMove(event) {
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    const nextOffset = constrainPostCoverCropOffset(
+      {
+        x: dragState.startOffset.x + event.clientX - dragState.startX,
+        y: dragState.startOffset.y + event.clientY - dragState.startY,
+      },
+      zoom,
+      imageSize,
+      getMeasuredFrameSize(),
+    );
+
+    scheduleVisualOffset(nextOffset);
+  }
+
+  function handlePointerEnd(event) {
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    const finalOffset = latestVisualOffsetRef.current;
+
+    dragStateRef.current = null;
+    try {
+      dragState.target?.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Some mobile browsers release capture before the pointerup callback.
+    }
+    flushVisualOffset();
+    onOffsetChange(finalOffset);
+  }
+
+  return (
+    <div className="mt-4 rounded-3xl border border-comet/20 bg-night-950/45 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-black text-comet">表紙の位置を調整</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">16:9の枠に、見せたい星映の光を合わせます。</p>
+        </div>
+        <button
+          className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={disabled}
+          onClick={onReset}
+          type="button"
+        >
+          位置をリセット
+        </button>
+      </div>
+
+      <div
+        aria-label="星映の表紙16:9プレビュー"
+        className="relative mx-auto mt-4 aspect-video w-full max-w-[460px] touch-none overflow-hidden rounded-3xl border border-comet/30 bg-night-950/70 shadow-[0_0_35px_rgba(125,223,255,0.16)]"
+        onLostPointerCapture={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        ref={frameRef}
+        style={{ touchAction: "none", userSelect: "none", WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+      >
+        <img
+          alt=""
+          className={displayedWidth && displayedHeight ? "absolute max-w-none select-none" : "h-full w-full select-none object-cover"}
+          draggable={false}
+          onDragStart={(event) => event.preventDefault()}
+          onLoad={(event) =>
+            onImageLoad({
+              height: event.currentTarget.naturalHeight,
+              width: event.currentTarget.naturalWidth,
+            })
+          }
+          ref={imageRef}
+          src={imageUrl}
+          style={
+            displayedWidth && displayedHeight
+              ? {
+                  height: `${displayedHeight}px`,
+                  left: "50%",
+                  top: "50%",
+                  transform: `translate(-50%, -50%) translate3d(${offset.x}px, ${offset.y}px, 0)`,
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  willChange: "transform",
+                  width: `${displayedWidth}px`,
+                }
+              : undefined
+          }
+        />
+        <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-white/25">
+          <div className="absolute inset-y-0 left-1/3 w-px bg-white/15" />
+          <div className="absolute inset-y-0 left-2/3 w-px bg-white/15" />
+          <div className="absolute inset-x-0 top-1/3 h-px bg-white/15" />
+          <div className="absolute inset-x-0 top-2/3 h-px bg-white/15" />
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-black text-slate-400">
+          <span>遠ざける</span>
+          <span>近づける</span>
+        </div>
+        <input
+          aria-label="星映の表紙のズーム"
+          className="w-full accent-cyan-300"
+          disabled={disabled}
+          max={AVATAR_CROP_MAX_ZOOM}
+          min={AVATAR_CROP_MIN_ZOOM}
+          onChange={(event) => onZoomChange(event.target.value)}
+          step="0.01"
+          type="range"
+          value={zoom}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ProfileEditor({ profile }) {
   const previewUrl = profile.avatarPreviewUrl || profile.form.avatar_url;
   const previewName = profile.form.display_name || defaultProfileView.display_name;
@@ -6170,7 +7283,7 @@ function PostVideoAttachment({ item, onOpenMedia }) {
           />
         ) : (
           <button
-            aria-label="流星便動画を再生"
+            aria-label="流星便の星映を再生"
             className="group relative h-full w-full overflow-hidden bg-night-950 text-left outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
             onClick={requestInlinePlay}
             type="button"
@@ -6187,7 +7300,7 @@ function PostVideoAttachment({ item, onOpenMedia }) {
               <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(125,223,255,0.22),transparent_35%),linear-gradient(135deg,rgba(5,8,22,1),rgba(44,24,86,0.9),rgba(3,7,18,1))]">
                 <div className="text-center">
                   <p className="text-4xl">✦</p>
-                  <p className="mt-2 text-xs font-black text-comet">流星便動画</p>
+                  <p className="mt-2 text-xs font-black text-comet">流星便の星映</p>
                 </div>
               </div>
             )}
@@ -6268,7 +7381,7 @@ function PostMediaViewerModal({ onClose, onStep, viewer }) {
 
   return (
     <div
-      aria-label={isVideo ? "流星便の動画を見る" : "流星便の星影を見る"}
+      aria-label={isVideo ? "流星便の星映を見る" : "流星便の星影を見る"}
       aria-modal="true"
       className="fixed inset-0 z-[70] flex items-center justify-center bg-night-950/90 px-3 py-6 backdrop-blur-xl"
       onClick={onClose}
@@ -6281,7 +7394,7 @@ function PostMediaViewerModal({ onClose, onStep, viewer }) {
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-xs font-black text-comet">
-            {isVideo ? "動画を見る" : "星影を見る"}
+            {isVideo ? "星映を見る" : "星影を見る"}
             <span className="ml-2 text-slate-400">
               {viewer.index + 1} / {total}
             </span>
@@ -6445,7 +7558,7 @@ function Composer({ composer }) {
     ? "ログインすると流星便を放流できます。"
     : !composer.hasProfile
       ? "先にプロフィールを保存すると流星便を放流できます。"
-      : "テキストだけ、星影だけ、動画だけ、組み合わせでも放流できます。";
+      : "テキストだけ、星影だけ、星映だけ、組み合わせでも放流できます。";
   const hasImages = composer.imageDrafts.length > 0;
   const hasVideo = Boolean(composer.videoDraft);
   const imageInputDisabled =
@@ -6508,7 +7621,7 @@ function Composer({ composer }) {
 
               {hasVideo && (
                 <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-3 py-2 text-[11px] leading-5 text-sakura">
-                  動画が選択済みです。画像を添える場合は先に動画を削除してください。
+                  星映が選択済みです。画像を添える場合は先に星映を削除してください。
                 </p>
               )}
 
@@ -6524,9 +7637,9 @@ function Composer({ composer }) {
             <div className="mt-3 rounded-2xl border border-aurora/20 bg-aurora/10 p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black text-aurora">動画を添える</p>
+                  <p className="text-xs font-black text-aurora">星映を添える</p>
                   <p className="mt-1 text-[11px] leading-5 text-slate-400">
-                    いちばん光る35秒を、流星便に。動画は35秒以内・1本100MBまで
+                    いちばん光る35秒を、流星便に。星映は35秒以内・1本100MBまで
                   </p>
                 </div>
                 <label
@@ -6536,7 +7649,7 @@ function Composer({ composer }) {
                       : "cursor-pointer bg-gradient-to-r from-aurora via-comet to-sakura text-night-950 hover:scale-[1.01]"
                   }`}
                 >
-                  {composer.videoPreparing ? "動画を確認中..." : hasVideo ? "別の動画を選ぶ" : "動画を選ぶ"}
+                  {composer.videoPreparing ? "星映を確認中..." : hasVideo ? "別の星映を選ぶ" : "星映を選ぶ"}
                   <input
                     accept={composer.videoAccept}
                     className="sr-only"
@@ -6549,7 +7662,7 @@ function Composer({ composer }) {
 
               {hasImages && (
                 <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-3 py-2 text-[11px] leading-5 text-sakura">
-                  画像が選択済みです。動画を添える場合は先に星影を削除してください。
+                  画像が選択済みです。星映を添える場合は先に星影を削除してください。
                 </p>
               )}
 
@@ -6565,9 +7678,9 @@ function Composer({ composer }) {
                 <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-[11px] font-black text-comet">投稿カード用サムネイル</p>
+                      <p className="text-[11px] font-black text-comet">星映の表紙</p>
                       <p className="mt-1 text-[11px] leading-5 text-slate-400">
-                        任意。未設定なら動画から自動生成を試します。
+                        未設定なら星映から自動生成します。16:9で調整できます。
                       </p>
                     </div>
                     <label
@@ -6577,7 +7690,7 @@ function Composer({ composer }) {
                           : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
                       }`}
                     >
-                      サムネイルを選ぶ
+                      表紙を選ぶ
                       <input
                         accept={composer.thumbnailAccept}
                         className="sr-only"
@@ -6592,6 +7705,7 @@ function Composer({ composer }) {
                     <PostThumbnailDraftPreview
                       disabled={composer.saving}
                       draft={composer.thumbnailDraft}
+                      onEdit={composer.onEditThumbnail}
                       onRemove={composer.onRemoveThumbnail}
                     />
                   )}
@@ -6613,7 +7727,7 @@ function Composer({ composer }) {
                 disabled={!canSubmit}
                 type="submit"
               >
-                {composer.saving ? (hasVideo ? "動画を送信中..." : hasImages ? "星影を送信中..." : "流星便を放流中...") : "流星便を放流する"}
+                {composer.saving ? (hasVideo ? "星映を送信中..." : hasImages ? "星影を送信中..." : "流星便を放流中...") : "流星便を放流する"}
               </button>
             </div>
             {(composer.message || composer.error) && (
@@ -6696,9 +7810,10 @@ function PostVideoDraftPreview({ disabled, draft, onRemove }) {
       />
       <div className="flex flex-wrap items-center justify-between gap-2 p-3">
         <div className="min-w-0">
-          <p className="truncate text-xs font-black text-white">{draft.name || "選択中の動画"}</p>
+          <p className="truncate text-xs font-black text-white">{draft.displayName || draft.name || "選択した星映"}</p>
           <p className="mt-1 text-[11px] font-bold text-slate-400">
             {formatMediaDuration(draft.durationSeconds)} / {formatFileSize(draft.size)}
+            {draft.wasTrimmed ? " / 切り取り済み" : ""}
           </p>
         </div>
         <button
@@ -6707,14 +7822,14 @@ function PostVideoDraftPreview({ disabled, draft, onRemove }) {
           onClick={onRemove}
           type="button"
         >
-          動画を削除
+          星映を削除
         </button>
       </div>
     </div>
   );
 }
 
-function PostThumbnailDraftPreview({ disabled, draft, onRemove }) {
+function PostThumbnailDraftPreview({ disabled, draft, onEdit, onRemove }) {
   if (!draft) {
     return null;
   }
@@ -6728,17 +7843,27 @@ function PostThumbnailDraftPreview({ disabled, draft, onRemove }) {
         src={draft.previewUrl}
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-black text-white">{draft.name || "選択中のサムネイル"}</p>
+        <p className="truncate text-xs font-black text-white">{draft.displayName || draft.name || "星映の表紙"}</p>
         <p className="mt-1 text-[11px] font-bold text-slate-400">{formatFileSize(draft.size)}</p>
       </div>
-      <button
-        className="min-h-9 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 text-[11px] font-black text-sakura disabled:cursor-not-allowed disabled:opacity-40"
-        disabled={disabled}
-        onClick={onRemove}
-        type="button"
-      >
-        削除
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="min-h-9 rounded-2xl border border-comet/30 bg-comet/10 px-3 text-[11px] font-black text-comet disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={disabled}
+          onClick={onEdit}
+          type="button"
+        >
+          表紙を調整
+        </button>
+        <button
+          className="min-h-9 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 text-[11px] font-black text-sakura disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={disabled}
+          onClick={onRemove}
+          type="button"
+        >
+          削除
+        </button>
+      </div>
     </div>
   );
 }
