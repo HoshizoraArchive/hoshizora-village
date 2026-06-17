@@ -44,6 +44,7 @@ const METEOR_IMAGE_ALLOWED_TYPES = {
 const METEOR_IMAGE_ACCEPT = Object.keys(METEOR_IMAGE_ALLOWED_TYPES).join(",");
 const METEOR_VIDEO_MAX_DURATION_SECONDS = 35;
 const METEOR_VIDEO_MAX_SIZE_BYTES = 100 * 1024 * 1024;
+const METEOR_VIDEO_SOURCE_MAX_SIZE_BYTES = 500 * 1024 * 1024;
 const METEOR_VIDEO_THUMBNAIL_TYPE = "image/jpeg";
 const METEOR_VIDEO_THUMBNAIL_EXTENSION = "jpg";
 const METEOR_VIDEO_THUMBNAIL_QUALITY = 0.82;
@@ -1088,6 +1089,7 @@ function App() {
   const [postVideoPreparing, setPostVideoPreparing] = useState(false);
   const [postVideoTrimDraft, setPostVideoTrimDraft] = useState(null);
   const [postVideoTrimStart, setPostVideoTrimStart] = useState(0);
+  const [postVideoTrimLength, setPostVideoTrimLength] = useState(METEOR_VIDEO_MAX_DURATION_SECONDS);
   const [postVideoTrimProgress, setPostVideoTrimProgress] = useState(0);
   const [postVideoTrimProcessing, setPostVideoTrimProcessing] = useState(false);
   const [postVideoTrimError, setPostVideoTrimError] = useState("");
@@ -2753,6 +2755,7 @@ function App() {
   function clearPostVideoTrimDraft() {
     setPostVideoTrimDraft(null);
     setPostVideoTrimStart(0);
+    setPostVideoTrimLength(METEOR_VIDEO_MAX_DURATION_SECONDS);
     setPostVideoTrimProgress(0);
     setPostVideoTrimProcessing(false);
     setPostVideoTrimError("");
@@ -2783,6 +2786,11 @@ function App() {
   }
 
   function openPostVideoTrimDraft(file, metadata) {
+    const initialLengthSeconds = Math.min(
+      METEOR_VIDEO_MAX_DURATION_SECONDS,
+      Math.max(0.5, Number(metadata.durationSeconds) || METEOR_VIDEO_MAX_DURATION_SECONDS),
+    );
+
     setPostVideoTrimDraft((currentDraft) => {
       if (currentDraft?.previewUrl) {
         URL.revokeObjectURL(currentDraft.previewUrl);
@@ -2796,6 +2804,7 @@ function App() {
       };
     });
     setPostVideoTrimStart(0);
+    setPostVideoTrimLength(initialLengthSeconds);
     setPostVideoTrimProgress(0);
     setPostVideoTrimProcessing(false);
     setPostVideoTrimError("");
@@ -2909,16 +2918,39 @@ function App() {
   }
 
   function handlePostVideoTrimStartChange(value) {
+    const safeLength = clampNumber(
+      Number(postVideoTrimLength) || METEOR_VIDEO_MAX_DURATION_SECONDS,
+      0.5,
+      Math.min(METEOR_VIDEO_MAX_DURATION_SECONDS, Math.max(0.5, Number(postVideoTrimDraft?.durationSeconds || 0))),
+    );
     const safeStart = clampNumber(
       Number(value) || 0,
       0,
-      Math.max(0, Number(postVideoTrimDraft?.durationSeconds || 0) - METEOR_VIDEO_MAX_DURATION_SECONDS),
+      Math.max(0, Number(postVideoTrimDraft?.durationSeconds || 0) - safeLength),
     );
     setPostVideoTrimStart(safeStart);
   }
 
+  function handlePostVideoTrimLengthChange(value) {
+    const durationSeconds = Math.max(0.5, Number(postVideoTrimDraft?.durationSeconds || 0));
+    const safeLength = clampNumber(
+      Number(value) || 0.5,
+      0.5,
+      Math.min(METEOR_VIDEO_MAX_DURATION_SECONDS, durationSeconds),
+    );
+
+    setPostVideoTrimLength(safeLength);
+    setPostVideoTrimStart((currentStart) => clampNumber(currentStart, 0, Math.max(0, durationSeconds - safeLength)));
+  }
+
   function handlePostVideoTrimReset() {
     setPostVideoTrimStart(0);
+    setPostVideoTrimLength(
+      Math.min(
+        METEOR_VIDEO_MAX_DURATION_SECONDS,
+        Math.max(0.5, Number(postVideoTrimDraft?.durationSeconds || METEOR_VIDEO_MAX_DURATION_SECONDS)),
+      ),
+    );
     setPostVideoTrimError("");
   }
 
@@ -2927,12 +2959,13 @@ function App() {
       return;
     }
 
-    const trimStart = clampNumber(
-      postVideoTrimStart,
-      0,
-      Math.max(0, postVideoTrimDraft.durationSeconds - METEOR_VIDEO_MAX_DURATION_SECONDS),
+    const trimLength = clampNumber(
+      postVideoTrimLength,
+      0.5,
+      Math.min(METEOR_VIDEO_MAX_DURATION_SECONDS, postVideoTrimDraft.durationSeconds),
     );
-    const trimEnd = Math.min(postVideoTrimDraft.durationSeconds, trimStart + METEOR_VIDEO_MAX_DURATION_SECONDS);
+    const trimStart = clampNumber(postVideoTrimStart, 0, Math.max(0, postVideoTrimDraft.durationSeconds - trimLength));
+    const trimEnd = Math.min(postVideoTrimDraft.durationSeconds, trimStart + trimLength);
 
     setPostVideoTrimProcessing(true);
     setPostVideoTrimProgress(0);
@@ -2957,11 +2990,11 @@ function App() {
       const metadata = await loadVideoMetadataFromFile(trimmedFile);
 
       if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS + 0.05) {
-        throw new Error("切り取り後の星映が35秒を超えています。");
+        throw new Error("切り取り後の星映が35秒を超えています。もう一度範囲を選んでください。");
       }
 
       if (trimmedFile.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
-        throw new Error("切り取り後の星映が100MBを超えています。別の範囲を選んでください。");
+        throw new Error("切り取った星映が100MBを超えています。もう少し短く切り取ってください。");
       }
 
       await applySelectedPostVideo(trimmedFile, {
@@ -2976,7 +3009,7 @@ function App() {
     } catch (trimError) {
       if (trimError?.name === "ConversionCanceledError") {
         setPostVideoTrimError("星映の切り取りをキャンセルしました。");
-      } else if (trimError?.message?.includes("100MB")) {
+      } else if (trimError?.message?.includes("100MB") || trimError?.message?.includes("35秒")) {
         setPostVideoTrimError(trimError.message);
       } else {
         console.warn("星映の切り取りに失敗しました。", trimError);
@@ -3070,8 +3103,8 @@ function App() {
       return;
     }
 
-    if (file.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
-      setPostError("星映は1本100MBまで選べます。");
+    if (file.size > METEOR_VIDEO_SOURCE_MAX_SIZE_BYTES) {
+      setPostError("切り取りに使える元の星映は500MBまでです。");
       return;
     }
 
@@ -3080,9 +3113,9 @@ function App() {
     try {
       const metadata = await loadVideoMetadataFromFile(file);
 
-      if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS) {
+      if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS || file.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
         openPostVideoTrimDraft(file, metadata);
-        setPostMessage("35秒を超える星映です。使いたい部分だけ切り取ってください。");
+        setPostMessage("使いたい部分だけ切り取ってください。完成した星映だけを投稿に使います。");
         return;
       }
 
@@ -3091,8 +3124,16 @@ function App() {
         displayName: file.name,
         originalName: file.name,
       });
-    } catch (_error) {
-      setPostError("この星映はブラウザで再生確認できませんでした。mp4 / mov / webmの別ファイルを選んでください。");
+    } catch (metadataError) {
+      const errorMessage = metadataError?.message ?? "";
+
+      if (errorMessage.includes("再生時間")) {
+        setPostError("星映の再生時間を確認できませんでした。別のファイルを選んでください。");
+      } else if (errorMessage.includes("再生確認")) {
+        setPostError("この星映は端末で再生できない形式またはコーデックです。mp4 / mov / webmの別ファイルを選んでください。");
+      } else {
+        setPostError("星映の情報を確認できませんでした。別のファイルを選んでください。");
+      }
     } finally {
       setPostVideoPreparing(false);
     }
@@ -3237,6 +3278,16 @@ function App() {
 
     if (!body && !hasImages && !hasVideo) {
       setPostError("本文を書くか、星影または星映を1つ添えてください。");
+      return;
+    }
+
+    if (hasVideo && videoDraft.file.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
+      setPostError("切り取った星映が100MBを超えています。もう少し短く切り取ってください。");
+      return;
+    }
+
+    if (hasVideo && videoDraft.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS + 0.05) {
+      setPostError("切り取り後の星映が35秒を超えています。もう一度範囲を選んでください。");
       return;
     }
 
@@ -4450,8 +4501,10 @@ function App() {
     draft: postVideoTrimDraft,
     error: postVideoTrimError,
     isOpen: Boolean(postVideoTrimDraft),
+    lengthSeconds: postVideoTrimLength,
     onCancel: handleCancelPostVideoTrim,
     onConfirm: handleUseTrimmedPostVideo,
+    onLengthChange: handlePostVideoTrimLengthChange,
     onReset: handlePostVideoTrimReset,
     onStartChange: handlePostVideoTrimStartChange,
     processing: postVideoTrimProcessing,
@@ -5093,10 +5146,11 @@ function PostVideoTrimModal({ trim }) {
   const onCancelRef = useRef(trim.onCancel);
   const draft = trim.draft;
   const durationSeconds = Number(draft?.durationSeconds || 0);
-  const maxStart = Math.max(0, durationSeconds - METEOR_VIDEO_MAX_DURATION_SECONDS);
+  const maxLength = Math.min(METEOR_VIDEO_MAX_DURATION_SECONDS, Math.max(0.5, durationSeconds));
+  const selectedLength = clampNumber(Number(trim.lengthSeconds) || maxLength, 0.5, maxLength);
+  const maxStart = Math.max(0, durationSeconds - selectedLength);
   const startSeconds = clampNumber(trim.startSeconds, 0, maxStart);
-  const endSeconds = Math.min(durationSeconds, startSeconds + METEOR_VIDEO_MAX_DURATION_SECONDS);
-  const selectedLength = Math.max(0, endSeconds - startSeconds);
+  const endSeconds = Math.min(durationSeconds, startSeconds + selectedLength);
 
   useEffect(() => {
     onCancelRef.current = trim.onCancel;
@@ -5206,6 +5260,10 @@ function PostVideoTrimModal({ trim }) {
             </div>
 
             <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-black text-slate-400">
+                <span>選択開始</span>
+                <span>{formatMediaDuration(startSeconds)}</span>
+              </div>
               <input
                 aria-label="星映の開始位置"
                 className="w-full accent-cyan-300"
@@ -5220,6 +5278,28 @@ function PostVideoTrimModal({ trim }) {
               <div className="mt-2 flex justify-between text-[11px] font-black text-slate-500">
                 <span>0:00</span>
                 <span>{formatMediaDuration(maxStart)}</span>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between gap-3 text-[11px] font-black text-slate-400">
+                <span>選択範囲の長さ</span>
+                <span>{formatMediaDuration(selectedLength)}</span>
+              </div>
+              <input
+                aria-label="星映の選択範囲の長さ"
+                className="w-full accent-cyan-300"
+                disabled={trim.processing}
+                max={maxLength}
+                min={0.5}
+                onChange={(event) => trim.onLengthChange(event.target.value)}
+                step="0.1"
+                type="range"
+                value={selectedLength}
+              />
+              <div className="mt-2 flex justify-between text-[11px] font-black text-slate-500">
+                <span>0.5秒</span>
+                <span>{formatMediaDuration(maxLength)}</span>
               </div>
             </div>
 
@@ -7558,7 +7638,7 @@ function Composer({ composer }) {
     ? "ログインすると流星便を放流できます。"
     : !composer.hasProfile
       ? "先にプロフィールを保存すると流星便を放流できます。"
-      : "テキストだけ、星影だけ、星映だけ、組み合わせでも放流できます。";
+      : "テキストだけ、星影だけ、星映だけ。テキストと組み合わせても放流できます。";
   const hasImages = composer.imageDrafts.length > 0;
   const hasVideo = Boolean(composer.videoDraft);
   const imageInputDisabled =
@@ -7592,22 +7672,23 @@ function Composer({ composer }) {
               placeholder="今夜、どの星を観測してほしい？"
               value={composer.draft}
             />
-            <div className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="mt-3 grid grid-cols-2 items-stretch gap-2 max-[340px]:grid-cols-1 min-[380px]:gap-3">
+              <div className="flex h-full min-h-[154px] flex-col justify-between rounded-2xl border border-comet/20 bg-comet/10 p-3">
                 <div>
                   <p className="text-xs font-black text-comet">星影を添える</p>
-                  <p className="mt-1 text-[11px] leading-5 text-slate-400">
-                    画像はjpg / png / webp、1枚8MBまで。選択中 {composer.imageDrafts.length} / {composer.maxImages}
+                  <p className="mt-1 text-[11px] font-bold leading-5 text-slate-300">画像 最大4枚</p>
+                  <p className="mt-1 text-[10px] leading-4 text-slate-500">
+                    jpg / png / webp。選択中 {composer.imageDrafts.length} / {composer.maxImages}
                   </p>
                 </div>
                 <label
-                  className={`inline-flex min-h-10 items-center rounded-2xl px-4 text-xs font-black shadow-glow transition ${
+                  className={`mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-2xl px-2 text-center text-[11px] font-black shadow-glow transition min-[380px]:text-xs ${
                     imageInputDisabled
                       ? "cursor-not-allowed bg-white/10 text-slate-500"
                       : "cursor-pointer bg-gradient-to-r from-comet via-aurora to-sakura text-night-950 hover:scale-[1.01]"
                   }`}
                 >
-                  写真フォルダから星影を選ぶ
+                  星影を選ぶ
                   <input
                     accept={composer.imageAccept}
                     className="sr-only"
@@ -7617,33 +7698,23 @@ function Composer({ composer }) {
                     type="file"
                   />
                 </label>
+                {hasVideo && (
+                  <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-2 py-2 text-[10px] leading-4 text-sakura">
+                    星映が選択済みです。星影を添える場合は先に星映を削除してください。
+                  </p>
+                )}
               </div>
 
-              {hasVideo && (
-                <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-3 py-2 text-[11px] leading-5 text-sakura">
-                  星映が選択済みです。画像を添える場合は先に星映を削除してください。
-                </p>
-              )}
-
-              {composer.imageDrafts.length > 0 && (
-                <PostImageDraftPreview
-                  drafts={composer.imageDrafts}
-                  disabled={composer.saving}
-                  onMove={composer.onMoveImage}
-                  onRemove={composer.onRemoveImage}
-                />
-              )}
-            </div>
-            <div className="mt-3 rounded-2xl border border-aurora/20 bg-aurora/10 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex h-full min-h-[154px] flex-col justify-between rounded-2xl border border-aurora/20 bg-aurora/10 p-3">
                 <div>
                   <p className="text-xs font-black text-aurora">星映を添える</p>
-                  <p className="mt-1 text-[11px] leading-5 text-slate-400">
-                    いちばん光る35秒を、流星便に。星映は35秒以内・1本100MBまで
+                  <p className="mt-1 text-[11px] font-bold leading-5 text-slate-300">35秒 最大1本</p>
+                  <p className="mt-1 text-[10px] leading-4 text-slate-500">
+                    完成版100MBまで。元の星映は500MBまで切り取り可。
                   </p>
                 </div>
                 <label
-                  className={`inline-flex min-h-10 items-center rounded-2xl px-4 text-xs font-black shadow-glow transition ${
+                  className={`mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-2xl px-2 text-center text-[11px] font-black shadow-glow transition min-[380px]:text-xs ${
                     videoInputDisabled
                       ? "cursor-not-allowed bg-white/10 text-slate-500"
                       : "cursor-pointer bg-gradient-to-r from-aurora via-comet to-sakura text-night-950 hover:scale-[1.01]"
@@ -7658,60 +7729,74 @@ function Composer({ composer }) {
                     type="file"
                   />
                 </label>
+                {hasImages && (
+                  <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-2 py-2 text-[10px] leading-4 text-sakura">
+                    星影が選択済みです。星映を添える場合は先に星影を削除してください。
+                  </p>
+                )}
               </div>
-
-              {hasImages && (
-                <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-3 py-2 text-[11px] leading-5 text-sakura">
-                  画像が選択済みです。星映を添える場合は先に星影を削除してください。
-                </p>
-              )}
-
-              {composer.videoDraft && (
-                <PostVideoDraftPreview
-                  disabled={composer.saving}
-                  draft={composer.videoDraft}
-                  onRemove={composer.onRemoveVideo}
-                />
-              )}
-
-              {composer.videoDraft && (
-                <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-black text-comet">星映の表紙</p>
-                      <p className="mt-1 text-[11px] leading-5 text-slate-400">
-                        未設定なら星映から自動生成します。16:9で調整できます。
-                      </p>
-                    </div>
-                    <label
-                      className={`inline-flex min-h-9 items-center rounded-2xl px-3 text-[11px] font-black transition ${
-                        composer.saving
-                          ? "cursor-not-allowed bg-white/10 text-slate-500"
-                          : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
-                      }`}
-                    >
-                      表紙を選ぶ
-                      <input
-                        accept={composer.thumbnailAccept}
-                        className="sr-only"
-                        disabled={composer.saving}
-                        onChange={composer.onThumbnailFileChange}
-                        type="file"
-                      />
-                    </label>
-                  </div>
-
-                  {composer.thumbnailDraft && (
-                    <PostThumbnailDraftPreview
-                      disabled={composer.saving}
-                      draft={composer.thumbnailDraft}
-                      onEdit={composer.onEditThumbnail}
-                      onRemove={composer.onRemoveThumbnail}
-                    />
-                  )}
-                </div>
-              )}
             </div>
+
+            <p className="mt-2 rounded-2xl bg-white/5 px-3 py-2 text-[11px] leading-5 text-slate-400">
+              星影と星映は、どちらか一方を添えられます。
+            </p>
+
+            {composer.imageDrafts.length > 0 && (
+              <div className="mt-3">
+                <PostImageDraftPreview
+                  drafts={composer.imageDrafts}
+                  disabled={composer.saving}
+                  onMove={composer.onMoveImage}
+                  onRemove={composer.onRemoveImage}
+                />
+              </div>
+            )}
+
+            {composer.videoDraft && (
+              <PostVideoDraftPreview
+                disabled={composer.saving}
+                draft={composer.videoDraft}
+                onRemove={composer.onRemoveVideo}
+              />
+            )}
+
+            {composer.videoDraft && (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-black text-comet">星映の表紙</p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-400">
+                      未設定なら星映から自動生成します。16:9で調整できます。
+                    </p>
+                  </div>
+                  <label
+                    className={`inline-flex min-h-9 items-center rounded-2xl px-3 text-[11px] font-black transition ${
+                      composer.saving
+                        ? "cursor-not-allowed bg-white/10 text-slate-500"
+                        : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
+                    }`}
+                  >
+                    表紙を選ぶ
+                    <input
+                      accept={composer.thumbnailAccept}
+                      className="sr-only"
+                      disabled={composer.saving}
+                      onChange={composer.onThumbnailFileChange}
+                      type="file"
+                    />
+                  </label>
+                </div>
+
+                {composer.thumbnailDraft && (
+                  <PostThumbnailDraftPreview
+                    disabled={composer.saving}
+                    draft={composer.thumbnailDraft}
+                    onEdit={composer.onEditThumbnail}
+                    onRemove={composer.onRemoveThumbnail}
+                  />
+                )}
+              </div>
+            )}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-2 text-xs text-slate-400">
                 <span className="rounded-full bg-white/10 px-3 py-1">{helperText}</span>
