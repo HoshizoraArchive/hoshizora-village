@@ -4330,6 +4330,14 @@ function App() {
     types: FEEDBACK_TYPES,
   };
   const composer = {
+    canSubmit:
+      Boolean(session) &&
+      Boolean(profile?.id) &&
+      (Boolean(postDraft.trim()) || postImageDrafts.length > 0 || Boolean(postVideoDraft)) &&
+      !postSaving &&
+      !postVideoPreparing &&
+      !postVideoTrimProcessing &&
+      !postCoverCropPreparing,
     canPost: Boolean(session),
     draft: postDraft,
     error: postError,
@@ -4511,14 +4519,23 @@ function App() {
     progress: postVideoTrimProgress,
     startSeconds: postVideoTrimStart,
   };
+  const isPostEditor = route.name === "home" && activeTab === "post";
 
   return (
-    <div className="app-shell relative isolate min-h-screen overflow-x-hidden bg-night-950 pb-28 text-starlight">
+    <div
+      className={`app-shell relative isolate min-h-screen overflow-x-hidden bg-night-950 text-starlight ${
+        isPostEditor ? "pb-0" : "pb-28"
+      }`}
+    >
       <SkyBackdrop />
       <StardustForeground />
 
-      <div className="relative z-10 mx-auto min-h-screen w-full max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5">
-        <AppHeader auth={auth} />
+      <div
+        className={`relative z-10 mx-auto min-h-screen w-full ${
+          isPostEditor ? "max-w-none px-0 py-0" : "max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
+        }`}
+      >
+        {!isPostEditor && <AppHeader auth={auth} />}
 
         <TabContent
           activeTab={activeTab}
@@ -4538,13 +4555,14 @@ function App() {
           meteorDetail={meteorDetail}
           publicStarProfile={publicStarProfile}
           route={route}
+          onBackFromPost={() => handleTabChange("observe")}
           onOpenMeteorDetail={handleOpenMeteorDetail}
           onOpenPostMedia={handleOpenMediaViewer}
           onOpenStarProfile={handleOpenStarProfile}
         />
       </div>
 
-      <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
+      {!isPostEditor && <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />}
       <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
       <AvatarCropModal crop={avatarCropState} />
       <PostCoverCropModal crop={postCoverCropState} />
@@ -4614,6 +4632,7 @@ function TabContent({
   feedback,
   meteorDetail,
   notifications,
+  onBackFromPost,
   onOpenMeteorDetail,
   onOpenPostMedia,
   onOpenStarProfile,
@@ -4659,7 +4678,7 @@ function TabContent({
   }
 
   if (activeTab === "post") {
-    return <PostScreen composer={composer} />;
+    return <PostScreen composer={composer} onBack={onBackFromPost} />;
   }
 
   if (activeTab === "archive") {
@@ -4740,17 +4759,31 @@ function ObserveScreen({
   );
 }
 
-function PostScreen({ composer }) {
-  return (
-    <main className="mx-auto max-w-3xl">
-      <section className="glass-panel mb-4 p-4 sm:p-5">
-        <p className="text-xs font-bold uppercase text-comet">meteor letter</p>
-        <h2 className="mt-1 text-2xl font-black text-white sm:text-3xl">流星便投稿</h2>
-        <p className="mt-2 text-sm leading-7 text-slate-400">
-          今夜、観測してほしい未完成の光を放流します。
-        </p>
-      </section>
+const METEOR_COMPOSER_FORM_ID = "meteor-composer-form";
 
+function PostScreen({ composer, onBack }) {
+  return (
+    <main className="min-h-screen bg-night-950/35">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-night-950/80 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-2xl">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+          <button
+            className="min-h-10 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-200 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            onClick={onBack}
+            type="button"
+          >
+            ← 戻る
+          </button>
+          <h2 className="truncate text-center text-base font-black text-white">流星便を作成</h2>
+          <button
+            className="min-h-10 rounded-full bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
+            disabled={!composer.canSubmit}
+            form={METEOR_COMPOSER_FORM_ID}
+            type="submit"
+          >
+            {composer.saving ? "送信中" : "放流"}
+          </button>
+        </div>
+      </header>
       <Composer composer={composer} />
     </main>
   );
@@ -7633,19 +7666,51 @@ function Timeline({
   );
 }
 
+function useKeyboardToolbarOffset() {
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+
+    if (!viewport) {
+      return undefined;
+    }
+
+    function updateKeyboardOffset() {
+      const viewportBottom = viewport.offsetTop + viewport.height;
+      const overlap = Math.max(0, window.innerHeight - viewportBottom);
+      setKeyboardOffset(overlap > 80 ? Math.round(overlap) : 0);
+    }
+
+    updateKeyboardOffset();
+    viewport.addEventListener("resize", updateKeyboardOffset);
+    viewport.addEventListener("scroll", updateKeyboardOffset);
+    window.addEventListener("orientationchange", updateKeyboardOffset);
+
+    return () => {
+      viewport.removeEventListener("resize", updateKeyboardOffset);
+      viewport.removeEventListener("scroll", updateKeyboardOffset);
+      window.removeEventListener("orientationchange", updateKeyboardOffset);
+    };
+  }, []);
+
+  return keyboardOffset;
+}
+
 function Composer({ composer }) {
-  const helperText = !composer.canPost
+  const statusText = !composer.canPost
     ? "ログインすると流星便を放流できます。"
     : !composer.hasProfile
       ? "先にプロフィールを保存すると流星便を放流できます。"
-      : "テキストだけでも放流できます。";
+      : "";
   const hasImages = composer.imageDrafts.length > 0;
   const hasVideo = Boolean(composer.videoDraft);
   const mediaHintText = hasVideo
     ? "星映を削除すると、星影を選べます。"
     : hasImages
       ? "星影を削除すると、星映を選べます。"
-      : "星影か星映を、どちらかひとつ添えられます。";
+      : "";
+  const keyboardOffset = useKeyboardToolbarOffset();
   const imageInputDisabled =
     composer.saving ||
     !composer.canPost ||
@@ -7654,211 +7719,197 @@ function Composer({ composer }) {
     composer.imageDrafts.length >= composer.maxImages;
   const videoInputDisabled =
     composer.saving || composer.videoPreparing || !composer.canPost || !composer.hasProfile || hasImages;
-  const canSubmit =
-    composer.canPost &&
-    composer.hasProfile &&
-    (composer.draft.trim() || hasImages || hasVideo) &&
-    !composer.saving &&
-    !composer.videoPreparing;
 
   return (
-    <form className="border-b border-white/10 px-3 py-4 sm:px-5" onSubmit={composer.onSubmit}>
-      <div className="glass-panel p-4">
-        <div className="min-w-0">
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-night-950/50 focus-within:border-comet/40 focus-within:ring-4 focus-within:ring-comet/10">
-            <textarea
-              className="min-h-36 w-full resize-none bg-transparent p-4 text-sm leading-7 text-white outline-none placeholder:text-slate-500"
-              disabled={!composer.canPost || !composer.hasProfile || composer.saving}
-              maxLength={160}
-              onChange={(event) => composer.onChange(event.target.value)}
-              placeholder="今夜、どの星を観測してほしい？"
-              value={composer.draft}
-            />
-            <div className="border-t border-white/10 px-3 py-2">
-              <div className="flex items-center gap-3">
-                <label
-                  aria-label="星影を添える"
-                  className={`group inline-flex min-h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-full text-center transition active:scale-95 ${
-                    imageInputDisabled
-                      ? hasImages
-                        ? "cursor-not-allowed bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.16)]"
-                        : "cursor-not-allowed bg-white/[0.03] text-slate-600"
-                      : hasImages
-                        ? "cursor-pointer bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.22)] hover:bg-comet/20"
-                        : "cursor-pointer bg-white/5 text-slate-300 hover:bg-comet/10 hover:text-comet"
-                  }`}
-                >
-                  <span className="grid h-9 w-9 place-items-center rounded-full border border-current/25 bg-white/5">
-                    <svg aria-hidden="true" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24">
-                      <path
-                        d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="1.7"
-                      />
-                      <path
-                        d="m6.75 15.75 3.25-3.3 2.35 2.35 1.8-1.8 3.1 2.75"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="1.7"
-                      />
-                      <path
-                        d="M14.75 8.75h.01"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2.4"
-                      />
-                    </svg>
-                  </span>
-                  <span className="text-[10px] font-black leading-none">星影</span>
-                  <input
-                    accept={composer.imageAccept}
-                    className="sr-only"
-                    disabled={imageInputDisabled}
-                    multiple
-                    onChange={composer.onImageFileChange}
-                    type="file"
-                  />
-                </label>
+    <form
+      className="min-h-[calc(100dvh-4.5rem)] px-4 pb-32 pt-5 sm:px-8"
+      id={METEOR_COMPOSER_FORM_ID}
+      onSubmit={composer.onSubmit}
+    >
+      <textarea
+        className="min-h-[46vh] w-full resize-y bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-[52vh] sm:text-lg"
+        disabled={!composer.canPost || !composer.hasProfile || composer.saving}
+        maxLength={160}
+        onChange={(event) => composer.onChange(event.target.value)}
+        placeholder="今夜、どの星を観測してほしい？"
+        value={composer.draft}
+      />
 
-                <label
-                  aria-label="星映を添える"
-                  className={`group inline-flex min-h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-full text-center transition active:scale-95 ${
-                    videoInputDisabled
-                      ? hasVideo
-                        ? "cursor-not-allowed bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.16)]"
-                        : "cursor-not-allowed bg-white/[0.03] text-slate-600"
-                      : hasVideo
-                        ? "cursor-pointer bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.22)] hover:bg-aurora/20"
-                        : "cursor-pointer bg-white/5 text-slate-300 hover:bg-aurora/10 hover:text-aurora"
-                  }`}
-                >
-                  <span className="grid h-9 w-9 place-items-center rounded-full border border-current/25 bg-white/5">
-                    <svg aria-hidden="true" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24">
-                      <path
-                        d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="1.7"
-                      />
-                      <path
-                        d="m10 8.75 5 3.25-5 3.25v-6.5Z"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="1.7"
-                      />
-                    </svg>
-                  </span>
-                  <span className="text-[10px] font-black leading-none">
-                    {composer.videoPreparing ? "確認中" : "星映"}
-                  </span>
-                  <input
-                    accept={composer.videoAccept}
-                    className="sr-only"
-                    disabled={videoInputDisabled}
-                    onChange={composer.onVideoFileChange}
-                    type="file"
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
+      {(mediaHintText || statusText || composer.uploadProgress || composer.message || composer.error) && (
+        <div className="mt-4 space-y-2">
+          {mediaHintText && <p className="text-xs font-bold leading-5 text-sakura">{mediaHintText}</p>}
+          {statusText && <p className="text-xs font-bold leading-5 text-slate-500">{statusText}</p>}
+          {composer.uploadProgress && (
+            <p className="inline-flex rounded-full bg-comet/10 px-3 py-1 text-xs font-bold text-comet">
+              {composer.uploadProgress}
+            </p>
+          )}
+          {(composer.message || composer.error) && (
+            <p
+              className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${
+                composer.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+              }`}
+            >
+              {composer.error || composer.message}
+            </p>
+          )}
+        </div>
+      )}
 
-          <p
-            className={`mt-2 text-[11px] font-bold leading-5 ${hasImages || hasVideo ? "text-sakura" : "text-slate-500"}`}
-          >
-            {mediaHintText}
-          </p>
+      {composer.imageDrafts.length > 0 && (
+        <div className="mt-5">
+          <PostImageDraftPreview
+            drafts={composer.imageDrafts}
+            disabled={composer.saving}
+            onMove={composer.onMoveImage}
+            onRemove={composer.onRemoveImage}
+          />
+        </div>
+      )}
 
-            {composer.imageDrafts.length > 0 && (
-              <div className="mt-3">
-                <PostImageDraftPreview
-                  drafts={composer.imageDrafts}
-                  disabled={composer.saving}
-                  onMove={composer.onMoveImage}
-                  onRemove={composer.onRemoveImage}
-                />
-              </div>
-            )}
+      {composer.videoDraft && (
+        <PostVideoDraftPreview
+          disabled={composer.saving}
+          draft={composer.videoDraft}
+          onRemove={composer.onRemoveVideo}
+        />
+      )}
 
-            {composer.videoDraft && (
-              <PostVideoDraftPreview
-                disabled={composer.saving}
-                draft={composer.videoDraft}
-                onRemove={composer.onRemoveVideo}
-              />
-            )}
-
-            {composer.videoDraft && (
-              <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-black text-comet">星映の表紙</p>
-                    <p className="mt-1 text-[11px] leading-5 text-slate-400">
-                      未設定なら星映から自動生成します。16:9で調整できます。
-                    </p>
-                  </div>
-                  <label
-                    className={`inline-flex min-h-9 items-center rounded-2xl px-3 text-[11px] font-black transition ${
-                      composer.saving
-                        ? "cursor-not-allowed bg-white/10 text-slate-500"
-                        : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
-                    }`}
-                  >
-                    表紙を選ぶ
-                    <input
-                      accept={composer.thumbnailAccept}
-                      className="sr-only"
-                      disabled={composer.saving}
-                      onChange={composer.onThumbnailFileChange}
-                      type="file"
-                    />
-                  </label>
-                </div>
-
-                {composer.thumbnailDraft && (
-                  <PostThumbnailDraftPreview
-                    disabled={composer.saving}
-                    draft={composer.thumbnailDraft}
-                    onEdit={composer.onEditThumbnail}
-                    onRemove={composer.onRemoveThumbnail}
-                  />
-                )}
-              </div>
-            )}
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                <span className="rounded-full bg-white/10 px-3 py-1">{helperText}</span>
-                <span className="rounded-full bg-white/10 px-3 py-1">星文メモ</span>
-                {composer.uploadProgress && (
-                  <span className="rounded-full bg-comet/10 px-3 py-1 font-bold text-comet">
-                    {composer.uploadProgress}
-                  </span>
-                )}
-              </div>
-              <button
-                className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 text-sm font-black text-night-950 shadow-glow transition disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canSubmit}
-                type="submit"
-              >
-                {composer.saving ? (hasVideo ? "星映を送信中..." : hasImages ? "星影を送信中..." : "流星便を放流中...") : "流星便を放流する"}
-              </button>
-            </div>
-            {(composer.message || composer.error) && (
-              <p
-                className={`mt-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
-                  composer.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
-                }`}
-              >
-                {composer.error || composer.message}
+      {composer.videoDraft && (
+        <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-black text-comet">星映の表紙</p>
+              <p className="mt-1 text-[11px] leading-5 text-slate-400">
+                未設定なら星映から自動生成します。16:9で調整できます。
               </p>
-            )}
+            </div>
+            <label
+              className={`inline-flex min-h-9 items-center rounded-2xl px-3 text-[11px] font-black transition ${
+                composer.saving
+                  ? "cursor-not-allowed bg-white/10 text-slate-500"
+                  : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
+              }`}
+            >
+              表紙を選ぶ
+              <input
+                accept={composer.thumbnailAccept}
+                className="sr-only"
+                disabled={composer.saving}
+                onChange={composer.onThumbnailFileChange}
+                type="file"
+              />
+            </label>
           </div>
+
+          {composer.thumbnailDraft && (
+            <PostThumbnailDraftPreview
+              disabled={composer.saving}
+              draft={composer.thumbnailDraft}
+              onEdit={composer.onEditThumbnail}
+              onRemove={composer.onRemoveThumbnail}
+            />
+          )}
+        </div>
+      )}
+
+      <div
+        className={`fixed inset-x-0 z-50 border-t border-white/10 bg-night-950/90 px-4 pt-2 shadow-[0_-14px_44px_rgba(3,7,18,0.36)] backdrop-blur-2xl ${
+          keyboardOffset > 0 ? "pb-2" : "pb-[calc(env(safe-area-inset-bottom)+0.55rem)]"
+        }`}
+        style={{ bottom: `${keyboardOffset}px` }}
+      >
+        <div className="mx-auto flex max-w-3xl items-center gap-4">
+          <label
+            aria-label="星影を添える"
+            className={`group inline-flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-full text-center transition active:scale-95 ${
+              imageInputDisabled
+                ? hasImages
+                  ? "cursor-not-allowed bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.16)]"
+                  : "cursor-not-allowed bg-white/[0.03] text-slate-600"
+                : hasImages
+                  ? "cursor-pointer bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.22)] hover:bg-comet/20"
+                  : "cursor-pointer bg-white/5 text-slate-300 hover:bg-comet/10 hover:text-comet"
+            }`}
+          >
+            <span className="grid h-10 w-10 place-items-center rounded-full border border-current/25 bg-white/5">
+              <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <path
+                  d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="m6.75 15.75 3.25-3.3 2.35 2.35 1.8-1.8 3.1 2.75"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="M14.75 8.75h.01"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2.4"
+                />
+              </svg>
+            </span>
+            <span className="text-[10px] font-black leading-none">星影</span>
+            <input
+              accept={composer.imageAccept}
+              className="sr-only"
+              disabled={imageInputDisabled}
+              multiple
+              onChange={composer.onImageFileChange}
+              type="file"
+            />
+          </label>
+
+          <label
+            aria-label="星映を添える"
+            className={`group inline-flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-full text-center transition active:scale-95 ${
+              videoInputDisabled
+                ? hasVideo
+                  ? "cursor-not-allowed bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.16)]"
+                  : "cursor-not-allowed bg-white/[0.03] text-slate-600"
+                : hasVideo
+                  ? "cursor-pointer bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.22)] hover:bg-aurora/20"
+                  : "cursor-pointer bg-white/5 text-slate-300 hover:bg-aurora/10 hover:text-aurora"
+            }`}
+          >
+            <span className="grid h-10 w-10 place-items-center rounded-full border border-current/25 bg-white/5">
+              <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <path
+                  d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="m10 8.75 5 3.25-5 3.25v-6.5Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+              </svg>
+            </span>
+            <span className="text-[10px] font-black leading-none">
+              {composer.videoPreparing ? "確認中" : "星映"}
+            </span>
+            <input
+              accept={composer.videoAccept}
+              className="sr-only"
+              disabled={videoInputDisabled}
+              onChange={composer.onVideoFileChange}
+              type="file"
+            />
+          </label>
+        </div>
       </div>
     </form>
   );
