@@ -7638,9 +7638,14 @@ function Composer({ composer }) {
     ? "ログインすると流星便を放流できます。"
     : !composer.hasProfile
       ? "先にプロフィールを保存すると流星便を放流できます。"
-      : "テキストだけ、星影だけ、星映だけ。テキストと組み合わせても放流できます。";
+      : "テキストだけでも放流できます。";
   const hasImages = composer.imageDrafts.length > 0;
   const hasVideo = Boolean(composer.videoDraft);
+  const mediaHintText = hasVideo
+    ? "星映を削除すると、星影を選べます。"
+    : hasImages
+      ? "星影を削除すると、星映を選べます。"
+      : "星影か星映を、どちらかひとつ添えられます。";
   const imageInputDisabled =
     composer.saving ||
     !composer.canPost ||
@@ -7672,23 +7677,49 @@ function Composer({ composer }) {
               placeholder="今夜、どの星を観測してほしい？"
               value={composer.draft}
             />
-            <div className="mt-3 grid grid-cols-2 items-stretch gap-2 max-[340px]:grid-cols-1 min-[380px]:gap-3">
-              <div className="flex h-full min-h-[154px] flex-col justify-between rounded-2xl border border-comet/20 bg-comet/10 p-3">
-                <div>
-                  <p className="text-xs font-black text-comet">星影を添える</p>
-                  <p className="mt-1 text-[11px] font-bold leading-5 text-slate-300">画像 最大4枚</p>
-                  <p className="mt-1 text-[10px] leading-4 text-slate-500">
-                    jpg / png / webp。選択中 {composer.imageDrafts.length} / {composer.maxImages}
-                  </p>
-                </div>
+            <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-2">
+              <div className="flex items-stretch gap-2">
                 <label
-                  className={`mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-2xl px-2 text-center text-[11px] font-black shadow-glow transition min-[380px]:text-xs ${
+                  aria-label="星影を添える"
+                  className={`group flex min-h-[68px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-center transition active:scale-[0.98] ${
                     imageInputDisabled
-                      ? "cursor-not-allowed bg-white/10 text-slate-500"
-                      : "cursor-pointer bg-gradient-to-r from-comet via-aurora to-sakura text-night-950 hover:scale-[1.01]"
+                      ? hasImages
+                        ? "cursor-not-allowed border-comet/30 bg-comet/10 text-comet opacity-70"
+                        : "cursor-not-allowed border-white/10 bg-white/[0.03] text-slate-600"
+                      : hasImages
+                        ? "cursor-pointer border-comet/45 bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.16)] hover:bg-comet/20"
+                        : "cursor-pointer border-white/10 bg-white/5 text-slate-300 hover:border-comet/35 hover:bg-comet/10 hover:text-comet"
                   }`}
                 >
-                  星影を選ぶ
+                  <span className="grid h-8 w-8 place-items-center rounded-full border border-current/25 bg-white/5">
+                    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                      <path
+                        d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.7"
+                      />
+                      <path
+                        d="m6.75 15.75 3.25-3.3 2.35 2.35 1.8-1.8 3.1 2.75"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.7"
+                      />
+                      <path
+                        d="M14.75 8.75h.01"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2.4"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-xs font-black leading-none">星影</span>
+                  <span className="text-[10px] font-bold leading-none text-slate-500 group-hover:text-current/70">
+                    {composer.imageDrafts.length}/{composer.maxImages}
+                  </span>
                   <input
                     accept={composer.imageAccept}
                     className="sr-only"
@@ -7698,29 +7729,41 @@ function Composer({ composer }) {
                     type="file"
                   />
                 </label>
-                {hasVideo && (
-                  <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-2 py-2 text-[10px] leading-4 text-sakura">
-                    星映が選択済みです。星影を添える場合は先に星映を削除してください。
-                  </p>
-                )}
-              </div>
 
-              <div className="flex h-full min-h-[154px] flex-col justify-between rounded-2xl border border-aurora/20 bg-aurora/10 p-3">
-                <div>
-                  <p className="text-xs font-black text-aurora">星映を添える</p>
-                  <p className="mt-1 text-[11px] font-bold leading-5 text-slate-300">35秒 最大1本</p>
-                  <p className="mt-1 text-[10px] leading-4 text-slate-500">
-                    完成版100MBまで。元の星映は500MBまで切り取り可。
-                  </p>
-                </div>
                 <label
-                  className={`mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-2xl px-2 text-center text-[11px] font-black shadow-glow transition min-[380px]:text-xs ${
+                  aria-label="星映を添える"
+                  className={`group flex min-h-[68px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-center transition active:scale-[0.98] ${
                     videoInputDisabled
-                      ? "cursor-not-allowed bg-white/10 text-slate-500"
-                      : "cursor-pointer bg-gradient-to-r from-aurora via-comet to-sakura text-night-950 hover:scale-[1.01]"
+                      ? hasVideo
+                        ? "cursor-not-allowed border-aurora/30 bg-aurora/10 text-aurora opacity-70"
+                        : "cursor-not-allowed border-white/10 bg-white/[0.03] text-slate-600"
+                      : hasVideo
+                        ? "cursor-pointer border-aurora/45 bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.16)] hover:bg-aurora/20"
+                        : "cursor-pointer border-white/10 bg-white/5 text-slate-300 hover:border-aurora/35 hover:bg-aurora/10 hover:text-aurora"
                   }`}
                 >
-                  {composer.videoPreparing ? "星映を確認中..." : hasVideo ? "別の星映を選ぶ" : "星映を選ぶ"}
+                  <span className="grid h-8 w-8 place-items-center rounded-full border border-current/25 bg-white/5">
+                    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                      <path
+                        d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.7"
+                      />
+                      <path
+                        d="m10 8.75 5 3.25-5 3.25v-6.5Z"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.7"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-xs font-black leading-none">星映</span>
+                  <span className="text-[10px] font-bold leading-none text-slate-500 group-hover:text-current/70">
+                    {composer.videoPreparing ? "確認中" : "35秒"}
+                  </span>
                   <input
                     accept={composer.videoAccept}
                     className="sr-only"
@@ -7729,17 +7772,15 @@ function Composer({ composer }) {
                     type="file"
                   />
                 </label>
-                {hasImages && (
-                  <p className="mt-2 rounded-2xl border border-sakura/25 bg-sakura/10 px-2 py-2 text-[10px] leading-4 text-sakura">
-                    星影が選択済みです。星映を添える場合は先に星影を削除してください。
-                  </p>
-                )}
               </div>
+              <p
+                className={`mt-2 text-[11px] font-bold leading-5 ${
+                  hasImages || hasVideo ? "text-sakura" : "text-slate-500"
+                }`}
+              >
+                {mediaHintText}
+              </p>
             </div>
-
-            <p className="mt-2 rounded-2xl bg-white/5 px-3 py-2 text-[11px] leading-5 text-slate-400">
-              星影と星映は、どちらか一方を添えられます。
-            </p>
 
             {composer.imageDrafts.length > 0 && (
               <div className="mt-3">
