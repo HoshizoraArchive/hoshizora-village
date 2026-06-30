@@ -56,6 +56,17 @@
       padding-right: env(safe-area-inset-right);
       padding-left: env(safe-area-inset-left);
     }
+
+    .app-shell.post-editor-shell {
+      padding-top: 0;
+      padding-right: 0;
+      padding-left: 0;
+    }
+  }
+
+  .post-editor-shell .moon {
+    top: calc(env(safe-area-inset-top) + 5.15rem);
+    opacity: 0.86;
   }
 
   .glass-panel {
