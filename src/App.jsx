@@ -4523,16 +4523,16 @@ function App() {
 
   return (
     <div
-      className={`app-shell relative isolate min-h-screen overflow-x-hidden bg-night-950 text-starlight ${
-        isPostEditor ? "pb-0" : "pb-28"
+      className={`app-shell relative isolate bg-night-950 text-starlight ${
+        isPostEditor ? "post-editor-shell h-screen h-[100dvh] overflow-hidden pb-0" : "min-h-screen overflow-x-hidden pb-28"
       }`}
     >
       <SkyBackdrop />
       <StardustForeground />
 
       <div
-        className={`relative z-10 mx-auto min-h-screen w-full ${
-          isPostEditor ? "max-w-none px-0 py-0" : "max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
+        className={`relative z-10 mx-auto w-full ${
+          isPostEditor ? "h-screen h-[100dvh] min-h-0 max-w-none overflow-hidden px-0 py-0" : "min-h-screen max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
         }`}
       >
         {!isPostEditor && <AppHeader auth={auth} />}
@@ -4763,9 +4763,9 @@ const METEOR_COMPOSER_FORM_ID = "meteor-composer-form";
 
 function PostScreen({ composer, onBack }) {
   return (
-    <main className="min-h-screen bg-night-950/35">
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-night-950/80 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-2xl">
-        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+    <main className="compose-screen fixed inset-0 z-20 overflow-hidden bg-night-950/35">
+      <header className="compose-header fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-night-950/90 px-4 backdrop-blur-2xl">
+        <div className="mx-auto grid w-full max-w-3xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
           <button
             className="min-h-10 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-200 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
             onClick={onBack}
@@ -7719,105 +7719,110 @@ function Composer({ composer }) {
     composer.imageDrafts.length >= composer.maxImages;
   const videoInputDisabled =
     composer.saving || composer.videoPreparing || !composer.canPost || !composer.hasProfile || hasImages;
+  const composerLayoutStyle = { "--compose-keyboard-offset": `${keyboardOffset}px` };
 
   return (
     <form
-      className="min-h-[calc(100dvh-4.5rem)] px-4 pb-32 pt-5 sm:px-8"
+      className="contents"
       id={METEOR_COMPOSER_FORM_ID}
       onSubmit={composer.onSubmit}
+      style={composerLayoutStyle}
     >
-      <textarea
-        className="min-h-[46vh] w-full resize-y bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-[52vh] sm:text-lg"
-        disabled={!composer.canPost || !composer.hasProfile || composer.saving}
-        maxLength={160}
-        onChange={(event) => composer.onChange(event.target.value)}
-        placeholder="今夜、どの星を観測してほしい？"
-        value={composer.draft}
-      />
-
-      {(mediaHintText || statusText || composer.uploadProgress || composer.message || composer.error) && (
-        <div className="mt-4 space-y-2">
-          {mediaHintText && <p className="text-xs font-bold leading-5 text-sakura">{mediaHintText}</p>}
-          {statusText && <p className="text-xs font-bold leading-5 text-slate-500">{statusText}</p>}
-          {composer.uploadProgress && (
-            <p className="inline-flex rounded-full bg-comet/10 px-3 py-1 text-xs font-bold text-comet">
-              {composer.uploadProgress}
-            </p>
-          )}
-          {(composer.message || composer.error) && (
-            <p
-              className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${
-                composer.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
-              }`}
-            >
-              {composer.error || composer.message}
-            </p>
-          )}
-        </div>
-      )}
-
-      {composer.imageDrafts.length > 0 && (
-        <div className="mt-5">
-          <PostImageDraftPreview
-            drafts={composer.imageDrafts}
-            disabled={composer.saving}
-            onMove={composer.onMoveImage}
-            onRemove={composer.onRemoveImage}
+      <div className="compose-scroll-content fixed inset-x-0 z-20 overflow-y-auto overscroll-contain px-4 sm:px-8">
+        <div className="mx-auto max-w-3xl">
+          <textarea
+            className="min-h-[46vh] w-full resize-y bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-[52vh] sm:text-lg"
+            disabled={!composer.canPost || !composer.hasProfile || composer.saving}
+            maxLength={160}
+            onChange={(event) => composer.onChange(event.target.value)}
+            placeholder="今夜、どの星を観測してほしい？"
+            value={composer.draft}
           />
-        </div>
-      )}
 
-      {composer.videoDraft && (
-        <PostVideoDraftPreview
-          disabled={composer.saving}
-          draft={composer.videoDraft}
-          onRemove={composer.onRemoveVideo}
-        />
-      )}
-
-      {composer.videoDraft && (
-        <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-black text-comet">星映の表紙</p>
-              <p className="mt-1 text-[11px] leading-5 text-slate-400">
-                未設定なら星映から自動生成します。16:9で調整できます。
+        {(mediaHintText || statusText || composer.uploadProgress || composer.message || composer.error) && (
+          <div className="mt-4 space-y-2">
+            {mediaHintText && <p className="text-xs font-bold leading-5 text-sakura">{mediaHintText}</p>}
+            {statusText && <p className="text-xs font-bold leading-5 text-slate-500">{statusText}</p>}
+            {composer.uploadProgress && (
+              <p className="inline-flex rounded-full bg-comet/10 px-3 py-1 text-xs font-bold text-comet">
+                {composer.uploadProgress}
               </p>
-            </div>
-            <label
-              className={`inline-flex min-h-9 items-center rounded-2xl px-3 text-[11px] font-black transition ${
-                composer.saving
-                  ? "cursor-not-allowed bg-white/10 text-slate-500"
-                  : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
-              }`}
-            >
-              表紙を選ぶ
-              <input
-                accept={composer.thumbnailAccept}
-                className="sr-only"
-                disabled={composer.saving}
-                onChange={composer.onThumbnailFileChange}
-                type="file"
-              />
-            </label>
+            )}
+            {(composer.message || composer.error) && (
+              <p
+                className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${
+                  composer.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+                }`}
+              >
+                {composer.error || composer.message}
+              </p>
+            )}
           </div>
+        )}
 
-          {composer.thumbnailDraft && (
-            <PostThumbnailDraftPreview
+        {composer.imageDrafts.length > 0 && (
+          <div className="mt-5">
+            <PostImageDraftPreview
+              drafts={composer.imageDrafts}
               disabled={composer.saving}
-              draft={composer.thumbnailDraft}
-              onEdit={composer.onEditThumbnail}
-              onRemove={composer.onRemoveThumbnail}
+              onMove={composer.onMoveImage}
+              onRemove={composer.onRemoveImage}
             />
-          )}
+          </div>
+        )}
+
+        {composer.videoDraft && (
+          <PostVideoDraftPreview
+            disabled={composer.saving}
+            draft={composer.videoDraft}
+            onRemove={composer.onRemoveVideo}
+          />
+        )}
+
+        {composer.videoDraft && (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/45 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-black text-comet">星映の表紙</p>
+                <p className="mt-1 text-[11px] leading-5 text-slate-400">
+                  未設定なら星映から自動生成します。16:9で調整できます。
+                </p>
+              </div>
+              <label
+                className={`inline-flex min-h-9 items-center rounded-2xl px-3 text-[11px] font-black transition ${
+                  composer.saving
+                    ? "cursor-not-allowed bg-white/10 text-slate-500"
+                    : "cursor-pointer border border-comet/30 bg-comet/10 text-comet hover:bg-comet/15"
+                }`}
+              >
+                表紙を選ぶ
+                <input
+                  accept={composer.thumbnailAccept}
+                  className="sr-only"
+                  disabled={composer.saving}
+                  onChange={composer.onThumbnailFileChange}
+                  type="file"
+                />
+              </label>
+            </div>
+
+            {composer.thumbnailDraft && (
+              <PostThumbnailDraftPreview
+                disabled={composer.saving}
+                draft={composer.thumbnailDraft}
+                onEdit={composer.onEditThumbnail}
+                onRemove={composer.onRemoveThumbnail}
+              />
+            )}
+          </div>
+        )}
+          </div>
         </div>
-      )}
 
       <div
-        className={`fixed inset-x-0 z-50 border-t border-white/10 bg-night-950/90 px-4 pt-2 shadow-[0_-14px_44px_rgba(3,7,18,0.36)] backdrop-blur-2xl ${
+        className={`compose-media-toolbar fixed inset-x-0 z-40 border-t border-white/10 bg-night-950/90 px-4 pt-2 shadow-[0_-14px_44px_rgba(3,7,18,0.36)] backdrop-blur-2xl ${
           keyboardOffset > 0 ? "pb-2" : "pb-[calc(env(safe-area-inset-bottom)+0.55rem)]"
         }`}
-        style={{ bottom: `${keyboardOffset}px` }}
       >
         <div className="mx-auto flex max-w-3xl items-center gap-4">
           <label
