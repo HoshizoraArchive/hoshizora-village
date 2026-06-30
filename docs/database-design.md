@@ -21,6 +21,8 @@ Databaseには以下を保存します。
 - `post_media`: 流星便画像 / 短尺動画
 - `profile_tags`: わたしの星座
 - `post_tags`: 流星便タグ
+- `meteor_tags`: 流星タグ辞書
+- `post_meteor_tags`: 流星便と流星タグの関連
 - `resonances`: 共鳴
 - `notifications`: R.Connect通知
 - `feedbacks`: 星の目安箱
@@ -67,6 +69,7 @@ Storage policy方針:
 - `supabase/migrations/20260611_add_avatar_storage.sql`
 - `supabase/migrations/20260613_add_meteor_image_media.sql`
 - `supabase/migrations/20260616_add_meteor_video_media.sql`
+- `supabase/migrations/20260630_add_meteor_tags.sql`
 
 ### 将来の拡張
 
@@ -217,6 +220,8 @@ RLS方針:
 
 流星便タグを保存します。
 
+現在の流星タグMVPでは、本文中の `#音楽` などを検索可能にする正テーブルとして `meteor_tags` / `post_meteor_tags` を使います。`post_tags` は既存設計として残しますが、固定の `#流星便` / `#観測待ち` 表示には使いません。
+
 主なカラム:
 
 - `id`: タグID
@@ -228,6 +233,65 @@ RLS方針:
 
 - 紐づく流星便が見える場合のみselect可能
 - insert / update / delete は流星便の投稿者本人のみ
+
+### meteor_tags
+
+流星便本文中に入力された `#` 付きの流星タグを、検索・一覧化できるようにするタグ辞書です。
+
+主なカラム:
+
+- `id`: 流星タグID
+- `name`: 表示用のタグ名。最初に作成された自然な表記を維持する
+- `normalized_name`: 検索・重複防止用の正規化名
+- `created_by`: 最初にタグを作成したプロフィール
+- `created_at`: 作成日時
+
+正規化ルール:
+
+- 先頭の `#` は保存しない
+- 前後空白を除去
+- Unicode NFKCで正規化
+- 英字大小は検索用キーで区別しない
+- 1タグ最大30文字
+- 空文字は禁止
+
+RLS方針:
+
+- タグ辞書自体は誰でもselect可能
+- insertはログイン済みユーザーのみ
+- `created_by = auth.uid()` の場合のみinsert可能
+- update / delete はMVPでは許可しない
+
+### post_meteor_tags
+
+流星便と流星タグの関連を保存します。
+
+主なカラム:
+
+- `post_id`: 対象流星便
+- `tag_id`: 対象流星タグ
+- `sort_order`: 本文中で最初に出現した順序。0から2まで
+- `created_at`: 作成日時
+
+制約:
+
+- 1投稿最大3個
+- 同じタグを同一投稿へ重複登録しない
+- 同一投稿内で `sort_order` は重複しない
+- 投稿削除時は関連行も削除
+
+RLS方針:
+
+- 公開中かつ削除されていない流星便に紐づくタグ関連はselect可能
+- 投稿者本人は自分の流星便に紐づくタグ関連をselect可能
+- insert / delete は対象流星便の投稿者本人のみ
+- updateはMVPでは許可しない
+
+補足:
+
+- `流星タグ` は流星便へ付けるタグです。
+- My Star Chart側の `星タグ` とは別機能として扱います。
+- 本文中のタグ表示は黄色 / 金色で表示し、青色の一般的なハッシュタグ表示にはしません。
 
 ### resonances
 
