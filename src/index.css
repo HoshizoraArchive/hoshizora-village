@@ -50,6 +50,13 @@
     background-color: #030511;
   }
 
+  .post-editor-shell {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   @media (display-mode: standalone) {
     .app-shell {
       padding-top: env(safe-area-inset-top);
@@ -67,6 +74,38 @@
   .post-editor-shell .moon {
     top: calc(env(safe-area-inset-top) + 5.15rem);
     opacity: 0.86;
+  }
+
+  .compose-screen {
+    --compose-keyboard-offset: 0px;
+    --compose-header-height: calc(env(safe-area-inset-top) + 4.5rem);
+    --compose-toolbar-height: calc(env(safe-area-inset-bottom) + 5.35rem);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .compose-header {
+    min-height: var(--compose-header-height);
+    padding-top: calc(env(safe-area-inset-top) + 0.75rem);
+    padding-bottom: 0.75rem;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .compose-scroll-content {
+    top: var(--compose-header-height);
+    bottom: calc(var(--compose-toolbar-height) + var(--compose-keyboard-offset));
+    min-height: 0;
+    padding-top: 6.35rem;
+    padding-bottom: 1rem;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  .compose-media-toolbar {
+    bottom: var(--compose-keyboard-offset);
   }
 
   .glass-panel {

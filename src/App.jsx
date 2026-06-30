@@ -4763,9 +4763,9 @@ const METEOR_COMPOSER_FORM_ID = "meteor-composer-form";
 
 function PostScreen({ composer, onBack }) {
   return (
-    <main className="relative flex h-screen h-[100dvh] min-h-0 flex-col overflow-hidden bg-night-950/35">
-      <header className="relative z-40 flex-none border-b border-white/10 bg-night-950/80 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-2xl">
-        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+    <main className="compose-screen fixed inset-0 z-20 overflow-hidden bg-night-950/35">
+      <header className="compose-header fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-night-950/90 px-4 backdrop-blur-2xl">
+        <div className="mx-auto grid w-full max-w-3xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
           <button
             className="min-h-10 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-200 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
             onClick={onBack}
@@ -7719,29 +7719,25 @@ function Composer({ composer }) {
     composer.imageDrafts.length >= composer.maxImages;
   const videoInputDisabled =
     composer.saving || composer.videoPreparing || !composer.canPost || !composer.hasProfile || hasImages;
-  const scrollAreaStyle = {
-    paddingBottom: `calc(${keyboardOffset}px + env(safe-area-inset-bottom) + 6.75rem)`,
-    WebkitOverflowScrolling: "touch",
-  };
+  const composerLayoutStyle = { "--compose-keyboard-offset": `${keyboardOffset}px` };
 
   return (
     <form
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="contents"
       id={METEOR_COMPOSER_FORM_ID}
       onSubmit={composer.onSubmit}
+      style={composerLayoutStyle}
     >
-      <div
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-24 sm:px-8 sm:pt-28"
-        style={scrollAreaStyle}
-      >
-        <textarea
-          className="min-h-[46vh] w-full resize-y bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-[52vh] sm:text-lg"
-          disabled={!composer.canPost || !composer.hasProfile || composer.saving}
-          maxLength={160}
-          onChange={(event) => composer.onChange(event.target.value)}
-          placeholder="今夜、どの星を観測してほしい？"
-          value={composer.draft}
-        />
+      <div className="compose-scroll-content fixed inset-x-0 z-20 overflow-y-auto overscroll-contain px-4 sm:px-8">
+        <div className="mx-auto max-w-3xl">
+          <textarea
+            className="min-h-[46vh] w-full resize-y bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-[52vh] sm:text-lg"
+            disabled={!composer.canPost || !composer.hasProfile || composer.saving}
+            maxLength={160}
+            onChange={(event) => composer.onChange(event.target.value)}
+            placeholder="今夜、どの星を観測してほしい？"
+            value={composer.draft}
+          />
 
         {(mediaHintText || statusText || composer.uploadProgress || composer.message || composer.error) && (
           <div className="mt-4 space-y-2">
@@ -7820,13 +7816,13 @@ function Composer({ composer }) {
             )}
           </div>
         )}
-      </div>
+          </div>
+        </div>
 
       <div
-        className={`fixed inset-x-0 z-50 border-t border-white/10 bg-night-950/90 px-4 pt-2 shadow-[0_-14px_44px_rgba(3,7,18,0.36)] backdrop-blur-2xl ${
+        className={`compose-media-toolbar fixed inset-x-0 z-40 border-t border-white/10 bg-night-950/90 px-4 pt-2 shadow-[0_-14px_44px_rgba(3,7,18,0.36)] backdrop-blur-2xl ${
           keyboardOffset > 0 ? "pb-2" : "pb-[calc(env(safe-area-inset-bottom)+0.55rem)]"
         }`}
-        style={{ bottom: `${keyboardOffset}px` }}
       >
         <div className="mx-auto flex max-w-3xl items-center gap-4">
           <label
