@@ -7664,35 +7664,32 @@ function Composer({ composer }) {
   return (
     <form className="border-b border-white/10 px-3 py-4 sm:px-5" onSubmit={composer.onSubmit}>
       <div className="glass-panel p-4">
-        <div className="flex gap-3">
-          <div className="grid h-11 w-11 flex-none place-items-center rounded-2xl bg-gradient-to-br from-comet/70 to-aurora/80 font-black">
-            創
-          </div>
-          <div className="min-w-0 flex-1">
+        <div className="min-w-0">
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-night-950/50 focus-within:border-comet/40 focus-within:ring-4 focus-within:ring-comet/10">
             <textarea
-              className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/50 p-4 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10"
+              className="min-h-36 w-full resize-none bg-transparent p-4 text-sm leading-7 text-white outline-none placeholder:text-slate-500"
               disabled={!composer.canPost || !composer.hasProfile || composer.saving}
               maxLength={160}
               onChange={(event) => composer.onChange(event.target.value)}
               placeholder="今夜、どの星を観測してほしい？"
               value={composer.draft}
             />
-            <div className="mt-3 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-2">
-              <div className="flex items-stretch gap-2">
+            <div className="border-t border-white/10 px-3 py-2">
+              <div className="flex items-center gap-3">
                 <label
                   aria-label="星影を添える"
-                  className={`group flex min-h-[68px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-center transition active:scale-[0.98] ${
+                  className={`group inline-flex min-h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-full text-center transition active:scale-95 ${
                     imageInputDisabled
                       ? hasImages
-                        ? "cursor-not-allowed border-comet/30 bg-comet/10 text-comet opacity-70"
-                        : "cursor-not-allowed border-white/10 bg-white/[0.03] text-slate-600"
+                        ? "cursor-not-allowed bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.16)]"
+                        : "cursor-not-allowed bg-white/[0.03] text-slate-600"
                       : hasImages
-                        ? "cursor-pointer border-comet/45 bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.16)] hover:bg-comet/20"
-                        : "cursor-pointer border-white/10 bg-white/5 text-slate-300 hover:border-comet/35 hover:bg-comet/10 hover:text-comet"
+                        ? "cursor-pointer bg-comet/15 text-comet shadow-[0_0_18px_rgba(103,232,249,0.22)] hover:bg-comet/20"
+                        : "cursor-pointer bg-white/5 text-slate-300 hover:bg-comet/10 hover:text-comet"
                   }`}
                 >
-                  <span className="grid h-8 w-8 place-items-center rounded-full border border-current/25 bg-white/5">
-                    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                  <span className="grid h-9 w-9 place-items-center rounded-full border border-current/25 bg-white/5">
+                    <svg aria-hidden="true" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24">
                       <path
                         d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
                         stroke="currentColor"
@@ -7716,10 +7713,7 @@ function Composer({ composer }) {
                       />
                     </svg>
                   </span>
-                  <span className="text-xs font-black leading-none">星影</span>
-                  <span className="text-[10px] font-bold leading-none text-slate-500 group-hover:text-current/70">
-                    {composer.imageDrafts.length}/{composer.maxImages}
-                  </span>
+                  <span className="text-[10px] font-black leading-none">星影</span>
                   <input
                     accept={composer.imageAccept}
                     className="sr-only"
@@ -7732,18 +7726,18 @@ function Composer({ composer }) {
 
                 <label
                   aria-label="星映を添える"
-                  className={`group flex min-h-[68px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-center transition active:scale-[0.98] ${
+                  className={`group inline-flex min-h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-full text-center transition active:scale-95 ${
                     videoInputDisabled
                       ? hasVideo
-                        ? "cursor-not-allowed border-aurora/30 bg-aurora/10 text-aurora opacity-70"
-                        : "cursor-not-allowed border-white/10 bg-white/[0.03] text-slate-600"
+                        ? "cursor-not-allowed bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.16)]"
+                        : "cursor-not-allowed bg-white/[0.03] text-slate-600"
                       : hasVideo
-                        ? "cursor-pointer border-aurora/45 bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.16)] hover:bg-aurora/20"
-                        : "cursor-pointer border-white/10 bg-white/5 text-slate-300 hover:border-aurora/35 hover:bg-aurora/10 hover:text-aurora"
+                        ? "cursor-pointer bg-aurora/15 text-aurora shadow-[0_0_18px_rgba(167,139,250,0.22)] hover:bg-aurora/20"
+                        : "cursor-pointer bg-white/5 text-slate-300 hover:bg-aurora/10 hover:text-aurora"
                   }`}
                 >
-                  <span className="grid h-8 w-8 place-items-center rounded-full border border-current/25 bg-white/5">
-                    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                  <span className="grid h-9 w-9 place-items-center rounded-full border border-current/25 bg-white/5">
+                    <svg aria-hidden="true" className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24">
                       <path
                         d="M4.75 7.5A2.75 2.75 0 0 1 7.5 4.75h9A2.75 2.75 0 0 1 19.25 7.5v9a2.75 2.75 0 0 1-2.75 2.75h-9A2.75 2.75 0 0 1 4.75 16.5v-9Z"
                         stroke="currentColor"
@@ -7760,9 +7754,8 @@ function Composer({ composer }) {
                       />
                     </svg>
                   </span>
-                  <span className="text-xs font-black leading-none">星映</span>
-                  <span className="text-[10px] font-bold leading-none text-slate-500 group-hover:text-current/70">
-                    {composer.videoPreparing ? "確認中" : "35秒"}
+                  <span className="text-[10px] font-black leading-none">
+                    {composer.videoPreparing ? "確認中" : "星映"}
                   </span>
                   <input
                     accept={composer.videoAccept}
@@ -7773,14 +7766,14 @@ function Composer({ composer }) {
                   />
                 </label>
               </div>
-              <p
-                className={`mt-2 text-[11px] font-bold leading-5 ${
-                  hasImages || hasVideo ? "text-sakura" : "text-slate-500"
-                }`}
-              >
-                {mediaHintText}
-              </p>
             </div>
+          </div>
+
+          <p
+            className={`mt-2 text-[11px] font-bold leading-5 ${hasImages || hasVideo ? "text-sakura" : "text-slate-500"}`}
+          >
+            {mediaHintText}
+          </p>
 
             {composer.imageDrafts.length > 0 && (
               <div className="mt-3">
@@ -7866,7 +7859,6 @@ function Composer({ composer }) {
               </p>
             )}
           </div>
-        </div>
       </div>
     </form>
   );
