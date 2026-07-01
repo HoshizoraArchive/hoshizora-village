@@ -34,30 +34,298 @@ where c.relkind = 'r'
   )
 order by c.relname;
 
--- 02. Client-facing table grants.
+-- 02. Client-facing table/view/sequence grants.
+-- Uses pg_catalog ACLs instead of information_schema.role_table_grants so the
+-- PUBLIC pseudo-role is included. Column-level grants are checked separately.
 select
-  '02_role_table_grants' as section,
-  table_schema,
-  table_name,
-  grantee,
-  privilege_type
-from information_schema.role_table_grants
-where table_schema in ('public', 'storage')
-  and grantee in ('anon', 'authenticated', 'public')
-order by table_schema, table_name, grantee, privilege_type;
+  '02_relation_privileges_aclexplode' as section,
+  n.nspname as schema_name,
+  c.relname as object_name,
+  case c.relkind
+    when 'r' then 'table'
+    when 'p' then 'partitioned_table'
+    when 'v' then 'view'
+    when 'm' then 'materialized_view'
+    when 'S' then 'sequence'
+    when 'f' then 'foreign_table'
+    else c.relkind::text
+  end as object_type,
+  pg_get_userbyid(c.relowner) as owner_name,
+  case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+  acl.privilege_type,
+  acl.is_grantable
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+cross join lateral aclexplode(
+  coalesce(
+    c.relacl,
+    acldefault(case when c.relkind = 'S' then 'S' else 'r' end, c.relowner)
+  )
+) as acl
+where n.nspname in ('public', 'storage')
+  and c.relkind in ('r', 'p', 'v', 'm', 'S', 'f')
+  and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
+order by schema_name, object_type, object_name, grantee, acl.privilege_type;
 
--- 03. Column-level grants. Notifications should restrict updates to is_read.
+-- 02b. Schema privileges for exposed/internal schemas.
 select
-  '03_role_column_grants' as section,
-  table_schema,
+  '02b_schema_privileges_aclexplode' as section,
+  n.nspname as schema_name,
+  pg_get_userbyid(n.nspowner) as owner_name,
+  case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+  acl.privilege_type,
+  acl.is_grantable
+from pg_namespace n
+cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) as acl
+where n.nspname in ('public', 'storage', 'app_private')
+  and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
+order by schema_name, grantee, acl.privilege_type;
+
+-- 03. Explicit column-level grants.
+-- Table-level SELECT/INSERT/UPDATE/DELETE privileges are reported in section 02.
+-- This section reports explicit per-column ACLs, including PUBLIC grants.
+select
+  '03_column_privileges_explicit_aclexplode' as section,
+  n.nspname as schema_name,
+  c.relname as table_name,
+  a.attname as column_name,
+  case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+  acl.privilege_type,
+  acl.is_grantable
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+join pg_attribute a on a.attrelid = c.oid
+cross join lateral aclexplode(a.attacl) as acl
+where n.nspname in ('public', 'storage')
+  and c.relkind in ('r', 'p', 'v', 'm', 'f')
+  and a.attnum > 0
+  and not a.attisdropped
+  and a.attacl is not null
+  and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
+order by schema_name, table_name, column_name, grantee, acl.privilege_type;
+
+-- 03b. PUBLIC / anon / authenticated default privileges.
+-- Object types: r=table/view, S=sequence, f=function, n=schema, T=type.
+select
+  '03b_default_privileges' as section,
+  pg_get_userbyid(d.defaclrole) as owner_name,
+  coalesce(n.nspname, '<all schemas>') as schema_name,
+  case d.defaclobjtype
+    when 'r' then 'table'
+    when 'S' then 'sequence'
+    when 'f' then 'function'
+    when 'n' then 'schema'
+    when 'T' then 'type'
+    else d.defaclobjtype::text
+  end as object_type,
+  case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+  acl.privilege_type,
+  acl.is_grantable
+from pg_default_acl d
+left join pg_namespace n on n.oid = d.defaclnamespace
+cross join lateral aclexplode(d.defaclacl) as acl
+where (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
+order by owner_name, schema_name, object_type, grantee, acl.privilege_type;
+
+-- 03c. Public schema object inventory.
+-- Metadata only: no table rows, URLs, UUIDs, or user content are returned.
+with relation_policy_counts as (
+  select
+    schemaname,
+    tablename,
+    count(*) as policy_count
+  from pg_policies
+  where schemaname = 'public'
+  group by schemaname, tablename
+),
+relation_privileges as (
+  select
+    c.oid as object_oid,
+    case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+    array_agg(distinct acl.privilege_type order by acl.privilege_type) as privileges
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  cross join lateral aclexplode(
+    coalesce(
+      c.relacl,
+      acldefault(case when c.relkind = 'S' then 'S' else 'r' end, c.relowner)
+    )
+  ) as acl
+  where n.nspname = 'public'
+    and c.relkind in ('r', 'p', 'v', 'm', 'S', 'f')
+    and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
+  group by c.oid, grantee
+),
+function_privileges as (
+  select
+    p.oid as object_oid,
+    case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+    array_agg(distinct acl.privilege_type order by acl.privilege_type) as privileges
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) as acl
+  where n.nspname = 'public'
+    and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
+  group by p.oid, grantee
+),
+relation_objects as (
+  select
+    c.oid as object_oid,
+    n.nspname as schema_name,
+    c.relname as object_name,
+    case c.relkind
+      when 'r' then 'table'
+      when 'p' then 'partitioned_table'
+      when 'v' then 'view'
+      when 'm' then 'materialized_view'
+      when 'S' then 'sequence'
+      when 'f' then 'foreign_table'
+      else c.relkind::text
+    end as object_type,
+    pg_get_userbyid(c.relowner) as owner_name,
+    case when c.relkind in ('r', 'p') then c.relrowsecurity else null end as rls_enabled,
+    case when c.relkind in ('r', 'p') then c.relforcerowsecurity else null end as force_rls,
+    coalesce(rpc.policy_count, 0) as policy_count,
+    coalesce(pub.privileges, array[]::text[]) as public_privileges,
+    coalesce(anon.privileges, array[]::text[]) as anon_privileges,
+    coalesce(authenticated.privileges, array[]::text[]) as authenticated_privileges
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  left join relation_policy_counts rpc on rpc.schemaname = n.nspname and rpc.tablename = c.relname
+  left join relation_privileges pub on pub.object_oid = c.oid and pub.grantee = 'PUBLIC'
+  left join relation_privileges anon on anon.object_oid = c.oid and anon.grantee = 'anon'
+  left join relation_privileges authenticated on authenticated.object_oid = c.oid and authenticated.grantee = 'authenticated'
+  where n.nspname = 'public'
+    and c.relkind in ('r', 'p', 'v', 'm', 'S', 'f')
+),
+function_objects as (
+  select
+    p.oid as object_oid,
+    n.nspname as schema_name,
+    p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as object_name,
+    'function' as object_type,
+    pg_get_userbyid(p.proowner) as owner_name,
+    null::boolean as rls_enabled,
+    null::boolean as force_rls,
+    null::bigint as policy_count,
+    coalesce(pub.privileges, array[]::text[]) as public_privileges,
+    coalesce(anon.privileges, array[]::text[]) as anon_privileges,
+    coalesce(authenticated.privileges, array[]::text[]) as authenticated_privileges
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  left join function_privileges pub on pub.object_oid = p.oid and pub.grantee = 'PUBLIC'
+  left join function_privileges anon on anon.object_oid = p.oid and anon.grantee = 'anon'
+  left join function_privileges authenticated on authenticated.object_oid = p.oid and authenticated.grantee = 'authenticated'
+  where n.nspname = 'public'
+)
+select
+  '03c_public_schema_object_inventory' as section,
+  schema_name,
+  object_name,
+  object_type,
+  owner_name,
+  rls_enabled,
+  force_rls,
+  policy_count,
+  public_privileges,
+  anon_privileges,
+  authenticated_privileges
+from relation_objects
+union all
+select
+  '03c_public_schema_object_inventory',
+  schema_name,
+  object_name,
+  object_type,
+  owner_name,
+  rls_enabled,
+  force_rls,
+  policy_count,
+  public_privileges,
+  anon_privileges,
+  authenticated_privileges
+from function_objects
+order by object_type, object_name;
+
+-- 03d. RLS anomaly extraction for public schema tables.
+with public_tables as (
+  select
+    n.nspname as schema_name,
+    c.relname as table_name,
+    c.relkind,
+    c.relrowsecurity as rls_enabled,
+    coalesce(count(p.policyname), 0) as policy_count
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  left join pg_policies p on p.schemaname = n.nspname and p.tablename = c.relname
+  where n.nspname = 'public'
+    and c.relkind in ('r', 'p')
+  group by n.nspname, c.relname, c.relkind, c.relrowsecurity
+)
+select
+  '03d_rls_anomalies' as section,
+  'rls_enabled_policy_count_zero' as anomaly_type,
+  schema_name,
   table_name,
-  column_name,
+  rls_enabled,
+  policy_count
+from public_tables
+where rls_enabled is true and policy_count = 0
+union all
+select
+  '03d_rls_anomalies',
+  'policies_exist_but_rls_disabled',
+  schema_name,
+  table_name,
+  rls_enabled,
+  policy_count
+from public_tables
+where rls_enabled is false and policy_count > 0
+union all
+select
+  '03d_rls_anomalies',
+  'public_schema_rls_disabled',
+  schema_name,
+  table_name,
+  rls_enabled,
+  policy_count
+from public_tables
+where rls_enabled is false
+order by anomaly_type, schema_name, table_name;
+
+-- 03e. anon/authenticated write privileges on public schema relation objects.
+with write_privileges as (
+  select
+    n.nspname as schema_name,
+    c.relname as table_name,
+    case c.relkind
+      when 'r' then 'table'
+      when 'p' then 'partitioned_table'
+      when 'v' then 'view'
+      when 'm' then 'materialized_view'
+      when 'f' then 'foreign_table'
+      else c.relkind::text
+    end as object_type,
+    case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+    acl.privilege_type
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  cross join lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) as acl
+  where n.nspname = 'public'
+    and c.relkind in ('r', 'p', 'v', 'm', 'f')
+    and pg_get_userbyid(acl.grantee) in ('anon', 'authenticated')
+    and acl.privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')
+)
+select
+  '03e_browser_role_write_grants' as section,
+  schema_name,
+  table_name,
+  object_type,
   grantee,
-  privilege_type
-from information_schema.role_column_grants
-where table_schema = 'public'
-  and grantee in ('anon', 'authenticated', 'public')
-order by table_schema, table_name, column_name, grantee, privilege_type;
+  array_agg(distinct privilege_type order by privilege_type) as write_privileges
+from write_privileges
+group by schema_name, table_name, object_type, grantee
+order by schema_name, table_name, grantee;
 
 -- 04. Public/storage RLS policies.
 select
@@ -350,4 +618,3 @@ select
 
 -- 25. Manual dashboard checks cannot be completed from SQL.
 select '25_manual_dashboard_checks' as section, 'Needs live verification: Supabase Auth settings, provider rate limits, CAPTCHA/bot protection, project API key exposure, Netlify env vars, deployed HTTP headers.' as note;
-

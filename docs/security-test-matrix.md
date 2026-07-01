@@ -23,20 +23,23 @@ Run `docs/security-verification.sql` in the target Supabase project and record a
 | ID | Area | SQL Sections | Expected Result | Status |
 | --- | --- | --- | --- | --- |
 | S-01 | RLS enabled | `01_rls_status` | All app tables have RLS enabled. | Needs live verification |
-| S-02 | Table grants | `02_role_table_grants` | Browser roles have only intended grants. | Needs live verification |
-| S-03 | Column grants | `03_role_column_grants` | `notifications` update grant is limited to `is_read`. | Needs live verification |
-| S-04 | Policy drift | `04_policies` | Live policy definitions match intended repository policy set. | Needs live verification |
-| S-05 | Security definer hygiene | `05_security_definer_functions`, `06_function_execute_privileges` | Security-definer functions use safe search path and are not executable by browser roles. | Needs live verification |
-| S-06 | Storage buckets | `08_storage_buckets` | Bucket public/private, MIME, and size settings match product intent. | Needs live verification |
-| S-07 | Storage object shape | `09_storage_object_counts` | Object paths start with UUID folders; no unexpected bucket objects. | Needs live verification |
-| S-08 | Orphan storage | `10_unreferenced_meteor_storage_objects` | No unexpected orphan media objects, or accepted cleanup backlog exists. | Needs live verification |
-| S-09 | Media metadata | `11_post_media_metadata_quality`, `12_post_media_visibility_shape` | Metadata has valid shape and no unexpected deleted/private exposure. | Needs live verification |
-| S-10 | Deleted posts | `13_deleted_post_counts`, `14_child_rows_on_deleted_posts` | Deleted rows are not publicly exposed or actionable. | Needs live verification |
-| S-11 | Observations | `15_observation_counts`, `16_public_post_observation_counts` | No internal AI rows are exposed through public table reads. | Needs live verification |
-| S-12 | Oversized content | `17_oversized_content` | No oversized rows beyond UI limits, or cleanup plan exists. | Needs live verification |
-| S-13 | Resonance spam | `18_duplicate_resonances` | Duplicate resonance count matches intended MVP behavior. | Needs live verification |
-| S-14 | Notifications | `20_notification_shape` | No self-notification or invalid type anomalies. | Needs live verification |
-| S-15 | Realtime exposure | `22_publication_tables` | No unintended tables are published to Realtime. | Needs live verification |
+| S-02 | Relation grants | `02_relation_privileges_aclexplode`, `02b_schema_privileges_aclexplode` | `PUBLIC`, `anon`, and `authenticated` privileges are visible and intended. | Needs live verification |
+| S-03 | Column grants | `03_column_privileges_explicit_aclexplode` | Explicit column privileges are visible; `notifications` update remains limited to `is_read`. | Needs live verification |
+| S-04 | Default privileges | `03b_default_privileges` | No unexpected default grants to `PUBLIC`, `anon`, or `authenticated`. | Needs live verification |
+| S-05 | Public schema inventory | `03c_public_schema_object_inventory` | All public schema tables, partitioned tables, views, materialized views, sequences, foreign tables, and functions are known and intended. | Needs live verification |
+| S-06 | RLS anomaly extraction | `03d_rls_anomalies`, `03e_browser_role_write_grants` | No RLS-enabled zero-policy tables, no policy-on-disabled-RLS tables, no unexpected disabled-RLS tables, and no unexpected browser write grants. | Needs live verification |
+| S-07 | Policy drift | `04_policies` | Live policy definitions match intended repository policy set. | Needs live verification |
+| S-08 | Security definer hygiene | `05_security_definer_functions`, `06_function_execute_privileges` | Security-definer functions use safe search path and are not executable by browser roles. | Needs live verification |
+| S-09 | Storage buckets | `08_storage_buckets` | Bucket public/private, MIME, and size settings match product intent. | Needs live verification |
+| S-10 | Storage object shape | `09_storage_object_counts` | Object paths start with UUID folders; no unexpected bucket objects. | Needs live verification |
+| S-11 | Orphan storage | `10_unreferenced_meteor_storage_objects` | No unexpected orphan media objects, or accepted cleanup backlog exists. | Needs live verification |
+| S-12 | Media metadata | `11_post_media_metadata_quality`, `12_post_media_visibility_shape` | Metadata has valid shape and no unexpected deleted/private exposure. | Needs live verification |
+| S-13 | Deleted posts | `13_deleted_post_counts`, `14_child_rows_on_deleted_posts` | Deleted rows are not publicly exposed or actionable. | Needs live verification |
+| S-14 | Observations | `15_observation_counts`, `16_public_post_observation_counts` | No internal AI rows are exposed through public table reads. | Needs live verification |
+| S-15 | Oversized content | `17_oversized_content` | No oversized rows beyond UI limits, or cleanup plan exists. | Needs live verification |
+| S-16 | Resonance spam | `18_duplicate_resonances` | Duplicate resonance count matches intended MVP behavior. | Needs live verification |
+| S-17 | Notifications | `20_notification_shape` | No self-notification or invalid type anomalies. | Needs live verification |
+| S-18 | Realtime exposure | `22_publication_tables` | No unintended tables are published to Realtime. | Needs live verification |
 
 ## Manual Browser and API Checks
 

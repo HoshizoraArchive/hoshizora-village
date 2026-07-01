@@ -22,6 +22,7 @@ Not verified live in this environment:
 
 - Supabase Dashboard Auth settings
 - Supabase live RLS/policy drift versus repository SQL
+- Supabase live PUBLIC grants, default privileges, and object inventory outside known app tables
 - Supabase live Storage object contents and orphan object counts
 - Netlify production environment variables and deployed headers
 - Abuse/rate-limit settings in provider dashboards
@@ -409,6 +410,8 @@ Could not complete:
 ## Required Live Verification
 
 Run `docs/security-verification.sql` in the Supabase SQL Editor for the beta project and save the result summary outside the repository without secret values.
+
+The SQL now uses `pg_catalog` ACL inspection with `aclexplode` for table/view/sequence/schema/function privileges so `PUBLIC`, `anon`, and `authenticated` grants are visible. It also includes default privileges, a public schema object inventory, and explicit RLS anomaly sections.
 
 Also check these dashboard-only settings:
 
