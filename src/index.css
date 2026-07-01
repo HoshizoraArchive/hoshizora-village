@@ -52,7 +52,7 @@
 
   .post-editor-shell {
     height: 100vh;
-    height: 100dvh;
+    height: 100svh;
     overflow: hidden;
     overscroll-behavior: none;
   }
@@ -82,7 +82,7 @@
     --compose-toolbar-height: calc(env(safe-area-inset-bottom) + 5.35rem);
     --compose-active-toolbar-height: var(--compose-toolbar-height);
     height: 100vh;
-    height: 100dvh;
+    height: 100svh;
     overflow: hidden;
     overscroll-behavior: none;
   }

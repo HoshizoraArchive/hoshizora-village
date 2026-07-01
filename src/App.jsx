@@ -5243,7 +5243,7 @@ function App() {
   return (
     <div
       className={`app-shell relative isolate bg-night-950 text-starlight ${
-        isPostEditor ? "post-editor-shell h-screen h-[100dvh] overflow-hidden pb-0" : "min-h-screen overflow-x-hidden pb-28"
+        isPostEditor ? "post-editor-shell overflow-hidden pb-0" : "min-h-screen overflow-x-hidden pb-28"
       }`}
     >
       <SkyBackdrop />
@@ -5251,7 +5251,7 @@ function App() {
 
       <div
         className={`relative z-10 mx-auto w-full ${
-          isPostEditor ? "h-screen h-[100dvh] min-h-0 max-w-none overflow-hidden px-0 py-0" : "min-h-screen max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
+          isPostEditor ? "h-full min-h-0 max-w-none overflow-hidden px-0 py-0" : "min-h-screen max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
         }`}
       >
         {!isPostEditor && <AppHeader auth={auth} />}
@@ -8514,6 +8514,7 @@ function useKeyboardToolbarOffset() {
   const layoutViewportHeightRef = useRef(0);
   const frameRef = useRef(null);
   const orientationTimerRef = useRef(null);
+  const toolbarKeyboardClearance = 12;
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -8541,7 +8542,7 @@ function useKeyboardToolbarOffset() {
       const layoutOverlap = Math.max(0, Math.round(layoutViewportHeight - visibleViewportBottom));
       const innerHeightShrank = innerViewportBottom < layoutViewportHeight - 80;
       const nextOffset = innerHeightShrank ? innerOverlap : layoutOverlap;
-      const safeOffset = nextOffset > 16 ? nextOffset : 0;
+      const safeOffset = nextOffset > 16 ? nextOffset + toolbarKeyboardClearance : 0;
 
       if (safeOffset === 0) {
         layoutViewportHeightRef.current = readLayoutViewportHeight();
