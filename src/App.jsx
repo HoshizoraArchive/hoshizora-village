@@ -12,10 +12,15 @@ const bottomNavItems = [
 const STAR_LETTER_MAX_LENGTH = 500;
 const FEEDBACK_MAX_LENGTH = 1000;
 const POST_MAX_LENGTH = 500;
+const METEOR_TAG_MAX_COUNT = 3;
+const METEOR_TAG_MAX_LENGTH = 30;
 const FEEDBACK_TYPES = ["不具合", "分かりにくい", "改善案", "ほしい機能", "感想", "その他"];
 const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
 const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
+const METEOR_TAG_SELECT_COLUMNS = "id, name, normalized_name, created_by, created_at";
+const POST_METEOR_TAG_SELECT_COLUMNS = "post_id, tag_id, sort_order, meteor_tags(id, name, normalized_name)";
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
+const METEOR_TAG_CHARACTER_PATTERN = /[\p{L}\p{N}\p{M}_]/u;
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const AVATAR_BUCKET = "avatars";
 const AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024;
@@ -298,6 +303,16 @@ function isMissingDeletedAtError(error) {
 function isMissingPostMediaError(error) {
   const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
   return error?.code === "42P01" || error?.code === "PGRST205" || message.includes("post_media");
+}
+
+function isMissingMeteorTagsError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    message.includes("meteor_tags") ||
+    message.includes("post_meteor_tags")
+  );
 }
 
 function isMissingVideoPostMediaColumnError(error) {
@@ -741,6 +756,69 @@ function attachMediaToPosts(posts, mediaByPostId) {
   }));
 }
 
+function mapMeteorTagRow(tagRow, sortOrder = 0) {
+  const name = String(tagRow?.name ?? "").replace(/^#/, "").trim();
+  const normalizedName = tagRow?.normalized_name || getMeteorTagSearchKey(name);
+
+  return {
+    id: tagRow?.id ?? normalizedName,
+    label: name ? `#${name}` : "",
+    name,
+    normalizedName,
+    sortOrder,
+  };
+}
+
+async function readMeteorTagsForPostIds(postIds) {
+  const uniquePostIds = [...new Set((postIds ?? []).filter(Boolean))];
+
+  if (uniquePostIds.length === 0) {
+    return { error: null, tagsByPostId: new Map() };
+  }
+
+  const { data, error } = await supabase
+    .from("post_meteor_tags")
+    .select(POST_METEOR_TAG_SELECT_COLUMNS)
+    .in("post_id", uniquePostIds)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    return { error, tagsByPostId: new Map() };
+  }
+
+  const tagsByPostId = new Map();
+
+  for (const row of data ?? []) {
+    const tag = mapMeteorTagRow(row.meteor_tags, row.sort_order ?? 0);
+
+    if (!tag.name) {
+      continue;
+    }
+
+    tagsByPostId.set(row.post_id, [...(tagsByPostId.get(row.post_id) ?? []), tag]);
+  }
+
+  return { error: null, tagsByPostId };
+}
+
+function attachMeteorTagsToPosts(posts, tagsByPostId) {
+  return (posts ?? []).map((post) => ({
+    ...post,
+    tags: tagsByPostId.get(post.id) ?? [],
+  }));
+}
+
+async function hydratePostsWithMeteorTags(posts) {
+  const safePosts = posts ?? [];
+  const { tagsByPostId, error } = await readMeteorTagsForPostIds(safePosts.map((post) => post.id));
+
+  if (error) {
+    return { error, posts: safePosts };
+  }
+
+  return { error: null, posts: attachMeteorTagsToPosts(safePosts, tagsByPostId) };
+}
+
 async function hydratePostsWithMedia(posts) {
   const safePosts = posts ?? [];
   const { mediaByPostId, error } = await readPostMediaForPostIds(safePosts.map((post) => post.id));
@@ -752,6 +830,136 @@ async function hydratePostsWithMedia(posts) {
   return { posts: attachMediaToPosts(safePosts, mediaByPostId), error: null };
 }
 
+async function hydratePostsWithAssets(posts) {
+  const mediaResult = await hydratePostsWithMedia(posts);
+  const tagResult = await hydratePostsWithMeteorTags(mediaResult.posts);
+
+  return {
+    error: mediaResult.error || tagResult.error,
+    posts: tagResult.posts,
+  };
+}
+
+async function readMeteorTagsByNormalizedNames(normalizedNames) {
+  const uniqueNames = [...new Set((normalizedNames ?? []).filter(Boolean))];
+
+  if (uniqueNames.length === 0) {
+    return { data: [], error: null };
+  }
+
+  return supabase
+    .from("meteor_tags")
+    .select(METEOR_TAG_SELECT_COLUMNS)
+    .in("normalized_name", uniqueNames);
+}
+
+async function ensureMeteorTags(tagDrafts, creatorId) {
+  const safeDrafts = (tagDrafts ?? []).filter((tag) => tag?.normalizedName);
+
+  if (safeDrafts.length === 0) {
+    return { error: null, tags: [] };
+  }
+
+  const normalizedNames = safeDrafts.map((tag) => tag.normalizedName);
+  const existingResult = await readMeteorTagsByNormalizedNames(normalizedNames);
+
+  if (existingResult.error) {
+    return { error: existingResult.error, tags: [] };
+  }
+
+  const tagsByNormalizedName = new Map(
+    (existingResult.data ?? []).map((tagRow) => [tagRow.normalized_name, mapMeteorTagRow(tagRow)]),
+  );
+
+  for (const tagDraft of safeDrafts) {
+    if (tagsByNormalizedName.has(tagDraft.normalizedName)) {
+      continue;
+    }
+
+    const { data, error } = await supabase
+      .from("meteor_tags")
+      .insert({
+        created_by: creatorId,
+        name: tagDraft.name,
+        normalized_name: tagDraft.normalizedName,
+      })
+      .select(METEOR_TAG_SELECT_COLUMNS)
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        const retryResult = await readMeteorTagsByNormalizedNames([tagDraft.normalizedName]);
+
+        if (retryResult.error) {
+          return { error: retryResult.error, tags: [] };
+        }
+
+        const existingTag = retryResult.data?.[0];
+
+        if (existingTag) {
+          tagsByNormalizedName.set(tagDraft.normalizedName, mapMeteorTagRow(existingTag));
+          continue;
+        }
+      }
+
+      return { error, tags: [] };
+    }
+
+    tagsByNormalizedName.set(tagDraft.normalizedName, mapMeteorTagRow(data));
+  }
+
+  return {
+    error: null,
+    tags: safeDrafts
+      .map((tagDraft, index) => {
+        const tag = tagsByNormalizedName.get(tagDraft.normalizedName);
+        return tag ? { ...tag, sortOrder: index } : null;
+      })
+      .filter(Boolean),
+  };
+}
+
+async function replacePostMeteorTags(postId, tagDrafts, creatorId) {
+  const safeDrafts = tagDrafts ?? [];
+  let tags = [];
+
+  if (safeDrafts.length > 0) {
+    const { error: ensureError, tags: ensuredTags } = await ensureMeteorTags(safeDrafts, creatorId);
+
+    if (ensureError) {
+      return { error: ensureError, tags: [] };
+    }
+
+    tags = ensuredTags;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("post_meteor_tags")
+    .delete()
+    .eq("post_id", postId);
+
+  if (deleteError) {
+    return { error: deleteError, tags: [] };
+  }
+
+  if (tags.length === 0) {
+    return { error: null, tags: [] };
+  }
+
+  const rows = tags.map((tag, index) => ({
+    post_id: postId,
+    sort_order: index,
+    tag_id: tag.id,
+  }));
+  const { error: insertError } = await supabase.from("post_meteor_tags").insert(rows);
+
+  if (insertError) {
+    return { error: insertError, tags: [] };
+  }
+
+  return { error: null, tags };
+}
+
 function getRouteFromLocation() {
   const meteorMatch = window.location.pathname.match(/^\/meteor\/([^/?#]+)\/?$/);
 
@@ -759,6 +967,7 @@ function getRouteFromLocation() {
     return {
       name: "meteor",
       postId: decodeURIComponent(meteorMatch[1]),
+      tagName: null,
       username: null,
     };
   }
@@ -769,13 +978,26 @@ function getRouteFromLocation() {
     return {
       name: "starProfile",
       postId: null,
+      tagName: null,
       username: decodeURIComponent(starMatch[1]).replace(/^@/, ""),
+    };
+  }
+
+  const tagMatch = window.location.pathname.match(/^\/tags\/([^/?#]+)\/?$/);
+
+  if (tagMatch?.[1]) {
+    return {
+      name: "meteorTag",
+      postId: null,
+      tagName: decodeURIComponent(tagMatch[1]).replace(/^#/, ""),
+      username: null,
     };
   }
 
   return {
     name: "home",
     postId: null,
+    tagName: null,
     username: null,
   };
 }
@@ -786,6 +1008,10 @@ function buildMeteorPath(postId) {
 
 function buildStarProfilePath(username) {
   return `/stars/${encodeURIComponent(String(username ?? "").replace(/^@/, ""))}`;
+}
+
+function buildMeteorTagPath(tagName) {
+  return `/tags/${encodeURIComponent(String(tagName ?? "").replace(/^#/, ""))}`;
 }
 
 function getAvatarText(value) {
@@ -822,6 +1048,108 @@ function getSafeLinkUrl(rawUrl) {
 function getCleanMatchedUrl(rawUrl) {
   const trailingText = rawUrl.match(/[.,!?;:)\]}、。！？）」』】]+$/)?.[0] ?? "";
   return trailingText ? rawUrl.slice(0, -trailingText.length) : rawUrl;
+}
+
+function getUrlRanges(text) {
+  return [...String(text ?? "").matchAll(URL_PATTERN)].map((match) => ({
+    end: (match.index ?? 0) + match[0].length,
+    start: match.index ?? 0,
+  }));
+}
+
+function isIndexInRanges(index, ranges) {
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+function isMeteorTagCharacter(character) {
+  return METEOR_TAG_CHARACTER_PATTERN.test(character);
+}
+
+function normalizeMeteorTagName(value) {
+  return String(value ?? "").replace(/^#/, "").trim().normalize("NFKC");
+}
+
+function getMeteorTagSearchKey(value) {
+  return normalizeMeteorTagName(value).toLocaleLowerCase("ja-JP");
+}
+
+function getMeteorTagLabel(tag) {
+  const name = typeof tag === "string" ? tag : tag?.name;
+  const normalizedName = normalizeMeteorTagName(name);
+  return normalizedName ? `#${normalizedName}` : "";
+}
+
+function extractMeteorTags(text, { includePositions = false } = {}) {
+  const source = String(text ?? "");
+  const urlRanges = getUrlRanges(source);
+  const tags = [];
+  const seen = new Set();
+  let index = 0;
+
+  while (index < source.length) {
+    const codePoint = source.codePointAt(index);
+    const character = String.fromCodePoint(codePoint);
+
+    if (character !== "#" || isIndexInRanges(index, urlRanges)) {
+      index += character.length;
+      continue;
+    }
+
+    const markerStart = index;
+    let cursor = index + character.length;
+
+    while (cursor < source.length) {
+      const nextCodePoint = source.codePointAt(cursor);
+      const nextCharacter = String.fromCodePoint(nextCodePoint);
+
+      if (!isMeteorTagCharacter(nextCharacter)) {
+        break;
+      }
+
+      cursor += nextCharacter.length;
+    }
+
+    const rawName = source.slice(index + character.length, cursor);
+    const name = String(rawName).trim();
+    const normalizedName = getMeteorTagSearchKey(rawName);
+
+    if (name && normalizedName && !seen.has(normalizedName)) {
+      seen.add(normalizedName);
+      tags.push({
+        end: cursor,
+        label: `#${name}`,
+        name,
+        normalizedName,
+        start: markerStart,
+      });
+    }
+
+    index = Math.max(cursor, index + character.length);
+  }
+
+  return includePositions ? tags : tags.map(({ end, start, ...tag }) => tag);
+}
+
+function validateMeteorTagsFromText(text) {
+  const tags = extractMeteorTags(text);
+
+  if (tags.length > METEOR_TAG_MAX_COUNT) {
+    return {
+      error: "流星タグは3つまで添えられます",
+      tags,
+    };
+  }
+
+  const hasLongTag = tags.some((tag) => Array.from(tag.name).length > METEOR_TAG_MAX_LENGTH);
+
+  if (hasLongTag) {
+    return {
+      error: "流星タグは30文字以内で入力してください",
+      tags,
+    };
+  }
+
+  return { error: "", tags };
 }
 
 function getYouTubeVideoIdFromUrl(rawUrl) {
@@ -966,7 +1294,7 @@ function mapSavedPost(post, authorProfile) {
     text: post.body,
     visibility: post.visibility,
     media: [],
-    tags: ["#流星便", "#観測待ち"],
+    tags: [],
     resonanceCount: 0,
     comments: "未集計",
     glow: "from-comet/25 to-sakura/20",
@@ -1044,6 +1372,10 @@ function App() {
   const [publicProfilePosts, setPublicProfilePosts] = useState([]);
   const [publicProfileLoading, setPublicProfileLoading] = useState(false);
   const [publicProfileError, setPublicProfileError] = useState("");
+  const [meteorTagView, setMeteorTagView] = useState(null);
+  const [meteorTagPosts, setMeteorTagPosts] = useState([]);
+  const [meteorTagLoading, setMeteorTagLoading] = useState(false);
+  const [meteorTagError, setMeteorTagError] = useState("");
   const [shareMessage, setShareMessage] = useState("");
   const [shareError, setShareError] = useState("");
   const [profileShareMessage, setProfileShareMessage] = useState("");
@@ -1148,13 +1480,15 @@ function App() {
   const [feedbackError, setFeedbackError] = useState("");
   const detailPostId = route.name === "meteor" ? route.postId : null;
   const publicProfileUsername = route.name === "starProfile" ? route.username : null;
+  const meteorTagRouteName = route.name === "meteorTag" ? route.tagName : null;
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
   const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
   const publicProfilePostIdsKey = publicProfilePosts.map((post) => post.id).filter(Boolean).join("|");
+  const meteorTagPostIdsKey = meteorTagPosts.map((post) => post.id).filter(Boolean).join("|");
   const allPostIdsKey = [
     ...new Set(
-      [...savedPosts, ...ownPosts, ...archivedPosts, ...publicProfilePosts, detailPost]
+      [...savedPosts, ...ownPosts, ...archivedPosts, ...publicProfilePosts, ...meteorTagPosts, detailPost]
         .filter(Boolean)
         .map((post) => post.id)
         .filter(Boolean),
@@ -1459,6 +1793,47 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+    const postIds = meteorTagPostIdsKey ? meteorTagPostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readMeteorTagPostResonances() {
+      const { data, error } = await supabase
+        .from("resonances")
+        .select("id, post_id, profile_id")
+        .in("post_id", postIds);
+
+      if (!isMounted || error) {
+        return;
+      }
+
+      const countsByPost = new Map();
+
+      for (const resonance of data ?? []) {
+        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
+      }
+
+      setMeteorTagPosts((currentPosts) =>
+        currentPosts.map((post) => ({
+          ...post,
+          resonanceCount: countsByPost.get(post.id) ?? 0,
+        })),
+      );
+    }
+
+    readMeteorTagPostResonances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [meteorTagPostIdsKey]);
+
+  useEffect(() => {
+    let isMounted = true;
 
     if (!detailPost?.id) {
       return () => {
@@ -1532,6 +1907,52 @@ function App() {
     }
 
     readPostMedia();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [allPostIdsKey]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const postIds = allPostIdsKey ? allPostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readMeteorTags() {
+      const { tagsByPostId, error } = await readMeteorTagsForPostIds(postIds);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        if (!isMissingMeteorTagsError(error)) {
+          console.warn("流星タグの読み込みに失敗しました。", error);
+        }
+        return;
+      }
+
+      setSavedPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
+      setOwnPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
+      setArchivedPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
+      setPublicProfilePosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
+      setMeteorTagPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
+      setDetailPost((currentPost) =>
+        currentPost
+          ? {
+              ...currentPost,
+              tags: tagsByPostId.get(currentPost.id) ?? [],
+            }
+          : currentPost,
+      );
+    }
+
+    readMeteorTags();
 
     return () => {
       isMounted = false;
@@ -1684,21 +2105,22 @@ function App() {
       const knownPost =
         detailPost?.id === post.id
           ? detailPost
-          : [savedPosts, ownPosts, archivedPosts, publicProfilePosts]
+          : [savedPosts, ownPosts, archivedPosts, publicProfilePosts, meteorTagPosts]
               .flat()
               .find((currentPost) => currentPost?.id === post.id);
       const basePost = {
         ...mapSavedPost(post, profileRowsError ? null : authorProfile),
         media: knownPost?.media ?? [],
+        tags: knownPost?.tags ?? [],
       };
-      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia([basePost]);
+      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets([basePost]);
 
       if (!isMounted) {
         return;
       }
 
-      if (mediaError && !isMissingPostMediaError(mediaError)) {
-        console.warn("流星便詳細の画像読み込みに失敗しました。", mediaError);
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        console.warn("流星便詳細の添付情報読み込みに失敗しました。", assetsError);
       }
 
       setDetailPost(hydratedPosts[0] ?? basePost);
@@ -1800,14 +2222,14 @@ function App() {
       }
 
       const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profileRow));
-      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isMounted) {
         return;
       }
 
-      if (mediaError && !isMissingPostMediaError(mediaError)) {
-        console.warn("公開プロフィールの画像読み込みに失敗しました。", mediaError);
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        console.warn("公開プロフィールの添付情報読み込みに失敗しました。", assetsError);
       }
 
       setPublicProfile(profileRow);
@@ -1822,6 +2244,162 @@ function App() {
       isMounted = false;
     };
   }, [publicProfileUsername]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!meteorTagRouteName) {
+      setMeteorTagView(null);
+      setMeteorTagPosts([]);
+      setMeteorTagLoading(false);
+      setMeteorTagError("");
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readMeteorTagPosts() {
+      setMeteorTagLoading(true);
+      setMeteorTagError("");
+
+      const normalizedName = getMeteorTagSearchKey(meteorTagRouteName);
+
+      if (!normalizedName) {
+        setMeteorTagView(null);
+        setMeteorTagPosts([]);
+        setMeteorTagLoading(false);
+        setMeteorTagError("流星タグが見つかりませんでした。");
+        return;
+      }
+
+      const { data: tagRow, error: tagError } = await supabase
+        .from("meteor_tags")
+        .select(METEOR_TAG_SELECT_COLUMNS)
+        .eq("normalized_name", normalizedName)
+        .maybeSingle();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (tagError) {
+        setMeteorTagView({ label: `#${meteorTagRouteName}`, name: meteorTagRouteName, normalizedName });
+        setMeteorTagPosts([]);
+        setMeteorTagLoading(false);
+        setMeteorTagError(
+          isMissingMeteorTagsError(tagError)
+            ? "流星タグを使うには、Supabase SQL Editorで流星タグmigrationの実行が必要です。"
+            : tagError.message,
+        );
+        return;
+      }
+
+      if (!tagRow) {
+        setMeteorTagView({ label: `#${meteorTagRouteName}`, name: meteorTagRouteName, normalizedName });
+        setMeteorTagPosts([]);
+        setMeteorTagLoading(false);
+        setMeteorTagError("");
+        return;
+      }
+
+      const tag = mapMeteorTagRow(tagRow);
+      setMeteorTagView(tag);
+
+      const { data: relationRows, error: relationError } = await supabase
+        .from("post_meteor_tags")
+        .select("post_id, sort_order")
+        .eq("tag_id", tagRow.id);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (relationError) {
+        setMeteorTagPosts([]);
+        setMeteorTagLoading(false);
+        setMeteorTagError(relationError.message);
+        return;
+      }
+
+      const postIds = [...new Set((relationRows ?? []).map((row) => row.post_id).filter(Boolean))];
+
+      if (postIds.length === 0) {
+        setMeteorTagPosts([]);
+        setMeteorTagLoading(false);
+        setMeteorTagError("");
+        return;
+      }
+
+      const { data: postRows, error: postsError } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = applyVisiblePostTypeFilter(
+          supabase.from("posts").select(columns).in("id", postIds).eq("visibility", "public"),
+        );
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query.order("created_at", { ascending: false });
+      });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (postsError) {
+        setMeteorTagPosts([]);
+        setMeteorTagLoading(false);
+        setMeteorTagError(postsError.message);
+        return;
+      }
+
+      const authorIds = [...new Set((postRows ?? []).map((post) => post.author_id).filter(Boolean))];
+      const profilesById = new Map();
+
+      if (authorIds.length > 0) {
+        const { data: profileRows, error: profileRowsError } = await supabase
+          .from("profiles")
+          .select("id, display_name, username, avatar_url")
+          .in("id", authorIds);
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (profileRowsError) {
+          setMeteorTagPosts([]);
+          setMeteorTagLoading(false);
+          setMeteorTagError(profileRowsError.message);
+          return;
+        }
+
+        for (const profileRow of profileRows ?? []) {
+          profilesById.set(profileRow.id, profileRow);
+        }
+      }
+
+      const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id)));
+      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        console.warn("流星タグ観測の流星便読み込みに失敗しました。", assetsError);
+      }
+
+      setMeteorTagPosts(hydratedPosts);
+      setMeteorTagLoading(false);
+      setMeteorTagError("");
+    }
+
+    readMeteorTagPosts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [meteorTagRouteName]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1931,14 +2509,14 @@ function App() {
       }
 
       const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profile));
-      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isMounted) {
         return;
       }
 
-      if (mediaError && !isMissingPostMediaError(mediaError)) {
-        console.warn("わたしの流星便の画像読み込みに失敗しました。", mediaError);
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        console.warn("わたしの流星便の添付情報読み込みに失敗しました。", assetsError);
       }
 
       setOwnPosts(hydratedPosts);
@@ -2049,14 +2627,14 @@ function App() {
           return post ? mapArchivedPost(archive, post, profilesById.get(post.author_id)) : null;
         })
         .filter(Boolean);
-      const { posts: hydratedArchives, error: mediaError } = await hydratePostsWithMedia(mappedArchives);
+      const { posts: hydratedArchives, error: assetsError } = await hydratePostsWithAssets(mappedArchives);
 
       if (!isMounted) {
         return;
       }
 
-      if (mediaError && !isMissingPostMediaError(mediaError)) {
-        console.warn("Archiveの画像読み込みに失敗しました。", mediaError);
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        console.warn("Archiveの添付情報読み込みに失敗しました。", assetsError);
       }
 
       setArchivedPosts(hydratedArchives);
@@ -2196,14 +2774,14 @@ function App() {
       }
 
       const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id)));
-      const { posts: hydratedPosts, error: mediaError } = await hydratePostsWithMedia(mappedPosts);
+      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isMounted) {
         return;
       }
 
-      if (mediaError && !isMissingPostMediaError(mediaError)) {
-        console.warn("公開流星便の画像読み込みに失敗しました。", mediaError);
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        console.warn("公開流星便の添付情報読み込みに失敗しました。", assetsError);
       }
 
       setSavedPosts(hydratedPosts);
@@ -2582,6 +3160,7 @@ function App() {
     setOwnPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
     setArchivedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
     setPublicProfilePosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
+    setMeteorTagPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
     setDetailPost((currentPost) => applyAuthorProfileToPost(currentPost, nextProfile));
     setStarLettersByPostId((currentLettersByPostId) =>
       Object.fromEntries(
@@ -3281,6 +3860,18 @@ function App() {
       return;
     }
 
+    if (getTrimmedCharacterLength(body) > POST_MAX_LENGTH) {
+      setPostError("流星便は500文字以内で放流してください。");
+      return;
+    }
+
+    const meteorTagValidation = validateMeteorTagsFromText(body);
+
+    if (meteorTagValidation.error) {
+      setPostError(meteorTagValidation.error);
+      return;
+    }
+
     if (hasVideo && videoDraft.file.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
       setPostError("切り取った星映が100MBを超えています。もう少し短く切り取ってください。");
       return;
@@ -3414,6 +4005,7 @@ function App() {
       createdPostId = data.id;
 
       let media = [];
+      let meteorTags = [];
 
       if (videoMediaRow) {
         const { data: insertedMedia, error: mediaError } = await insertPostMediaRows([
@@ -3450,9 +4042,29 @@ function App() {
         media = mapPostMediaRows(insertedMedia);
       }
 
+      if (meteorTagValidation.tags.length > 0) {
+        const { error: meteorTagsError, tags } = await replacePostMeteorTags(
+          data.id,
+          meteorTagValidation.tags,
+          session.user.id,
+        );
+
+        if (meteorTagsError) {
+          console.warn("流星タグ保存に失敗しました。", meteorTagsError);
+          throw new Error(
+            isMissingMeteorTagsError(meteorTagsError)
+              ? "流星タグを使うには、Supabase SQL Editorで流星タグmigrationの実行が必要です。"
+              : "流星タグの保存に失敗しました。時間をおいてもう一度試してください。",
+          );
+        }
+
+        meteorTags = tags;
+      }
+
       const newPost = {
         ...mapSavedPost(data, profile),
         media,
+        tags: meteorTags,
       };
       setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
       setOwnPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
@@ -3504,6 +4116,8 @@ function App() {
     setSavedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setOwnPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setArchivedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
+    setPublicProfilePosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
+    setMeteorTagPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setDetailPost((currentPost) => (currentPost?.id === postId ? updater(currentPost) : currentPost));
   }
 
@@ -3511,6 +4125,8 @@ function App() {
     setSavedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
     setOwnPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
     setArchivedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+    setPublicProfilePosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+    setMeteorTagPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
   }
 
   function handleStartPostEdit(post) {
@@ -3599,6 +4215,13 @@ function App() {
       return;
     }
 
+    const meteorTagValidation = validateMeteorTagsFromText(body);
+
+    if (meteorTagValidation.error) {
+      setPostActionError(meteorTagValidation.error);
+      return;
+    }
+
     setPostUpdatingId(post.id);
 
     const { data, error } = await supabase
@@ -3609,18 +4232,35 @@ function App() {
       .select(POST_SELECT_COLUMNS)
       .single();
 
-    setPostUpdatingId(null);
-
     if (error) {
+      setPostUpdatingId(null);
       setPostActionError(error.message);
+      return;
+    }
+
+    const { error: meteorTagsError, tags } = await replacePostMeteorTags(
+      post.id,
+      meteorTagValidation.tags,
+      session.user.id,
+    );
+
+    if (meteorTagsError) {
+      setPostUpdatingId(null);
+      setPostActionError(
+        isMissingMeteorTagsError(meteorTagsError)
+          ? "流星タグを使うには、Supabase SQL Editorで流星タグmigrationの実行が必要です。"
+          : "流星タグの保存に失敗しました。時間をおいてもう一度試してください。",
+      );
       return;
     }
 
     const nextBody = data?.body ?? body;
     updatePostEverywhere(post.id, (currentPost) => ({
       ...currentPost,
+      tags,
       text: nextBody,
     }));
+    setPostUpdatingId(null);
     handleCancelPostEdit(post.id);
     setPostActionMessage("流星便を保存しました。");
   }
@@ -3705,6 +4345,8 @@ function App() {
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
       archivedPosts.find((post) => post.id === postId) ??
+      publicProfilePosts.find((post) => post.id === postId) ??
+      meteorTagPosts.find((post) => post.id === postId) ??
       (detailPost?.id === postId ? detailPost : null);
 
     if (!targetPost) {
@@ -3748,6 +4390,26 @@ function App() {
       ),
     );
     setArchivedPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
+            }
+          : post,
+      ),
+    );
+    setPublicProfilePosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
+            }
+          : post,
+      ),
+    );
+    setMeteorTagPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === postId
           ? {
@@ -3809,6 +4471,8 @@ function App() {
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
       archivedPosts.find((post) => post.id === postId) ??
+      publicProfilePosts.find((post) => post.id === postId) ??
+      meteorTagPosts.find((post) => post.id === postId) ??
       (detailPost?.id === postId ? detailPost : null);
 
     if (!targetPost) {
@@ -3960,6 +4624,8 @@ function App() {
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
       archivedPosts.find((post) => post.id === postId) ??
+      publicProfilePosts.find((post) => post.id === postId) ??
+      meteorTagPosts.find((post) => post.id === postId) ??
       (detailPost?.id === postId ? detailPost : null);
 
     if (!targetPost) {
@@ -4122,7 +4788,7 @@ function App() {
       window.history.pushState({ hoshizoraRoute: "meteor" }, "", nextPath);
     }
 
-    setRoute({ name: "meteor", postId, username: null });
+    setRoute({ name: "meteor", postId, tagName: null, username: null });
     setShareMessage("");
     setShareError("");
     setOpenStarLetterPostId(postId);
@@ -4140,11 +4806,31 @@ function App() {
       window.history.pushState({ hoshizoraRoute: "starProfile" }, "", nextPath);
     }
 
-    setRoute({ name: "starProfile", postId: null, username: String(username).replace(/^@/, "") });
+    setRoute({ name: "starProfile", postId: null, tagName: null, username: String(username).replace(/^@/, "") });
     setShareMessage("");
     setShareError("");
     setProfileShareMessage("");
     setProfileShareError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleOpenMeteorTag(tagName) {
+    const safeTagName = normalizeMeteorTagName(tagName);
+
+    if (!safeTagName) {
+      return;
+    }
+
+    const normalizedName = getMeteorTagSearchKey(safeTagName);
+    const nextPath = buildMeteorTagPath(normalizedName);
+
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ hoshizoraRoute: "meteorTag" }, "", nextPath);
+    }
+
+    setRoute({ name: "meteorTag", postId: null, tagName: normalizedName, username: null });
+    setShareMessage("");
+    setShareError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -4158,7 +4844,7 @@ function App() {
     }
 
     window.history.replaceState({}, "", "/");
-    setRoute({ name: "home", postId: null, username: null });
+    setRoute({ name: "home", postId: null, tagName: null, username: null });
     setActiveTab("observe");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -4173,7 +4859,19 @@ function App() {
     }
 
     window.history.replaceState({}, "", "/");
-    setRoute({ name: "home", postId: null, username: null });
+    setRoute({ name: "home", postId: null, tagName: null, username: null });
+    setActiveTab("observe");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleBackFromMeteorTag() {
+    if (window.history.state?.hoshizoraRoute === "meteorTag") {
+      window.history.back();
+      return;
+    }
+
+    window.history.replaceState({}, "", "/");
+    setRoute({ name: "home", postId: null, tagName: null, username: null });
     setActiveTab("observe");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -4269,7 +4967,7 @@ function App() {
   function handleTabChange(tabId) {
     if (route.name !== "home") {
       window.history.pushState({}, "", "/");
-      setRoute({ name: "home", postId: null, username: null });
+      setRoute({ name: "home", postId: null, tagName: null, username: null });
     }
 
     setActiveTab(tabId);
@@ -4329,11 +5027,14 @@ function App() {
     type: feedbackType,
     types: FEEDBACK_TYPES,
   };
+  const postDraftTagValidation = validateMeteorTagsFromText(postDraft);
   const composer = {
     canSubmit:
       Boolean(session) &&
       Boolean(profile?.id) &&
       (Boolean(postDraft.trim()) || postImageDrafts.length > 0 || Boolean(postVideoDraft)) &&
+      !postDraftTagValidation.error &&
+      getTrimmedCharacterLength(postDraft) <= POST_MAX_LENGTH &&
       !postSaving &&
       !postVideoPreparing &&
       !postVideoTrimProcessing &&
@@ -4357,6 +5058,8 @@ function App() {
     onThumbnailFileChange: handlePostThumbnailFileChange,
     onVideoFileChange: handlePostVideoFileChange,
     saving: postSaving,
+    tagError: postDraftTagValidation.error,
+    tagMaxCount: METEOR_TAG_MAX_COUNT,
     thumbnailAccept: METEOR_THUMBNAIL_ACCEPT,
     thumbnailDraft: postThumbnailDraft,
     uploadProgress: postUploadProgress,
@@ -4389,6 +5092,7 @@ function App() {
     onCancelEdit: handleCancelPostEdit,
     onDelete: handlePostDelete,
     onEditChange: handlePostEditDraftChange,
+    onOpenMeteorTag: handleOpenMeteorTag,
     onStartEdit: handleStartPostEdit,
     onUpdate: handlePostUpdate,
     session,
@@ -4441,7 +5145,8 @@ function App() {
       ? detailPost ??
         savedPosts.find((post) => post.id === detailPostId) ??
         ownPosts.find((post) => post.id === detailPostId) ??
-        archivedPosts.find((post) => post.id === detailPostId)
+        archivedPosts.find((post) => post.id === detailPostId) ??
+        meteorTagPosts.find((post) => post.id === detailPostId)
       : null;
   const meteorDetail = {
     error: detailPostError,
@@ -4452,6 +5157,20 @@ function App() {
     postId: detailPostId,
     shareError,
     shareMessage,
+  };
+  const meteorTagRoute = {
+    error: meteorTagError,
+    loading: meteorTagLoading,
+    onBack: handleBackFromMeteorTag,
+    onOpenMeteorDetail: handleOpenMeteorDetail,
+    onOpenPostMedia: handleOpenMediaViewer,
+    onOpenStarProfile: handleOpenStarProfile,
+    posts: meteorTagPosts,
+    tag: meteorTagView ?? {
+      label: meteorTagRouteName ? `#${meteorTagRouteName}` : "",
+      name: meteorTagRouteName ?? "",
+      normalizedName: meteorTagRouteName ?? "",
+    },
   };
   const publicStarProfile = {
     error: publicProfileError,
@@ -4524,7 +5243,7 @@ function App() {
   return (
     <div
       className={`app-shell relative isolate bg-night-950 text-starlight ${
-        isPostEditor ? "post-editor-shell h-screen h-[100dvh] overflow-hidden pb-0" : "min-h-screen overflow-x-hidden pb-28"
+        isPostEditor ? "post-editor-shell overflow-hidden pb-0" : "min-h-screen overflow-x-hidden pb-28"
       }`}
     >
       <SkyBackdrop />
@@ -4532,7 +5251,7 @@ function App() {
 
       <div
         className={`relative z-10 mx-auto w-full ${
-          isPostEditor ? "h-screen h-[100dvh] min-h-0 max-w-none overflow-hidden px-0 py-0" : "min-h-screen max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
+          isPostEditor ? "h-full min-h-0 max-w-none overflow-hidden px-0 py-0" : "min-h-screen max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
         }`}
       >
         {!isPostEditor && <AppHeader auth={auth} />}
@@ -4553,6 +5272,7 @@ function App() {
           notifications={notificationState}
           starLetters={starLetters}
           meteorDetail={meteorDetail}
+          meteorTagRoute={meteorTagRoute}
           publicStarProfile={publicStarProfile}
           route={route}
           onBackFromPost={() => handleTabChange("observe")}
@@ -4631,6 +5351,7 @@ function TabContent({
   composer,
   feedback,
   meteorDetail,
+  meteorTagRoute,
   notifications,
   onBackFromPost,
   onOpenMeteorDetail,
@@ -4666,7 +5387,20 @@ function TabContent({
       <PublicStarProfileScreen
         archive={archive}
         onOpenPostMedia={onOpenPostMedia}
+        postActions={postActions}
         profileRoute={publicStarProfile}
+        resonance={resonance}
+        starLetters={starLetters}
+      />
+    );
+  }
+
+  if (route.name === "meteorTag") {
+    return (
+      <MeteorTagScreen
+        archive={archive}
+        meteorTagRoute={meteorTagRoute}
+        postActions={postActions}
         resonance={resonance}
         starLetters={starLetters}
       />
@@ -4881,7 +5615,7 @@ function MeteorDetailScreen({ archive, detail, onOpenPostMedia, onOpenStarProfil
   );
 }
 
-function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters }) {
+function PublicStarProfileScreen({ archive, postActions, profileRoute, resonance, starLetters }) {
   const profile = profileRoute.profile;
   const isNotFound = profileRoute.error === "not-found";
   const displayName = profile?.display_name || defaultProfileView.display_name;
@@ -4957,6 +5691,7 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
                       onOpenAuthorProfile={profileRoute.onOpenStarProfile}
                       onOpenDetail={profileRoute.onOpenMeteorDetail}
                       onOpenMedia={profileRoute.onOpenPostMedia}
+                      postActions={postActions}
                       post={post}
                       resonance={resonance}
                       starLetters={starLetters}
@@ -4967,6 +5702,64 @@ function PublicStarProfileScreen({ archive, profileRoute, resonance, starLetters
             </Panel>
           </>
         ) : null}
+      </section>
+    </main>
+  );
+}
+
+function MeteorTagScreen({ archive, meteorTagRoute, postActions, resonance, starLetters }) {
+  const tagLabel = meteorTagRoute.tag?.label || getMeteorTagLabel(meteorTagRoute.tag?.name) || "#流星タグ";
+
+  return (
+    <main className="mx-auto max-w-3xl">
+      <section className="mb-4 flex flex-wrap items-center justify-between gap-3 px-3 sm:px-5">
+        <button
+          className="min-h-10 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-amber-300/35 hover:bg-amber-300/10 hover:text-amber-100"
+          onClick={meteorTagRoute.onBack}
+          type="button"
+        >
+          戻る
+        </button>
+      </section>
+
+      <section className="space-y-5 px-3 pb-10 sm:px-5">
+        <div className="glass-panel p-5 sm:p-6">
+          <p className="text-xs font-bold normal-case text-amber-200">meteor tag</p>
+          <h2 className="mt-2 break-words text-2xl font-black text-amber-100 sm:text-3xl">{tagLabel}</h2>
+          <p className="mt-4 text-sm leading-7 text-slate-300">
+            同じ流星タグが添えられた公開流星便を、新しい順に観測します。
+          </p>
+        </div>
+
+        {(meteorTagRoute.loading || meteorTagRoute.error) && (
+          <p
+            className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
+              meteorTagRoute.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-amber-300/25 bg-amber-300/10 text-amber-100"
+            }`}
+          >
+            {meteorTagRoute.error || "流星タグを観測中..."}
+          </p>
+        )}
+
+        {!meteorTagRoute.loading && !meteorTagRoute.error && meteorTagRoute.posts.length === 0 ? (
+          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+            この流星タグの公開流星便はまだありません。
+          </div>
+        ) : (
+          meteorTagRoute.posts.map((post) => (
+            <PostCard
+              archive={archive}
+              key={post.id ?? post.handle}
+              onOpenAuthorProfile={meteorTagRoute.onOpenStarProfile}
+              onOpenDetail={meteorTagRoute.onOpenMeteorDetail}
+              onOpenMedia={meteorTagRoute.onOpenPostMedia}
+              postActions={postActions}
+              post={post}
+              resonance={resonance}
+              starLetters={starLetters}
+            />
+          ))
+        )}
       </section>
     </main>
   );
@@ -7158,44 +7951,94 @@ function AuthPanel({ auth }) {
   );
 }
 
-function LinkedText({ children }) {
+function LinkedText({ children, highlightMeteorTags = false, onMeteorTagClick }) {
   const text = String(children ?? "");
-  const parts = [];
-  let lastIndex = 0;
+  const tokens = [];
 
   for (const match of text.matchAll(URL_PATTERN)) {
     const matchedText = match[0];
     const matchIndex = match.index ?? 0;
-    const trailingText = matchedText.match(/[.,!?;:)\]}、。！？）」』】]+$/)?.[0] ?? "";
     const urlText = getCleanMatchedUrl(matchedText);
     const safeUrl = getSafeLinkUrl(urlText);
 
-    if (matchIndex > lastIndex) {
-      parts.push(text.slice(lastIndex, matchIndex));
+    if (!safeUrl) {
+      continue;
     }
 
-    if (safeUrl) {
+    tokens.push({
+      end: matchIndex + urlText.length,
+      href: safeUrl,
+      kind: "url",
+      start: matchIndex,
+      text: urlText,
+    });
+  }
+
+  if (highlightMeteorTags || onMeteorTagClick) {
+    for (const tag of extractMeteorTags(text, { includePositions: true })) {
+      tokens.push({
+        ...tag,
+        kind: "tag",
+        text: tag.label,
+      });
+    }
+  }
+
+  tokens.sort((a, b) => a.start - b.start || (a.kind === "url" ? -1 : 1));
+
+  const parts = [];
+  let lastIndex = 0;
+
+  for (const token of tokens) {
+    if (token.start < lastIndex) {
+      continue;
+    }
+
+    if (token.start > lastIndex) {
+      parts.push(text.slice(lastIndex, token.start));
+    }
+
+    if (token.kind === "url") {
       parts.push(
         <a
           className="break-all text-comet underline decoration-comet/50 underline-offset-4 transition hover:text-aurora hover:decoration-aurora"
-          href={safeUrl}
-          key={`${matchIndex}-${urlText}`}
+          href={token.href}
+          key={`url-${token.start}-${token.text}`}
           onClick={(event) => event.stopPropagation()}
           rel="noopener noreferrer"
           target="_blank"
         >
-          {urlText}
+          {token.text}
         </a>,
       );
-
-      if (trailingText) {
-        parts.push(trailingText);
-      }
     } else {
-      parts.push(matchedText);
+      const tagContent = (
+        <span className="font-black text-amber-200 drop-shadow-[0_0_10px_rgba(251,191,36,0.2)]">
+          {token.label}
+        </span>
+      );
+
+      parts.push(
+        onMeteorTagClick ? (
+          <button
+            className="rounded px-0.5 text-left transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-300/20"
+            data-card-action="true"
+            key={`tag-${token.start}-${token.normalizedName}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMeteorTagClick(token.name);
+            }}
+            type="button"
+          >
+            {tagContent}
+          </button>
+        ) : (
+          <span key={`tag-${token.start}-${token.normalizedName}`}>{tagContent}</span>
+        ),
+      );
     }
 
-    lastIndex = matchIndex + matchedText.length;
+    lastIndex = token.end;
   }
 
   if (lastIndex < text.length) {
@@ -7668,6 +8511,9 @@ function Timeline({
 
 function useKeyboardToolbarOffset() {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const frameRef = useRef(null);
+  const orientationTimerRef = useRef(null);
+  const toolbarKeyboardGap = 10;
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -7676,25 +8522,147 @@ function useKeyboardToolbarOffset() {
       return undefined;
     }
 
-    function updateKeyboardOffset() {
+    function measureKeyboardOffset() {
       const viewportBottom = viewport.offsetTop + viewport.height;
-      const overlap = Math.max(0, window.innerHeight - viewportBottom);
-      setKeyboardOffset(overlap > 80 ? Math.round(overlap) : 0);
+      const keyboardInset = Math.max(0, Math.round(window.innerHeight - viewportBottom));
+      const safeOffset = keyboardInset > 16 ? keyboardInset + toolbarKeyboardGap : 0;
+
+      setKeyboardOffset((currentOffset) => (currentOffset === safeOffset ? currentOffset : safeOffset));
     }
 
-    updateKeyboardOffset();
-    viewport.addEventListener("resize", updateKeyboardOffset);
-    viewport.addEventListener("scroll", updateKeyboardOffset);
-    window.addEventListener("orientationchange", updateKeyboardOffset);
+    function requestKeyboardOffsetUpdate() {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+      }
+
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        measureKeyboardOffset();
+      });
+    }
+
+    function handleOrientationChange() {
+      if (orientationTimerRef.current) {
+        window.clearTimeout(orientationTimerRef.current);
+      }
+
+      orientationTimerRef.current = window.setTimeout(() => {
+        orientationTimerRef.current = null;
+        requestKeyboardOffsetUpdate();
+      }, 250);
+    }
+
+    requestKeyboardOffsetUpdate();
+    viewport.addEventListener("resize", requestKeyboardOffsetUpdate);
+    viewport.addEventListener("scroll", requestKeyboardOffsetUpdate);
+    window.addEventListener("resize", requestKeyboardOffsetUpdate);
+    window.addEventListener("orientationchange", handleOrientationChange);
 
     return () => {
-      viewport.removeEventListener("resize", updateKeyboardOffset);
-      viewport.removeEventListener("scroll", updateKeyboardOffset);
-      window.removeEventListener("orientationchange", updateKeyboardOffset);
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+      }
+
+      if (orientationTimerRef.current) {
+        window.clearTimeout(orientationTimerRef.current);
+      }
+
+      viewport.removeEventListener("resize", requestKeyboardOffsetUpdate);
+      viewport.removeEventListener("scroll", requestKeyboardOffsetUpdate);
+      window.removeEventListener("resize", requestKeyboardOffsetUpdate);
+      window.removeEventListener("orientationchange", handleOrientationChange);
     };
   }, []);
 
   return keyboardOffset;
+}
+
+function MeteorTagTextarea({
+  autoResize = false,
+  className,
+  disabled,
+  maxLength,
+  onChange,
+  placeholder,
+  textareaRef,
+  value,
+}) {
+  const mirrorRef = useRef(null);
+  const textareaElementRef = useRef(null);
+
+  function setTextareaNode(node) {
+    textareaElementRef.current = node;
+
+    if (typeof textareaRef === "function") {
+      textareaRef(node);
+      return;
+    }
+
+    if (textareaRef) {
+      textareaRef.current = node;
+    }
+  }
+
+  function resizeTextarea() {
+    if (!autoResize || !textareaElementRef.current) {
+      return;
+    }
+
+    const textarea = textareaElementRef.current;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [autoResize, value]);
+
+  useEffect(() => {
+    if (!autoResize) {
+      return undefined;
+    }
+
+    window.addEventListener("resize", resizeTextarea);
+
+    return () => {
+      window.removeEventListener("resize", resizeTextarea);
+    };
+  }, [autoResize]);
+
+  function handleScroll(event) {
+    if (!mirrorRef.current) {
+      return;
+    }
+
+    mirrorRef.current.scrollTop = event.currentTarget.scrollTop;
+    mirrorRef.current.scrollLeft = event.currentTarget.scrollLeft;
+  }
+
+  return (
+    <div className="relative w-full">
+      <div
+        aria-hidden="true"
+        className={`${className} pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-slate-100`}
+        ref={mirrorRef}
+        style={{ color: "#f1f5f9" }}
+      >
+        {value ? (
+          <LinkedText highlightMeteorTags>{value.endsWith("\n") ? `${value} ` : value}</LinkedText>
+        ) : null}
+      </div>
+      <textarea
+        className={`${className} relative z-10 text-transparent caret-white selection:bg-amber-300/25`}
+        disabled={disabled}
+        maxLength={maxLength}
+        onChange={onChange}
+        onScroll={handleScroll}
+        placeholder={placeholder}
+        ref={setTextareaNode}
+        style={{ color: "transparent" }}
+        value={value}
+      />
+    </div>
+  );
 }
 
 function Composer({ composer }) {
@@ -7711,6 +8679,7 @@ function Composer({ composer }) {
       ? "星影を削除すると、星映を選べます。"
       : "";
   const keyboardOffset = useKeyboardToolbarOffset();
+  const textareaRef = useRef(null);
   const imageInputDisabled =
     composer.saving ||
     !composer.canPost ||
@@ -7719,7 +8688,37 @@ function Composer({ composer }) {
     composer.imageDrafts.length >= composer.maxImages;
   const videoInputDisabled =
     composer.saving || composer.videoPreparing || !composer.canPost || !composer.hasProfile || hasImages;
-  const composerLayoutStyle = { "--compose-keyboard-offset": `${keyboardOffset}px` };
+  const meteorTagInputDisabled = composer.saving || !composer.canPost || !composer.hasProfile;
+  const composerLayoutStyle = {
+    "--compose-active-toolbar-height":
+      keyboardOffset > 0 ? "4.65rem" : "calc(env(safe-area-inset-bottom) + 5.35rem)",
+    "--compose-keyboard-offset": `${keyboardOffset}px`,
+  };
+
+  function handleInsertMeteorTag(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (meteorTagInputDisabled) {
+      return;
+    }
+
+    const textarea = textareaRef.current;
+    const cursorIndex = textarea?.selectionStart ?? composer.draft.length;
+
+    if (composer.draft[cursorIndex - 1] === "#" || composer.draft[cursorIndex] === "#") {
+      textarea?.focus({ preventScroll: true });
+      return;
+    }
+
+    const nextDraft = `${composer.draft.slice(0, cursorIndex)}#${composer.draft.slice(cursorIndex)}`;
+    composer.onChange(nextDraft);
+
+    requestAnimationFrame(() => {
+      textarea?.focus({ preventScroll: true });
+      textarea?.setSelectionRange(cursorIndex + 1, cursorIndex + 1);
+    });
+  }
 
   return (
     <form
@@ -7730,17 +8729,19 @@ function Composer({ composer }) {
     >
       <div className="compose-scroll-content fixed inset-x-0 z-20 overflow-y-auto overscroll-contain px-4 sm:px-8">
         <div className="mx-auto max-w-3xl">
-          <textarea
-            className="min-h-[46vh] w-full resize-y bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-[52vh] sm:text-lg"
+          <MeteorTagTextarea
+            autoResize
+            className="min-h-36 w-full resize-none overflow-hidden bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-40 sm:text-lg"
             disabled={!composer.canPost || !composer.hasProfile || composer.saving}
-            maxLength={160}
+            maxLength={POST_MAX_LENGTH + 1}
             onChange={(event) => composer.onChange(event.target.value)}
             placeholder="今夜、どの星を観測してほしい？"
+            textareaRef={textareaRef}
             value={composer.draft}
           />
 
-        {(mediaHintText || statusText || composer.uploadProgress || composer.message || composer.error) && (
-          <div className="mt-4 space-y-2">
+        {(mediaHintText || statusText || composer.uploadProgress || composer.message || composer.error || composer.tagError) && (
+          <div className="mt-3 space-y-2">
             {mediaHintText && <p className="text-xs font-bold leading-5 text-sakura">{mediaHintText}</p>}
             {statusText && <p className="text-xs font-bold leading-5 text-slate-500">{statusText}</p>}
             {composer.uploadProgress && (
@@ -7748,20 +8749,22 @@ function Composer({ composer }) {
                 {composer.uploadProgress}
               </p>
             )}
-            {(composer.message || composer.error) && (
+            {(composer.message || composer.error || composer.tagError) && (
               <p
                 className={`rounded-2xl border px-3 py-2 text-xs leading-5 ${
-                  composer.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+                  composer.error || composer.tagError
+                    ? "border-sakura/30 bg-sakura/10 text-sakura"
+                    : "border-comet/20 bg-comet/10 text-comet"
                 }`}
               >
-                {composer.error || composer.message}
+                {composer.error || composer.tagError || composer.message}
               </p>
             )}
           </div>
         )}
 
         {composer.imageDrafts.length > 0 && (
-          <div className="mt-5">
+          <div className="mt-3">
             <PostImageDraftPreview
               drafts={composer.imageDrafts}
               disabled={composer.saving}
@@ -7914,6 +8917,25 @@ function Composer({ composer }) {
               type="file"
             />
           </label>
+
+          <button
+            aria-label="流星タグを入力"
+            className={`group inline-flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-full text-center transition active:scale-95 ${
+              meteorTagInputDisabled
+                ? "cursor-not-allowed bg-white/[0.03] text-slate-600"
+                : "bg-amber-300/10 text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.16)] hover:bg-amber-300/15 hover:text-amber-50"
+            }`}
+            data-card-action="true"
+            disabled={meteorTagInputDisabled}
+            onClick={handleInsertMeteorTag}
+            onMouseDown={(event) => event.preventDefault()}
+            type="button"
+          >
+            <span className="grid h-10 w-10 place-items-center rounded-full border border-current/30 bg-amber-300/10 text-xl font-black">
+              #
+            </span>
+            <span className="text-[10px] font-black leading-none">流星タグ</span>
+          </button>
         </div>
       </div>
     </form>
@@ -7922,7 +8944,7 @@ function Composer({ composer }) {
 
 function PostImageDraftPreview({ disabled, drafts, onMove, onRemove }) {
   return (
-    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {drafts.map((draft, index) => (
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-night-950/55" key={draft.id}>
           <img
@@ -8063,11 +9085,16 @@ function PostCard({
   const postEditDraft = postActions?.editDrafts?.[post.id] ?? post.text;
   const postEditLength = getTrimmedCharacterLength(postEditDraft);
   const isPostEditOverLimit = postEditLength > POST_MAX_LENGTH;
+  const postEditTagValidation = validateMeteorTagsFromText(postEditDraft);
   const postMedia = post.media ?? [];
   const youtubeVideoId = !isPostEditing ? findFirstYouTubeVideoId(post.text) : null;
   const isPostUpdating = postActions?.updatingId === post.id;
   const isPostDeleting = postActions?.deletingId === post.id;
-  const canSavePostEdit = (Boolean(postEditDraft.trim()) || postMedia.length > 0) && !isPostEditOverLimit && !isPostUpdating;
+  const canSavePostEdit =
+    (Boolean(postEditDraft.trim()) || postMedia.length > 0) &&
+    !isPostEditOverLimit &&
+    !postEditTagValidation.error &&
+    !isPostUpdating;
   const postStarLetters = starLetters?.itemsByPostId?.[post.id] ?? [];
   const isStarLettersOpen = showStarLetters || starLetters?.openPostId === post.id;
   const isStarLetterSaving = starLetters?.savingPostId === post.id;
@@ -8180,7 +9207,7 @@ function PostCard({
             data-card-action="true"
             onSubmit={(event) => postActions?.onUpdate?.(event, post)}
           >
-            <textarea
+            <MeteorTagTextarea
               className="min-h-28 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isPostUpdating}
               maxLength={POST_MAX_LENGTH + 1}
@@ -8192,6 +9219,11 @@ function PostCard({
             {isPostEditOverLimit && (
               <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
                 流星便は500文字以内で放流してください
+              </p>
+            )}
+            {postEditTagValidation.error && (
+              <p className="mt-2 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+                {postEditTagValidation.error}
               </p>
             )}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -8223,7 +9255,9 @@ function PostCard({
           <>
             {post.text ? (
               <p className={`${detailMode ? "text-base sm:text-lg" : "text-[15px]"} mt-3 whitespace-pre-wrap leading-8 text-slate-100`}>
-                <LinkedText>{post.text}</LinkedText>
+                <LinkedText highlightMeteorTags onMeteorTagClick={postActions?.onOpenMeteorTag}>
+                  {post.text}
+                </LinkedText>
               </p>
             ) : null}
             <YouTubeEmbed videoId={youtubeVideoId} />
@@ -8231,13 +9265,6 @@ function PostCard({
             <PostMediaGrid media={postMedia} onOpenMedia={onOpenMedia} />
           </>
         )}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {post.tags.map((tag) => (
-            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-300" key={tag}>
-              {tag}
-            </span>
-          ))}
-        </div>
         <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
           <ActionButton
             disabled={isResonanceSaving || !resonance?.onResonate}

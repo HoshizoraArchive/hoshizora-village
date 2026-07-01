@@ -52,7 +52,7 @@
 
   .post-editor-shell {
     height: 100vh;
-    height: 100dvh;
+    height: 100svh;
     overflow: hidden;
     overscroll-behavior: none;
   }
@@ -80,8 +80,9 @@
     --compose-keyboard-offset: 0px;
     --compose-header-height: calc(env(safe-area-inset-top) + 4.5rem);
     --compose-toolbar-height: calc(env(safe-area-inset-bottom) + 5.35rem);
+    --compose-active-toolbar-height: var(--compose-toolbar-height);
     height: 100vh;
-    height: 100dvh;
+    height: 100svh;
     overflow: hidden;
     overscroll-behavior: none;
   }
@@ -96,7 +97,7 @@
 
   .compose-scroll-content {
     top: var(--compose-header-height);
-    bottom: calc(var(--compose-toolbar-height) + var(--compose-keyboard-offset));
+    bottom: calc(var(--compose-active-toolbar-height) + var(--compose-keyboard-offset));
     min-height: 0;
     padding-top: 6.35rem;
     padding-bottom: 1rem;
@@ -106,6 +107,8 @@
 
   .compose-media-toolbar {
     bottom: var(--compose-keyboard-offset);
+    transform: translateZ(0);
+    will-change: bottom;
   }
 
   .glass-panel {
