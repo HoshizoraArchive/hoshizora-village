@@ -59,7 +59,7 @@ join pg_namespace n on n.oid = c.relnamespace
 cross join lateral aclexplode(
   coalesce(
     c.relacl,
-    acldefault(case when c.relkind = 'S' then 'S' else 'r' end, c.relowner)
+    acldefault((case when c.relkind = 'S' then 'S' else 'r' end)::"char", c.relowner)
   )
 ) as acl
 where n.nspname in ('public', 'storage')
@@ -76,7 +76,7 @@ select
   acl.privilege_type,
   acl.is_grantable
 from pg_namespace n
-cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) as acl
+cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n'::"char", n.nspowner))) as acl
 where n.nspname in ('public', 'storage', 'app_private')
   and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
 order by schema_name, grantee, acl.privilege_type;
@@ -148,7 +148,7 @@ relation_privileges as (
   cross join lateral aclexplode(
     coalesce(
       c.relacl,
-      acldefault(case when c.relkind = 'S' then 'S' else 'r' end, c.relowner)
+      acldefault((case when c.relkind = 'S' then 'S' else 'r' end)::"char", c.relowner)
     )
   ) as acl
   where n.nspname = 'public'
@@ -163,7 +163,7 @@ function_privileges as (
     array_agg(distinct acl.privilege_type order by acl.privilege_type) as privileges
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
-  cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) as acl
+  cross join lateral aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) as acl
   where n.nspname = 'public'
     and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'))
   group by p.oid, grantee
@@ -310,7 +310,7 @@ with write_privileges as (
     acl.privilege_type
   from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
-  cross join lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) as acl
+  cross join lateral aclexplode(coalesce(c.relacl, acldefault('r'::"char", c.relowner))) as acl
   where n.nspname = 'public'
     and c.relkind in ('r', 'p', 'v', 'm', 'f')
     and (
@@ -370,7 +370,7 @@ select
   acl.is_grantable
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
-cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) as acl
+cross join lateral aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) as acl
 where n.nspname in ('public', 'app_private')
   and (
     acl.grantee = 0

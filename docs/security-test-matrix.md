@@ -19,6 +19,7 @@ Use this matrix before beta release and after each security-related PR. Mark eac
 ## Supabase SQL Editor Verification
 
 Run `docs/security-verification.sql` in the target Supabase project and record aggregate results only. Do not paste private row contents or secret values into public reports.
+The SQL uses explicit `"char"` casts for `acldefault()` object-type arguments to avoid Postgres function-resolution drift.
 
 | ID | Area | SQL Sections | Expected Result | Status |
 | --- | --- | --- | --- | --- |
