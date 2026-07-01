@@ -8511,6 +8511,9 @@ function Timeline({
 
 function useKeyboardToolbarOffset() {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const layoutViewportHeightRef = useRef(0);
+  const frameRef = useRef(null);
+  const orientationTimerRef = useRef(null);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -8519,21 +8522,72 @@ function useKeyboardToolbarOffset() {
       return undefined;
     }
 
-    function updateKeyboardOffset() {
+    function readLayoutViewportHeight() {
       const viewportBottom = viewport.offsetTop + viewport.height;
-      const overlap = Math.max(0, window.innerHeight - viewportBottom);
-      setKeyboardOffset(overlap > 80 ? Math.round(overlap) : 0);
+      return Math.max(window.innerHeight, viewportBottom);
     }
 
-    updateKeyboardOffset();
-    viewport.addEventListener("resize", updateKeyboardOffset);
-    viewport.addEventListener("scroll", updateKeyboardOffset);
-    window.addEventListener("orientationchange", updateKeyboardOffset);
+    layoutViewportHeightRef.current = readLayoutViewportHeight();
+
+    function measureKeyboardOffset() {
+      const visibleViewportBottom = viewport.offsetTop + viewport.height;
+      const layoutViewportHeight = Math.max(
+        layoutViewportHeightRef.current,
+        window.innerHeight,
+        visibleViewportBottom,
+      );
+      const nextOffset = Math.max(0, Math.round(layoutViewportHeight - visibleViewportBottom));
+      const safeOffset = nextOffset > 24 ? nextOffset : 0;
+
+      if (safeOffset === 0) {
+        layoutViewportHeightRef.current = readLayoutViewportHeight();
+      }
+
+      setKeyboardOffset((currentOffset) => (currentOffset === safeOffset ? currentOffset : safeOffset));
+    }
+
+    function requestKeyboardOffsetUpdate() {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+      }
+
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        measureKeyboardOffset();
+      });
+    }
+
+    function handleOrientationChange() {
+      if (orientationTimerRef.current) {
+        window.clearTimeout(orientationTimerRef.current);
+      }
+
+      orientationTimerRef.current = window.setTimeout(() => {
+        orientationTimerRef.current = null;
+        layoutViewportHeightRef.current = readLayoutViewportHeight();
+        requestKeyboardOffsetUpdate();
+      }, 250);
+    }
+
+    requestKeyboardOffsetUpdate();
+    viewport.addEventListener("resize", requestKeyboardOffsetUpdate);
+    viewport.addEventListener("scroll", requestKeyboardOffsetUpdate);
+    window.addEventListener("resize", requestKeyboardOffsetUpdate);
+    window.addEventListener("orientationchange", handleOrientationChange);
 
     return () => {
-      viewport.removeEventListener("resize", updateKeyboardOffset);
-      viewport.removeEventListener("scroll", updateKeyboardOffset);
-      window.removeEventListener("orientationchange", updateKeyboardOffset);
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+      }
+
+      if (orientationTimerRef.current) {
+        window.clearTimeout(orientationTimerRef.current);
+      }
+
+      viewport.removeEventListener("resize", requestKeyboardOffsetUpdate);
+      viewport.removeEventListener("scroll", requestKeyboardOffsetUpdate);
+      window.removeEventListener("resize", requestKeyboardOffsetUpdate);
+      window.removeEventListener("orientationchange", handleOrientationChange);
     };
   }, []);
 

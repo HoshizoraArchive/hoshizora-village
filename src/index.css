@@ -106,6 +106,8 @@
 
   .compose-media-toolbar {
     bottom: var(--compose-keyboard-offset);
+    transform: translateZ(0);
+    will-change: bottom;
   }
 
   .glass-panel {
