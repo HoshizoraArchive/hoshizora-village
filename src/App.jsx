@@ -39,6 +39,7 @@ const AVATAR_ALLOWED_TYPES = {
 const AVATAR_ACCEPT = Object.keys(AVATAR_ALLOWED_TYPES).join(",");
 const METEOR_MEDIA_BUCKET = "meteor-media";
 const METEOR_VIDEO_BUCKET = "meteor-video";
+const METEOR_MEDIA_SIGNED_URL_EXPIRES_IN_SECONDS = 10 * 60;
 const METEOR_IMAGE_MAX_COUNT = 4;
 const METEOR_IMAGE_MAX_SIZE_BYTES = 8 * 1024 * 1024;
 const METEOR_IMAGE_ALLOWED_TYPES = {
@@ -664,17 +665,39 @@ async function runPostQuery(buildQuery) {
   };
 }
 
-function mapPostMediaRows(mediaRows) {
-  return (mediaRows ?? [])
+async function createMeteorMediaSignedUrl(bucket, storagePath) {
+  if (!bucket || !storagePath) {
+    return null;
+  }
+
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(storagePath, METEOR_MEDIA_SIGNED_URL_EXPIRES_IN_SECONDS);
+
+  if (error) {
+    console.warn("流星便メディアの署名付きURL作成に失敗しました。", error);
+    return null;
+  }
+
+  return data?.signedUrl ?? null;
+}
+
+async function mapPostMediaRows(mediaRows) {
+  const mappedRows = await Promise.all(
+    (mediaRows ?? [])
     .filter((row) => (row?.media_type === "image" || row?.media_type === "video") && row.storage_path)
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    .map((row) => {
+    .map(async (row) => {
       const mediaType = row.media_type === "video" ? "video" : "image";
       const bucket = mediaType === "video" ? METEOR_VIDEO_BUCKET : METEOR_MEDIA_BUCKET;
-      const { data } = supabase.storage.from(bucket).getPublicUrl(row.storage_path);
-      const thumbnailData = row.thumbnail_storage_path
-        ? supabase.storage.from(METEOR_MEDIA_BUCKET).getPublicUrl(row.thumbnail_storage_path).data
+      const url = await createMeteorMediaSignedUrl(bucket, row.storage_path);
+      const thumbnailUrl = row.thumbnail_storage_path
+        ? await createMeteorMediaSignedUrl(METEOR_MEDIA_BUCKET, row.thumbnail_storage_path)
         : null;
+
+      if (!url) {
+        return null;
+      }
 
       return {
         id: row.id,
@@ -687,10 +710,13 @@ function mapPostMediaRows(mediaRows) {
         sizeBytes: row.size_bytes ?? null,
         durationSeconds: row.duration_seconds ?? null,
         createdAt: row.created_at ?? null,
-        url: data.publicUrl,
-        thumbnailUrl: thumbnailData?.publicUrl ?? null,
+        url,
+        thumbnailUrl,
       };
-    });
+    }),
+  );
+
+  return mappedRows.filter(Boolean);
 }
 
 async function readPostMediaForPostIds(postIds) {
@@ -727,7 +753,7 @@ async function readPostMediaForPostIds(postIds) {
 
   const mediaByPostId = new Map();
 
-  for (const media of mapPostMediaRows(data)) {
+  for (const media of await mapPostMediaRows(data)) {
     mediaByPostId.set(media.postId, [...(mediaByPostId.get(media.postId) ?? []), media]);
   }
 
@@ -4021,7 +4047,7 @@ function App() {
           throw new Error("星映メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
         }
 
-        media = mapPostMediaRows(insertedMedia);
+        media = await mapPostMediaRows(insertedMedia);
       } else if (uploadedImageMedia.length > 0) {
         const mediaRows = uploadedImageMedia.map((item) => ({
           post_id: data.id,
@@ -4039,7 +4065,7 @@ function App() {
           throw new Error("星影メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
         }
 
-        media = mapPostMediaRows(insertedMedia);
+        media = await mapPostMediaRows(insertedMedia);
       }
 
       if (meteorTagValidation.tags.length > 0) {

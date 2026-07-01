@@ -60,13 +60,13 @@ end
 $$;
 
 -- Storage bucket for meteor letter image attachments.
--- Public read is allowed for images attached to public posts.
+-- The bucket is private; clients render authorized media through short-lived signed URLs.
 -- Authenticated users may upload/delete only inside their own auth.uid() folder.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'meteor-media',
   'meteor-media',
-  true,
+  false,
   8388608,
   array['image/jpeg', 'image/png', 'image/webp']
 )
@@ -79,19 +79,8 @@ set
 
 do $$
 begin
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'storage'
-      and tablename = 'objects'
-      and policyname = 'meteor_media_public_read'
-  ) then
-    create policy meteor_media_public_read
-    on storage.objects
-    for select
-    to public
-    using (bucket_id = 'meteor-media');
-  end if;
+  drop policy if exists meteor_media_public_read on storage.objects;
+  drop policy if exists meteor_media_read_visible_post on storage.objects;
 
   if not exists (
     select 1
@@ -130,13 +119,13 @@ end
 $$;
 
 -- Storage bucket for meteor letter short video attachments.
--- Public read is allowed for videos attached to public posts.
+-- The bucket is private; clients render authorized videos through short-lived signed URLs.
 -- Authenticated users may upload/delete only inside their own auth.uid() folder.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'meteor-video',
   'meteor-video',
-  true,
+  false,
   104857600,
   array['video/mp4', 'video/quicktime', 'video/webm']
 )
@@ -149,19 +138,8 @@ set
 
 do $$
 begin
-  if not exists (
-    select 1
-    from pg_policies
-    where schemaname = 'storage'
-      and tablename = 'objects'
-      and policyname = 'meteor_video_public_read'
-  ) then
-    create policy meteor_video_public_read
-    on storage.objects
-    for select
-    to public
-    using (bucket_id = 'meteor-video');
-  end if;
+  drop policy if exists meteor_video_public_read on storage.objects;
+  drop policy if exists meteor_video_read_visible_post on storage.objects;
 
   if not exists (
     select 1
@@ -247,6 +225,7 @@ create table if not exists public.posts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
+  constraint posts_body_500_chars check (char_length(trim(body)) <= 500),
   constraint posts_body_or_media_present check (
     char_length(trim(body)) > 0
     or type in ('image', 'video')
@@ -304,7 +283,7 @@ create table if not exists public.post_media (
 );
 
 comment on table public.post_media is '流星便に添えるメディア。画像は最大4枚、動画は1投稿1本まで保存する。';
-comment on column public.post_media.storage_path is '画像はmeteor-media、動画はmeteor-video bucket 内のStorage path。公開URLはクライアント側で生成する。';
+comment on column public.post_media.storage_path is '画像はmeteor-media、動画はmeteor-video bucket 内のStorage path。表示URLはクライアント側で署名付きURLとして生成する。';
 comment on column public.post_media.thumbnail_storage_path is '動画カード用サムネイルのmeteor-media bucket内Storage path。未設定時はクライアントでプレースホルダー表示する。';
 comment on column public.post_media.duration_seconds is '動画の再生時間。動画は35秒以内。画像ではnull。';
 comment on column public.post_media.sort_order is '画像は0から3までの表示順。動画は0固定。';
@@ -341,6 +320,7 @@ create table if not exists public.profile_tags (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references public.profiles(id) on delete cascade,
   label text not null check (char_length(trim(label)) > 0),
+  constraint profile_tags_label_30_chars check (char_length(trim(label)) <= 30),
   kind text not null default 'interest',
   created_at timestamptz not null default now(),
   unique (profile_id, label, kind)
@@ -353,6 +333,7 @@ create table if not exists public.post_tags (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
   label text not null check (char_length(trim(label)) > 0),
+  constraint post_tags_label_30_chars check (char_length(trim(label)) <= 30),
   created_at timestamptz not null default now(),
   unique (post_id, label)
 );
@@ -445,6 +426,7 @@ create table if not exists public.star_letters (
   post_id uuid not null references public.posts(id) on delete cascade,
   author_id uuid not null references public.profiles(id) on delete cascade,
   body text not null check (char_length(trim(body)) > 0),
+  constraint star_letters_body_500_chars check (char_length(trim(body)) <= 500),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -567,7 +549,10 @@ begin
     new.post_id,
     'resonance',
     'あなたの流星便に共鳴が届きました。'
-  );
+  )
+  on conflict (recipient_id, actor_id, post_id)
+  where type = 'resonance'
+  do nothing;
 
   return new;
 end;
@@ -719,6 +704,9 @@ create index if not exists notifications_recipient_created_at_idx on public.noti
 create index if not exists notifications_recipient_is_read_idx on public.notifications(recipient_id, is_read);
 create index if not exists notifications_actor_id_idx on public.notifications(actor_id);
 create index if not exists notifications_post_id_idx on public.notifications(post_id);
+create unique index if not exists notifications_resonance_once_per_actor_post_idx
+on public.notifications(recipient_id, actor_id, post_id)
+where type = 'resonance';
 create index if not exists feedbacks_user_created_at_idx on public.feedbacks(user_id, created_at desc);
 create index if not exists feedbacks_status_created_at_idx on public.feedbacks(status, created_at desc);
 create index if not exists star_letters_post_id_idx on public.star_letters(post_id);
@@ -749,6 +737,16 @@ alter table public.star_letters enable row level security;
 alter table public.archives enable row level security;
 alter table public.observations enable row level security;
 
+revoke insert, update, delete, truncate on all tables in schema public from public, anon, authenticated;
+grant insert, update on table public.profiles to authenticated;
+grant insert, update on table public.posts to authenticated;
+grant insert on table public.resonances to authenticated;
+grant insert, update, delete on table public.star_letters to authenticated;
+grant insert, delete on table public.archives to authenticated;
+
+alter default privileges in schema public
+revoke insert, update, delete, truncate on tables from public, anon, authenticated;
+
 -- profiles:
 -- Readable by anyone, writable by owner.
 drop policy if exists profiles_select_public on public.profiles;
@@ -771,7 +769,10 @@ for delete using (auth.uid() = id);
 -- Public posts are readable by anyone; private posts only by author.
 drop policy if exists posts_select_visible on public.posts;
 create policy posts_select_visible on public.posts
-for select using (visibility = 'public' or author_id = auth.uid());
+for select using (
+  (visibility = 'public' and deleted_at is null)
+  or author_id = auth.uid()
+);
 
 drop policy if exists posts_insert_own on public.posts;
 create policy posts_insert_own on public.posts
@@ -821,6 +822,45 @@ create policy post_media_delete_own_upload on public.post_media
 for delete to authenticated
 using (uploader_id = auth.uid());
 
+drop policy if exists meteor_media_read_visible_post on storage.objects;
+create policy meteor_media_read_visible_post
+on storage.objects
+for select
+to public
+using (
+  bucket_id = 'meteor-media'
+  and exists (
+    select 1
+    from public.post_media pm
+    join public.posts p on p.id = pm.post_id
+    where (pm.storage_path = storage.objects.name or pm.thumbnail_storage_path = storage.objects.name)
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
+  )
+);
+
+drop policy if exists meteor_video_read_visible_post on storage.objects;
+create policy meteor_video_read_visible_post
+on storage.objects
+for select
+to public
+using (
+  bucket_id = 'meteor-video'
+  and exists (
+    select 1
+    from public.post_media pm
+    join public.posts p on p.id = pm.post_id
+    where pm.storage_path = storage.objects.name
+      and pm.media_type = 'video'
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
+  )
+);
+
 -- profile_tags: visible as part of public profile; editable only by owner.
 drop policy if exists profile_tags_select_public on public.profile_tags;
 create policy profile_tags_select_public on public.profile_tags
@@ -845,7 +885,10 @@ for select using (
   exists (
     select 1 from public.posts p
     where p.id = public.post_tags.post_id
-      and (p.visibility = 'public' or p.author_id = auth.uid())
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
   )
 );
 
@@ -957,7 +1000,10 @@ for select using (
   or exists (
     select 1 from public.posts p
     where p.id = public.resonances.post_id
-      and (p.visibility = 'public' or p.author_id = auth.uid())
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
   )
 );
 
@@ -969,7 +1015,10 @@ for insert with check (
   and exists (
     select 1 from public.posts p
     where p.id = public.resonances.post_id
-      and (p.visibility = 'public' or p.author_id = auth.uid())
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
   )
 );
 
@@ -1019,7 +1068,10 @@ for select using (
   or exists (
     select 1 from public.posts p
     where p.id = public.star_letters.post_id
-      and (p.visibility = 'public' or p.author_id = auth.uid())
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
   )
 );
 
@@ -1031,7 +1083,10 @@ for insert with check (
   and exists (
     select 1 from public.posts p
     where p.id = public.star_letters.post_id
-      and (p.visibility = 'public' or p.author_id = auth.uid())
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
   )
 );
 
@@ -1056,7 +1111,10 @@ for insert with check (
   and exists (
     select 1 from public.posts p
     where p.id = public.archives.post_id
-      and (p.visibility = 'public' or p.author_id = auth.uid())
+      and (
+        (p.visibility = 'public' and p.deleted_at is null)
+        or p.author_id = auth.uid()
+      )
   )
 );
 
@@ -1069,18 +1127,11 @@ create policy archives_delete_own on public.archives
 for delete using (profile_id = auth.uid());
 
 -- observations:
--- Public-post observations can be selected for MVP, but app/API should filter columns before showing AI internals.
--- AI resident writes should happen later from trusted server-side code using service_role; never expose service_role to the frontend.
+-- Internal AI observation rows are not directly exposed to browser roles.
+-- AI resident reads/writes should happen from trusted server-side code using service_role; never expose service_role to the frontend.
+revoke all on table public.observations from anon, authenticated;
+
 drop policy if exists observations_select_visible on public.observations;
-create policy observations_select_visible on public.observations
-for select using (
-  observer_id = auth.uid()
-  or exists (
-    select 1 from public.posts p
-    where p.id = public.observations.post_id
-      and (p.visibility = 'public' or p.author_id = auth.uid())
-  )
-);
 
 drop policy if exists observations_insert_human_own on public.observations;
 create policy observations_insert_human_own on public.observations
