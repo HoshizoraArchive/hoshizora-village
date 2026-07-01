@@ -8511,10 +8511,9 @@ function Timeline({
 
 function useKeyboardToolbarOffset() {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
-  const layoutViewportHeightRef = useRef(0);
   const frameRef = useRef(null);
   const orientationTimerRef = useRef(null);
-  const toolbarKeyboardClearance = 12;
+  const toolbarKeyboardGap = 10;
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -8523,30 +8522,10 @@ function useKeyboardToolbarOffset() {
       return undefined;
     }
 
-    function readLayoutViewportHeight() {
-      const viewportBottom = viewport.offsetTop + viewport.height;
-      return Math.max(window.innerHeight, viewportBottom);
-    }
-
-    layoutViewportHeightRef.current = readLayoutViewportHeight();
-
     function measureKeyboardOffset() {
-      const visibleViewportBottom = viewport.offsetTop + viewport.height;
-      const innerViewportBottom = window.innerHeight;
-      const layoutViewportHeight = Math.max(
-        layoutViewportHeightRef.current,
-        innerViewportBottom,
-        visibleViewportBottom,
-      );
-      const innerOverlap = Math.max(0, Math.round(innerViewportBottom - visibleViewportBottom));
-      const layoutOverlap = Math.max(0, Math.round(layoutViewportHeight - visibleViewportBottom));
-      const innerHeightShrank = innerViewportBottom < layoutViewportHeight - 80;
-      const nextOffset = innerHeightShrank ? innerOverlap : layoutOverlap;
-      const safeOffset = nextOffset > 16 ? nextOffset + toolbarKeyboardClearance : 0;
-
-      if (safeOffset === 0) {
-        layoutViewportHeightRef.current = readLayoutViewportHeight();
-      }
+      const viewportBottom = viewport.offsetTop + viewport.height;
+      const keyboardInset = Math.max(0, Math.round(window.innerHeight - viewportBottom));
+      const safeOffset = keyboardInset > 16 ? keyboardInset + toolbarKeyboardGap : 0;
 
       setKeyboardOffset((currentOffset) => (currentOffset === safeOffset ? currentOffset : safeOffset));
     }
@@ -8569,7 +8548,6 @@ function useKeyboardToolbarOffset() {
 
       orientationTimerRef.current = window.setTimeout(() => {
         orientationTimerRef.current = null;
-        layoutViewportHeightRef.current = readLayoutViewportHeight();
         requestKeyboardOffsetUpdate();
       }, 250);
     }
