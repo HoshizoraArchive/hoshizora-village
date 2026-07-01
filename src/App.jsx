@@ -8514,7 +8514,6 @@ function useKeyboardToolbarOffset() {
   const layoutViewportHeightRef = useRef(0);
   const frameRef = useRef(null);
   const orientationTimerRef = useRef(null);
-  const toolbarKeyboardGap = 10;
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -8542,7 +8541,7 @@ function useKeyboardToolbarOffset() {
       const layoutOverlap = Math.max(0, Math.round(layoutViewportHeight - visibleViewportBottom));
       const innerHeightShrank = innerViewportBottom < layoutViewportHeight - 80;
       const nextOffset = innerHeightShrank ? innerOverlap : layoutOverlap;
-      const safeOffset = nextOffset > 16 ? nextOffset + toolbarKeyboardGap : 0;
+      const safeOffset = nextOffset > 16 ? nextOffset : 0;
 
       if (safeOffset === 0) {
         layoutViewportHeightRef.current = readLayoutViewportHeight();
