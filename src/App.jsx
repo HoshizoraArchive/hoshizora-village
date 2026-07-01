@@ -8514,6 +8514,7 @@ function useKeyboardToolbarOffset() {
   const layoutViewportHeightRef = useRef(0);
   const frameRef = useRef(null);
   const orientationTimerRef = useRef(null);
+  const toolbarKeyboardGap = 10;
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -8531,13 +8532,17 @@ function useKeyboardToolbarOffset() {
 
     function measureKeyboardOffset() {
       const visibleViewportBottom = viewport.offsetTop + viewport.height;
+      const innerViewportBottom = window.innerHeight;
       const layoutViewportHeight = Math.max(
         layoutViewportHeightRef.current,
-        window.innerHeight,
+        innerViewportBottom,
         visibleViewportBottom,
       );
-      const nextOffset = Math.max(0, Math.round(layoutViewportHeight - visibleViewportBottom));
-      const safeOffset = nextOffset > 24 ? nextOffset : 0;
+      const innerOverlap = Math.max(0, Math.round(innerViewportBottom - visibleViewportBottom));
+      const layoutOverlap = Math.max(0, Math.round(layoutViewportHeight - visibleViewportBottom));
+      const innerHeightShrank = innerViewportBottom < layoutViewportHeight - 80;
+      const nextOffset = innerHeightShrank ? innerOverlap : layoutOverlap;
+      const safeOffset = nextOffset > 16 ? nextOffset + toolbarKeyboardGap : 0;
 
       if (safeOffset === 0) {
         layoutViewportHeightRef.current = readLayoutViewportHeight();
@@ -8595,6 +8600,7 @@ function useKeyboardToolbarOffset() {
 }
 
 function MeteorTagTextarea({
+  autoResize = false,
   className,
   disabled,
   maxLength,
@@ -8604,6 +8610,46 @@ function MeteorTagTextarea({
   value,
 }) {
   const mirrorRef = useRef(null);
+  const textareaElementRef = useRef(null);
+
+  function setTextareaNode(node) {
+    textareaElementRef.current = node;
+
+    if (typeof textareaRef === "function") {
+      textareaRef(node);
+      return;
+    }
+
+    if (textareaRef) {
+      textareaRef.current = node;
+    }
+  }
+
+  function resizeTextarea() {
+    if (!autoResize || !textareaElementRef.current) {
+      return;
+    }
+
+    const textarea = textareaElementRef.current;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [autoResize, value]);
+
+  useEffect(() => {
+    if (!autoResize) {
+      return undefined;
+    }
+
+    window.addEventListener("resize", resizeTextarea);
+
+    return () => {
+      window.removeEventListener("resize", resizeTextarea);
+    };
+  }, [autoResize]);
 
   function handleScroll(event) {
     if (!mirrorRef.current) {
@@ -8633,7 +8679,7 @@ function MeteorTagTextarea({
         onChange={onChange}
         onScroll={handleScroll}
         placeholder={placeholder}
-        ref={textareaRef}
+        ref={setTextareaNode}
         style={{ color: "transparent" }}
         value={value}
       />
@@ -8665,7 +8711,11 @@ function Composer({ composer }) {
   const videoInputDisabled =
     composer.saving || composer.videoPreparing || !composer.canPost || !composer.hasProfile || hasImages;
   const meteorTagInputDisabled = composer.saving || !composer.canPost || !composer.hasProfile;
-  const composerLayoutStyle = { "--compose-keyboard-offset": `${keyboardOffset}px` };
+  const composerLayoutStyle = {
+    "--compose-active-toolbar-height":
+      keyboardOffset > 0 ? "4.65rem" : "calc(env(safe-area-inset-bottom) + 5.35rem)",
+    "--compose-keyboard-offset": `${keyboardOffset}px`,
+  };
 
   function handleInsertMeteorTag(event) {
     event.preventDefault();
@@ -8702,7 +8752,8 @@ function Composer({ composer }) {
       <div className="compose-scroll-content fixed inset-x-0 z-20 overflow-y-auto overscroll-contain px-4 sm:px-8">
         <div className="mx-auto max-w-3xl">
           <MeteorTagTextarea
-            className="min-h-[46vh] w-full resize-y bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-[52vh] sm:text-lg"
+            autoResize
+            className="min-h-36 w-full resize-none overflow-hidden bg-transparent text-base leading-8 text-white outline-none placeholder:text-slate-500 sm:min-h-40 sm:text-lg"
             disabled={!composer.canPost || !composer.hasProfile || composer.saving}
             maxLength={POST_MAX_LENGTH + 1}
             onChange={(event) => composer.onChange(event.target.value)}
@@ -8712,7 +8763,7 @@ function Composer({ composer }) {
           />
 
         {(mediaHintText || statusText || composer.uploadProgress || composer.message || composer.error || composer.tagError) && (
-          <div className="mt-4 space-y-2">
+          <div className="mt-3 space-y-2">
             {mediaHintText && <p className="text-xs font-bold leading-5 text-sakura">{mediaHintText}</p>}
             {statusText && <p className="text-xs font-bold leading-5 text-slate-500">{statusText}</p>}
             {composer.uploadProgress && (
@@ -8735,7 +8786,7 @@ function Composer({ composer }) {
         )}
 
         {composer.imageDrafts.length > 0 && (
-          <div className="mt-5">
+          <div className="mt-3">
             <PostImageDraftPreview
               drafts={composer.imageDrafts}
               disabled={composer.saving}
@@ -8915,7 +8966,7 @@ function Composer({ composer }) {
 
 function PostImageDraftPreview({ disabled, drafts, onMove, onRemove }) {
   return (
-    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {drafts.map((draft, index) => (
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-night-950/55" key={draft.id}>
           <img
