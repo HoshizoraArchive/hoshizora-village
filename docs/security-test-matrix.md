@@ -27,9 +27,9 @@ Run `docs/security-verification.sql` in the target Supabase project and record a
 | S-03 | Column grants | `03_column_privileges_explicit_aclexplode` | Explicit column privileges are visible; `notifications` update remains limited to `is_read`. | Needs live verification |
 | S-04 | Default privileges | `03b_default_privileges` | No unexpected default grants to `PUBLIC`, `anon`, or `authenticated`. | Needs live verification |
 | S-05 | Public schema inventory | `03c_public_schema_object_inventory` | All public schema tables, partitioned tables, views, materialized views, sequences, foreign tables, and functions are known and intended. | Needs live verification |
-| S-06 | RLS anomaly extraction | `03d_rls_anomalies`, `03e_browser_role_write_grants` | No RLS-enabled zero-policy tables, no policy-on-disabled-RLS tables, no unexpected disabled-RLS tables, and no unexpected browser write grants. | Needs live verification |
+| S-06 | RLS anomaly extraction | `03d_rls_anomalies`, `03e_browser_role_write_grants` | No RLS-enabled zero-policy tables, no policy-on-disabled-RLS tables, no unexpected disabled-RLS tables, and no unexpected `PUBLIC`, `anon`, or `authenticated` write grants. | Needs live verification |
 | S-07 | Policy drift | `04_policies` | Live policy definitions match intended repository policy set. | Needs live verification |
-| S-08 | Security definer hygiene | `05_security_definer_functions`, `06_function_execute_privileges` | Security-definer functions use safe search path and are not executable by browser roles. | Needs live verification |
+| S-08 | Security definer hygiene | `05_security_definer_functions`, `06_function_execute_privileges` | Security-definer functions use safe search path, and any `PUBLIC`, `anon`, or `authenticated` EXECUTE grants are intended. | Needs live verification |
 | S-09 | Storage buckets | `08_storage_buckets` | Bucket public/private, MIME, and size settings match product intent. | Needs live verification |
 | S-10 | Storage object shape | `09_storage_object_counts` | Object paths start with UUID folders; no unexpected bucket objects. | Needs live verification |
 | S-11 | Orphan storage | `10_unreferenced_meteor_storage_objects` | No unexpected orphan media objects, or accepted cleanup backlog exists. | Needs live verification |

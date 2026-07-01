@@ -411,7 +411,7 @@ Could not complete:
 
 Run `docs/security-verification.sql` in the Supabase SQL Editor for the beta project and save the result summary outside the repository without secret values.
 
-The SQL now uses `pg_catalog` ACL inspection with `aclexplode` for table/view/sequence/schema/function privileges so `PUBLIC`, `anon`, and `authenticated` grants are visible. It also includes default privileges, a public schema object inventory, and explicit RLS anomaly sections.
+The SQL now uses `pg_catalog` ACL inspection with `aclexplode` for table/view/sequence/schema/function privileges so `PUBLIC`, `anon`, and `authenticated` grants are visible. Function EXECUTE checks use `pg_proc.proacl` and `aclexplode`, not `has_function_privilege('public', ...)`. The browser write-grant anomaly section includes `PUBLIC` grants because they are effective for `anon` and `authenticated`. It also includes default privileges, a public schema object inventory, and explicit RLS anomaly sections.
 
 Also check these dashboard-only settings:
 

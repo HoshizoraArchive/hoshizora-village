@@ -293,7 +293,7 @@ from public_tables
 where rls_enabled is false
 order by anomaly_type, schema_name, table_name;
 
--- 03e. anon/authenticated write privileges on public schema relation objects.
+-- 03e. PUBLIC / anon / authenticated write privileges on public schema relation objects.
 with write_privileges as (
   select
     n.nspname as schema_name,
@@ -313,7 +313,10 @@ with write_privileges as (
   cross join lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) as acl
   where n.nspname = 'public'
     and c.relkind in ('r', 'p', 'v', 'm', 'f')
-    and pg_get_userbyid(acl.grantee) in ('anon', 'authenticated')
+    and (
+      acl.grantee = 0
+      or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated')
+    )
     and acl.privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')
 )
 select
@@ -355,21 +358,26 @@ join pg_namespace n on n.oid = p.pronamespace
 where n.nspname in ('public', 'app_private')
 order by n.nspname, p.proname;
 
--- 06. Function execute privileges for browser-facing roles.
-with roles(role_name) as (
-  values ('public'), ('anon'), ('authenticated')
-)
+-- 06. Function execute privileges for PUBLIC / anon / authenticated.
 select
   '06_function_execute_privileges' as section,
   n.nspname as schema_name,
   p.proname as function_name,
-  roles.role_name,
-  has_function_privilege(roles.role_name, p.oid, 'EXECUTE') as can_execute
+  pg_get_function_identity_arguments(p.oid) as identity_arguments,
+  p.prosecdef as security_definer,
+  case when acl.grantee = 0 then 'PUBLIC' else pg_get_userbyid(acl.grantee) end as grantee,
+  acl.privilege_type,
+  acl.is_grantable
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
-cross join roles
+cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) as acl
 where n.nspname in ('public', 'app_private')
-order by n.nspname, p.proname, roles.role_name;
+  and (
+    acl.grantee = 0
+    or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated')
+  )
+  and acl.privilege_type = 'EXECUTE'
+order by n.nspname, p.proname, identity_arguments, grantee;
 
 -- 07. Check constraints for size/length/type enforcement.
 select
