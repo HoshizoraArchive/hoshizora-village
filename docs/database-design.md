@@ -17,6 +17,8 @@ MVPでは `auth.users.id` と `public.profiles.id` を1対1でつなぎ、ログ
 Databaseには以下を保存します。
 
 - `profiles`: ユーザープロフィール
+- `profile_frames`: プロフィールアイコンフレームのカタログ
+- `profile_frame_ownerships`: プロフィールごとのアイコンフレーム所持情報
 - `posts`: 流星便
 - `post_media`: 流星便画像 / 短尺動画
 - `profile_tags`: わたしの星座
@@ -73,6 +75,7 @@ Storage policy方針:
 - `supabase/migrations/20260616_add_meteor_video_media.sql`
 - `supabase/migrations/20260630_add_meteor_tags.sql`
 - `supabase/migrations/20260702_security_hardening.sql`
+- `supabase/migrations/20260702_add_profile_icon_frames.sql`
 
 ### 将来の拡張
 
@@ -94,6 +97,7 @@ AI住人用の強い権限はフロントエンドに置かず、将来のサー
 - `bio`: 自己紹介
 - `avatar_url`: プロフィール画像URL。プロフィール画像アップロードMVPでは `avatars` bucket の公開URLを保存する
 - `constellation_note`: わたしの星座の説明
+- `active_frame_id`: 現在装着中のプロフィールアイコンフレーム。nullならフレームなし
 - `notify_authors_when_i_archive`: 自分のArchiveを相手に通知するかどうか
 - `notify_authors_when_i_resonate`: 自分の共鳴を相手に通知するかどうか
 - `created_at`: 作成日時
@@ -108,6 +112,65 @@ RLS方針:
 
 - `notify_authors_when_i_archive` はデフォルトONです。OFFの場合、自分が誰かの流星便をArchiveしても相手にR.Connect通知を作りません。
 - `notify_authors_when_i_resonate` はデフォルトONです。OFFの場合、自分が誰かの流星便に共鳴しても相手にR.Connect通知を作りません。
+- `active_frame_id` はDB triggerで `profile_frame_ownerships` による所持確認を行い、所持していないフレームIDを直接送っても保存できません。
+
+### profile_frames
+
+プロフィールアイコンに重ねる透過PNGフレームのカタログです。
+
+主なカラム:
+
+- `id`: フレームID
+- `frame_key`: アプリ内で参照する一意キー。例: `chia_guide`
+- `name`: 表示名
+- `description`: 説明文
+- `asset_path`: public配下の透過PNGパス。例: `/profile-frames/chia-guide.png`
+- `acquisition_type`: 入手種別。MVPでは `admin_grant`
+- `rarity`: 将来用のレアリティ
+- `frame_scale`: プロフィール画像に対するフレーム表示倍率
+- `frame_offset_x`: フレーム表示位置のX方向調整
+- `frame_offset_y`: フレーム表示位置のY方向調整
+- `is_active`: 利用中かどうか
+- `created_at`: 作成日時
+- `updated_at`: 更新日時
+
+RLS方針:
+
+- 有効なフレームカタログは `anon` / `authenticated` がselect可能
+- ブラウザroleからinsert / update / delete / truncateは許可しない
+
+初期データ:
+
+- `chia_guide`: 星空ちあ｜街の案内人
+- asset: `/profile-frames/chia-guide.png`
+- 入手方法: 運営付与のみ
+
+### profile_frame_ownerships
+
+どのプロフィールがどのアイコンフレームを所持しているかを保存します。
+
+主なカラム:
+
+- `id`: 所持レコードID
+- `profile_id`: 所持者プロフィール
+- `frame_id`: 所持フレーム
+- `acquisition_source`: 付与元。MVPでは `operator_grant`
+- `granted_at`: 付与日時
+
+制約:
+
+- `profile_id + frame_id` は重複不可
+
+RLS方針:
+
+- ログイン中ユーザーは自分の所持フレームだけselect可能
+- ブラウザroleからinsert / update / delete / truncateは許可しない
+- 付与は運営・管理者・信頼されたサーバー側処理で行う
+
+運営付与:
+
+- migration本体には星空ちあのUUIDをハードコードしません
+- 付与と装着は `docs/profile-frame-operations.sql` のSQL例で、`username = 'chia_hoshizora'` と `email = 'akaibuhoshizora+chia@gmail.com'` を確認してから実行します
 
 ### posts
 
