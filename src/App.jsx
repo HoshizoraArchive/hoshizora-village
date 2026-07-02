@@ -73,6 +73,13 @@ const POST_MEDIA_SELECT_COLUMNS =
   "id, post_id, uploader_id, media_type, storage_path, thumbnail_storage_path, duration_seconds, sort_order, mime_type, size_bytes, created_at";
 const POST_MEDIA_LEGACY_SELECT_COLUMNS =
   "id, post_id, uploader_id, media_type, storage_path, sort_order, mime_type, size_bytes, created_at";
+const PROFILE_BASIC_SELECT_COLUMNS = "id, display_name, username, avatar_url";
+const PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME = `${PROFILE_BASIC_SELECT_COLUMNS}, active_frame_id`;
+const PROFILE_DETAIL_SELECT_COLUMNS = "id, display_name, username, avatar_url, bio, constellation_note";
+const PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME = `${PROFILE_DETAIL_SELECT_COLUMNS}, active_frame_id`;
+const PROFILE_FRAME_SELECT_COLUMNS =
+  "id, frame_key, name, description, asset_path, acquisition_type, rarity, frame_scale, frame_offset_x, frame_offset_y, is_active, created_at, updated_at";
+const PROFILE_FRAME_OWNERSHIP_SELECT_COLUMNS = "profile_id, frame_id, acquisition_source, granted_at";
 const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
 const VISIBLE_POST_TYPES = ["text", "image", "video"];
 
@@ -82,6 +89,7 @@ const emptyProfileForm = {
   avatar_url: "",
   bio: "",
   constellation_note: "",
+  active_frame_id: "",
   notify_authors_when_i_archive: true,
   notify_authors_when_i_resonate: true,
 };
@@ -100,6 +108,7 @@ function profileFormFromRecord(profile) {
     avatar_url: profile?.avatar_url ?? "",
     bio: profile?.bio ?? "",
     constellation_note: profile?.constellation_note ?? "",
+    active_frame_id: profile?.active_frame_id ?? "",
     notify_authors_when_i_archive: profile?.notify_authors_when_i_archive ?? true,
     notify_authors_when_i_resonate: profile?.notify_authors_when_i_resonate ?? true,
   };
@@ -316,6 +325,24 @@ function isMissingMeteorTagsError(error) {
   );
 }
 
+function isMissingProfileFrameSchemaError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return (
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    error?.code === "PGRST205" ||
+    message.includes("profile_frames") ||
+    message.includes("profile_frame_ownerships") ||
+    message.includes("active_frame_id")
+  );
+}
+
+function isUnownedProfileFrameError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return error?.code === "23514" || message.includes("active profile frame must be owned");
+}
+
 function isMissingVideoPostMediaColumnError(error) {
   const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
   return (
@@ -328,6 +355,36 @@ function isMissingVideoPostMediaColumnError(error) {
 
 function createClientId() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function mapProfileFrame(frame) {
+  if (!frame?.id || !frame?.asset_path) {
+    return null;
+  }
+
+  return {
+    id: frame.id,
+    key: frame.frame_key,
+    name: frame.name,
+    description: frame.description ?? "",
+    assetPath: frame.asset_path,
+    acquisitionType: frame.acquisition_type ?? "",
+    rarity: frame.rarity ?? "",
+    scale: Number(frame.frame_scale) || 1.22,
+    offsetX: Number(frame.frame_offset_x) || 0,
+    offsetY: Number(frame.frame_offset_y) || 0,
+    isActive: frame.is_active !== false,
+    createdAt: frame.created_at ?? null,
+    updatedAt: frame.updated_at ?? null,
+  };
+}
+
+function getProfileFrameById(profileFrames, frameId) {
+  if (!frameId) {
+    return null;
+  }
+
+  return (profileFrames ?? []).find((frame) => frame.id === frameId) ?? null;
 }
 
 function getMeteorImageExtension(file) {
@@ -662,6 +719,22 @@ async function runPostQuery(buildQuery) {
   return {
     ...result,
     supportsSoftDelete: true,
+  };
+}
+
+async function runProfileQuery(buildQuery, columnsWithFrame, fallbackColumns) {
+  const result = await buildQuery(columnsWithFrame, true);
+
+  if (result.error && isMissingProfileFrameSchemaError(result.error)) {
+    return {
+      ...(await buildQuery(fallbackColumns, false)),
+      supportsProfileFrames: false,
+    };
+  }
+
+  return {
+    ...result,
+    supportsProfileFrames: true,
   };
 }
 
@@ -1300,9 +1373,10 @@ function formatNotificationMessage(notification) {
   return notification.message;
 }
 
-function mapSavedPost(post, authorProfile) {
+function mapSavedPost(post, authorProfile, profileFrames = []) {
   const displayName = authorProfile?.display_name || defaultProfileView.display_name;
   const username = authorProfile?.username ? `@${authorProfile.username}` : "@starry_creator";
+  const avatarFrame = getProfileFrameById(profileFrames, authorProfile?.active_frame_id);
 
   return {
     id: post.id,
@@ -1313,6 +1387,8 @@ function mapSavedPost(post, authorProfile) {
     badge: "流星便",
     avatar: getAvatarText(displayName),
     avatarUrl: authorProfile?.avatar_url ?? null,
+    avatarFrame,
+    avatarFrameId: authorProfile?.active_frame_id ?? null,
     createdAt: post.created_at,
     deletedAt: post.deleted_at ?? null,
     time: formatPostTime(post.created_at),
@@ -1327,12 +1403,13 @@ function mapSavedPost(post, authorProfile) {
   };
 }
 
-function applyAuthorProfileToPost(post, authorProfile) {
+function applyAuthorProfileToPost(post, authorProfile, profileFrames = []) {
   if (!post || post.authorId !== authorProfile?.id) {
     return post;
   }
 
   const displayName = authorProfile.display_name || defaultProfileView.display_name;
+  const avatarFrame = getProfileFrameById(profileFrames, authorProfile.active_frame_id);
 
   return {
     ...post,
@@ -1341,24 +1418,27 @@ function applyAuthorProfileToPost(post, authorProfile) {
     handle: authorProfile.username ? `@${authorProfile.username}` : post.handle,
     avatar: getAvatarText(displayName),
     avatarUrl: authorProfile.avatar_url ?? null,
+    avatarFrame,
+    avatarFrameId: authorProfile.active_frame_id ?? null,
   };
 }
 
-function mapArchivedPost(archive, post, authorProfile) {
+function mapArchivedPost(archive, post, authorProfile, profileFrames = []) {
   return {
-    ...mapSavedPost(post, authorProfile),
+    ...mapSavedPost(post, authorProfile, profileFrames),
     archiveId: archive.id,
     archivedAt: archive.created_at,
     archivedTime: formatNotificationTime(archive.created_at),
   };
 }
 
-function applyAuthorProfileToStarLetter(letter, authorProfile) {
+function applyAuthorProfileToStarLetter(letter, authorProfile, profileFrames = []) {
   if (!letter || letter.authorId !== authorProfile?.id) {
     return letter;
   }
 
   const displayName = authorProfile.display_name || "誰か";
+  const avatarFrame = getProfileFrameById(profileFrames, authorProfile.active_frame_id);
 
   return {
     ...letter,
@@ -1366,11 +1446,14 @@ function applyAuthorProfileToStarLetter(letter, authorProfile) {
     handle: authorProfile.username ? `@${authorProfile.username}` : letter.handle,
     avatar: getAvatarText(displayName),
     avatarUrl: authorProfile.avatar_url ?? null,
+    avatarFrame,
+    avatarFrameId: authorProfile.active_frame_id ?? null,
   };
 }
 
-function mapStarLetter(letter, authorProfile) {
+function mapStarLetter(letter, authorProfile, profileFrames = []) {
   const displayName = authorProfile?.display_name || "誰か";
+  const avatarFrame = getProfileFrameById(profileFrames, authorProfile?.active_frame_id);
 
   return {
     id: letter.id,
@@ -1381,6 +1464,8 @@ function mapStarLetter(letter, authorProfile) {
     handle: authorProfile?.username ? `@${authorProfile.username}` : "@star_letter",
     avatar: getAvatarText(displayName),
     avatarUrl: authorProfile?.avatar_url ?? null,
+    avatarFrame,
+    avatarFrameId: authorProfile?.active_frame_id ?? null,
     time: formatNotificationTime(letter.created_at),
     createdAt: letter.created_at,
     updatedAt: letter.updated_at ?? null,
@@ -1418,6 +1503,11 @@ function App() {
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
+  const [profileFrames, setProfileFrames] = useState([]);
+  const [ownedProfileFrameIds, setOwnedProfileFrameIds] = useState([]);
+  const [profileFramesAvailable, setProfileFramesAvailable] = useState(true);
+  const [profileFramesLoading, setProfileFramesLoading] = useState(false);
+  const [profileFramesError, setProfileFramesError] = useState("");
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarCroppedBlob, setAvatarCroppedBlob] = useState(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
@@ -1987,6 +2077,83 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+
+    async function readProfileFrames() {
+      setProfileFramesLoading(true);
+      setProfileFramesError("");
+
+      const { data: frameRows, error: frameError } = await supabase
+        .from("profile_frames")
+        .select(PROFILE_FRAME_SELECT_COLUMNS)
+        .eq("is_active", true)
+        .order("created_at", { ascending: true });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (frameError) {
+        setProfileFrames([]);
+        setOwnedProfileFrameIds([]);
+        setProfileFramesLoading(false);
+
+        if (isMissingProfileFrameSchemaError(frameError)) {
+          setProfileFramesAvailable(false);
+          return;
+        }
+
+        setProfileFramesAvailable(true);
+        setProfileFramesError(frameError.message);
+        return;
+      }
+
+      const nextFrames = (frameRows ?? []).map(mapProfileFrame).filter(Boolean);
+      setProfileFrames(nextFrames);
+      setProfileFramesAvailable(true);
+
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        setOwnedProfileFrameIds([]);
+        setProfileFramesLoading(false);
+        return;
+      }
+
+      const { data: ownershipRows, error: ownershipError } = await supabase
+        .from("profile_frame_ownerships")
+        .select(PROFILE_FRAME_OWNERSHIP_SELECT_COLUMNS)
+        .eq("profile_id", userId);
+
+      if (!isMounted) {
+        return;
+      }
+
+      setProfileFramesLoading(false);
+
+      if (ownershipError) {
+        if (isMissingProfileFrameSchemaError(ownershipError)) {
+          setProfileFramesAvailable(false);
+          setOwnedProfileFrameIds([]);
+          return;
+        }
+
+        setProfileFramesError(ownershipError.message);
+        setOwnedProfileFrameIds([]);
+        return;
+      }
+
+      setOwnedProfileFrameIds((ownershipRows ?? []).map((row) => row.frame_id).filter(Boolean));
+    }
+
+    readProfileFrames();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
     const userId = session?.user?.id;
 
     if (!userId) {
@@ -2005,11 +2172,11 @@ function App() {
       setProfileMessage("");
       setProfileError("");
 
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, display_name, username, avatar_url, bio, constellation_note")
-        .eq("id", userId)
-        .maybeSingle();
+      const { data, error, supportsProfileFrames } = await runProfileQuery(
+        (columns) => supabase.from("profiles").select(columns).eq("id", userId).maybeSingle(),
+        PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME,
+        PROFILE_DETAIL_SELECT_COLUMNS,
+      );
 
       if (!isMounted) {
         return;
@@ -2020,6 +2187,10 @@ function App() {
       if (error) {
         setProfileError(error.message);
         return;
+      }
+
+      if (supportsProfileFrames === false) {
+        setProfileFramesAvailable(false);
       }
 
       let nextProfile = data
@@ -2118,11 +2289,11 @@ function App() {
         return;
       }
 
-      const { data: authorProfile, error: profileRowsError } = await supabase
-        .from("profiles")
-        .select("id, display_name, username, avatar_url")
-        .eq("id", post.author_id)
-        .maybeSingle();
+      const { data: authorProfile, error: profileRowsError } = await runProfileQuery(
+        (columns) => supabase.from("profiles").select(columns).eq("id", post.author_id).maybeSingle(),
+        PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+        PROFILE_BASIC_SELECT_COLUMNS,
+      );
 
       if (!isMounted) {
         return;
@@ -2135,7 +2306,7 @@ function App() {
               .flat()
               .find((currentPost) => currentPost?.id === post.id);
       const basePost = {
-        ...mapSavedPost(post, profileRowsError ? null : authorProfile),
+        ...mapSavedPost(post, profileRowsError ? null : authorProfile, profileFrames),
         media: knownPost?.media ?? [],
         tags: knownPost?.tags ?? [],
       };
@@ -2158,7 +2329,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [detailPostId]);
+  }, [detailPostId, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2180,11 +2351,11 @@ function App() {
       setProfileShareMessage("");
       setProfileShareError("");
 
-      const { data: profileRow, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, display_name, username, avatar_url, bio, constellation_note")
-        .eq("username", publicProfileUsername)
-        .maybeSingle();
+      const { data: profileRow, error: profileError } = await runProfileQuery(
+        (columns) => supabase.from("profiles").select(columns).eq("username", publicProfileUsername).maybeSingle(),
+        PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME,
+        PROFILE_DETAIL_SELECT_COLUMNS,
+      );
 
       if (!isMounted) {
         return;
@@ -2207,6 +2378,11 @@ function App() {
         setPublicProfileError("not-found");
         return;
       }
+
+      const nextPublicProfile = {
+        ...profileRow,
+        activeFrame: getProfileFrameById(profileFrames, profileRow.active_frame_id),
+      };
 
       const { data: tagRows } = await supabase
         .from("profile_tags")
@@ -2239,7 +2415,7 @@ function App() {
       }
 
       if (postsError) {
-        setPublicProfile(profileRow);
+        setPublicProfile(nextPublicProfile);
         setPublicProfileTags(tagRows ?? []);
         setPublicProfilePosts([]);
         setPublicProfileLoading(false);
@@ -2247,7 +2423,7 @@ function App() {
         return;
       }
 
-      const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profileRow));
+      const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profileRow, profileFrames));
       const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isMounted) {
@@ -2258,7 +2434,7 @@ function App() {
         console.warn("公開プロフィールの添付情報読み込みに失敗しました。", assetsError);
       }
 
-      setPublicProfile(profileRow);
+      setPublicProfile(nextPublicProfile);
       setPublicProfileTags(tagRows ?? []);
       setPublicProfilePosts(hydratedPosts);
       setPublicProfileLoading(false);
@@ -2269,7 +2445,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [publicProfileUsername]);
+  }, [publicProfileUsername, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2383,10 +2559,11 @@ function App() {
       const profilesById = new Map();
 
       if (authorIds.length > 0) {
-        const { data: profileRows, error: profileRowsError } = await supabase
-          .from("profiles")
-          .select("id, display_name, username, avatar_url")
-          .in("id", authorIds);
+        const { data: profileRows, error: profileRowsError } = await runProfileQuery(
+          (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
+          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+          PROFILE_BASIC_SELECT_COLUMNS,
+        );
 
         if (!isMounted) {
           return;
@@ -2404,7 +2581,7 @@ function App() {
         }
       }
 
-      const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id)));
+      const mappedPosts = (postRows ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id), profileFrames));
       const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isMounted) {
@@ -2425,7 +2602,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [meteorTagRouteName]);
+  }, [meteorTagRouteName, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2464,10 +2641,11 @@ function App() {
       const profilesById = new Map();
 
       if (authorIds.length > 0) {
-        const { data: profileRows } = await supabase
-          .from("profiles")
-          .select("id, display_name, username, avatar_url")
-          .in("id", authorIds);
+        const { data: profileRows } = await runProfileQuery(
+          (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
+          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+          PROFILE_BASIC_SELECT_COLUMNS,
+        );
 
         if (!isMounted) {
           return;
@@ -2481,7 +2659,7 @@ function App() {
       const nextLettersByPostId = {};
 
       for (const letter of data ?? []) {
-        const mappedLetter = mapStarLetter(letter, profilesById.get(letter.author_id));
+        const mappedLetter = mapStarLetter(letter, profilesById.get(letter.author_id), profileFrames);
         nextLettersByPostId[letter.post_id] = [...(nextLettersByPostId[letter.post_id] ?? []), mappedLetter];
       }
 
@@ -2494,7 +2672,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [allPostIdsKey]);
+  }, [allPostIdsKey, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2534,7 +2712,7 @@ function App() {
         return;
       }
 
-      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profile));
+      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profile, profileFrames));
       const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isMounted) {
@@ -2553,7 +2731,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profile?.display_name, profile?.username, profile?.avatar_url]);
+  }, [session?.user?.id, profile?.display_name, profile?.username, profile?.avatar_url, profile?.active_frame_id, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2622,10 +2800,11 @@ function App() {
       const profilesById = new Map();
 
       if (authorIds.length > 0) {
-        const { data: profileRows, error: profileRowsError } = await supabase
-          .from("profiles")
-          .select("id, display_name, username, avatar_url")
-          .in("id", authorIds);
+        const { data: profileRows, error: profileRowsError } = await runProfileQuery(
+          (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
+          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+          PROFILE_BASIC_SELECT_COLUMNS,
+        );
 
         if (!isMounted) {
           return;
@@ -2650,7 +2829,7 @@ function App() {
       const mappedArchives = (archiveRows ?? [])
         .map((archive) => {
           const post = postsById.get(archive.post_id);
-          return post ? mapArchivedPost(archive, post, profilesById.get(post.author_id)) : null;
+          return post ? mapArchivedPost(archive, post, profilesById.get(post.author_id), profileFrames) : null;
         })
         .filter(Boolean);
       const { posts: hydratedArchives, error: assetsError } = await hydratePostsWithAssets(mappedArchives);
@@ -2672,7 +2851,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2715,10 +2894,11 @@ function App() {
       const profilesById = new Map();
 
       if (actorIds.length > 0) {
-        const { data: profileRows } = await supabase
-          .from("profiles")
-          .select("id, display_name, username, avatar_url")
-          .in("id", actorIds);
+        const { data: profileRows } = await runProfileQuery(
+          (columns) => supabase.from("profiles").select(columns).in("id", actorIds),
+          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+          PROFILE_BASIC_SELECT_COLUMNS,
+        );
 
         if (!isMounted) {
           return;
@@ -2733,6 +2913,7 @@ function App() {
         (data ?? []).map((notification) => ({
           ...notification,
           actorProfile: profilesById.get(notification.actor_id) ?? null,
+          actorFrame: getProfileFrameById(profileFrames, profilesById.get(notification.actor_id)?.active_frame_id),
         })),
       );
     }
@@ -2742,7 +2923,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2775,10 +2956,11 @@ function App() {
       const profilesById = new Map();
 
       if (authorIds.length > 0) {
-        const { data: profileRows, error: profileRowsError } = await supabase
-          .from("profiles")
-          .select("id, display_name, username, avatar_url")
-          .in("id", authorIds);
+        const { data: profileRows, error: profileRowsError } = await runProfileQuery(
+          (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
+          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+          PROFILE_BASIC_SELECT_COLUMNS,
+        );
 
         if (!isMounted) {
           return;
@@ -2799,7 +2981,7 @@ function App() {
         return;
       }
 
-      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id)));
+      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id), profileFrames));
       const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isMounted) {
@@ -2819,7 +3001,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [profileFrames]);
 
   async function handleSignUp(email, password) {
     setAuthLoading(true);
@@ -3150,26 +3332,43 @@ function App() {
       nextAvatarUrl = publicUrlData.publicUrl;
     }
 
-    const { data, error } = await supabase
+    const profilePayload = {
+      id: session.user.id,
+      display_name: displayName,
+      username: optionalUsername(profileForm.username),
+      avatar_url: nextAvatarUrl,
+      bio: optionalText(profileForm.bio),
+      constellation_note: optionalText(profileForm.constellation_note),
+    };
+
+    if (profileFramesAvailable) {
+      profilePayload.active_frame_id = profileForm.active_frame_id || null;
+    }
+
+    let { data, error } = await supabase
       .from("profiles")
-      .upsert(
-        {
-          id: session.user.id,
-          display_name: displayName,
-          username: optionalUsername(profileForm.username),
-          avatar_url: nextAvatarUrl,
-          bio: optionalText(profileForm.bio),
-          constellation_note: optionalText(profileForm.constellation_note),
-        },
-        { onConflict: "id" },
-      )
-      .select("id, display_name, username, avatar_url, bio, constellation_note")
+      .upsert(profilePayload, { onConflict: "id" })
+      .select(profileFramesAvailable ? PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME : PROFILE_DETAIL_SELECT_COLUMNS)
       .single();
+
+    if (error && isMissingProfileFrameSchemaError(error) && profileFramesAvailable) {
+      const fallbackProfilePayload = { ...profilePayload };
+      delete fallbackProfilePayload.active_frame_id;
+      const fallbackResult = await supabase
+        .from("profiles")
+        .upsert(fallbackProfilePayload, { onConflict: "id" })
+        .select(PROFILE_DETAIL_SELECT_COLUMNS)
+        .single();
+
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+      setProfileFramesAvailable(false);
+    }
 
     setProfileSaving(false);
 
     if (error) {
-      setProfileError(error.message);
+      setProfileError(isUnownedProfileFrameError(error) ? "所持していないアイコンフレームは装着できません。" : error.message);
       return;
     }
 
@@ -3182,17 +3381,17 @@ function App() {
     setProfile(nextProfile);
     setProfileForm(profileFormFromRecord(nextProfile));
     clearSelectedAvatar();
-    setSavedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
-    setOwnPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
-    setArchivedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
-    setPublicProfilePosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
-    setMeteorTagPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile)));
-    setDetailPost((currentPost) => applyAuthorProfileToPost(currentPost, nextProfile));
+    setSavedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
+    setOwnPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
+    setArchivedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
+    setPublicProfilePosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
+    setMeteorTagPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
+    setDetailPost((currentPost) => applyAuthorProfileToPost(currentPost, nextProfile, profileFrames));
     setStarLettersByPostId((currentLettersByPostId) =>
       Object.fromEntries(
         Object.entries(currentLettersByPostId).map(([postId, letters]) => [
           postId,
-          letters.map((letter) => applyAuthorProfileToStarLetter(letter, nextProfile)),
+          letters.map((letter) => applyAuthorProfileToStarLetter(letter, nextProfile, profileFrames)),
         ]),
       ),
     );
@@ -4088,7 +4287,7 @@ function App() {
       }
 
       const newPost = {
-        ...mapSavedPost(data, profile),
+        ...mapSavedPost(data, profile, profileFrames),
         media,
         tags: meteorTags,
       };
@@ -4678,7 +4877,7 @@ function App() {
       return;
     }
 
-    const mappedLetter = mapStarLetter(data, profile);
+    const mappedLetter = mapStarLetter(data, profile, profileFrames);
 
     setStarLettersByPostId((currentLetters) => ({
       ...currentLetters,
@@ -5010,6 +5209,9 @@ function App() {
     session,
     status: authStatus,
   };
+  const ownedProfileFrames = profileFrames.filter((frame) => ownedProfileFrameIds.includes(frame.id));
+  const activeProfileFrame = getProfileFrameById(profileFrames, profile?.active_frame_id);
+  const selectedProfileFrame = getProfileFrameById(profileFrames, profileForm.active_frame_id);
   const profileState = {
     canEdit: Boolean(session),
     data: profile,
@@ -5034,6 +5236,12 @@ function App() {
     onShareProfile: handleShareStarProfile,
     onStartEdit: handleStartProfileEdit,
     onSubmit: handleProfileSubmit,
+    activeFrame: activeProfileFrame,
+    ownedProfileFrames,
+    profileFramesAvailable,
+    profileFramesError,
+    profileFramesLoading,
+    selectedFrame: selectedProfileFrame,
     saving: profileSaving,
     shareError: profileShareError,
     shareMessage: profileShareMessage,
@@ -6238,10 +6446,10 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
               onClick={onOpenAvatar}
               type="button"
             >
-              <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+              <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" frame={profile.activeFrame} />
             </button>
           ) : (
-            <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" />
+            <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" frame={profile.activeFrame} />
           )}
           <button
             className="mb-2 min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
@@ -6395,7 +6603,7 @@ function NotificationCard({ notification, onMarkRead, onOpenMeteorDetail, onOpen
             onClick={() => onOpenStarProfile(actorUsername)}
             type="button"
           >
-            <AvatarFrame avatar={avatar} avatarUrl={actorProfile?.avatar_url} className="h-10 w-10 rounded-2xl text-sm" />
+            <AvatarFrame avatar={avatar} avatarUrl={actorProfile?.avatar_url} className="h-10 w-10 rounded-2xl text-sm" frame={notification.actorFrame} />
             <span className="min-w-0">
               <span className="block truncate text-sm font-black text-white">{actorName}</span>
               <span className="block truncate text-xs text-slate-500">@{actorUsername}</span>
@@ -6403,7 +6611,7 @@ function NotificationCard({ notification, onMarkRead, onOpenMeteorDetail, onOpen
           </button>
         ) : (
           <div className="flex min-w-0 items-center gap-3">
-            <AvatarFrame avatar={avatar} avatarUrl={actorProfile?.avatar_url} className="h-10 w-10 rounded-2xl text-sm" />
+            <AvatarFrame avatar={avatar} avatarUrl={actorProfile?.avatar_url} className="h-10 w-10 rounded-2xl text-sm" frame={notification.actorFrame} />
             <span className="min-w-0">
               <span className="block truncate text-sm font-black text-white">{actorName}</span>
               <span className="block text-xs text-slate-500">観測者情報を取得中</span>
@@ -6954,6 +7162,7 @@ function ProfileCard({ profile }) {
   const username = profile.data?.username ? `@${profile.data.username}` : defaultProfileView.username;
   const bio = profile.data?.bio || defaultProfileView.bio;
   const avatarUrl = profile.data?.avatar_url;
+  const activeFrame = profile.activeFrame;
   const constellationNote = profile.data?.constellation_note;
   const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
   const canShareStarProfile = Boolean(profile.data?.username);
@@ -6972,10 +7181,10 @@ function ProfileCard({ profile }) {
               onClick={() => profile.onOpenAvatar(avatarUrl, `${displayName}の星影`)}
               type="button"
             >
-              <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+              <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" frame={activeFrame} />
             </button>
           ) : (
-            <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" />
+            <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" frame={activeFrame} />
           )}
           <div className="mb-2 flex items-center gap-2">
             {profile.canEdit && (
@@ -7065,19 +7274,53 @@ function ProfileEditScreen({ profile }) {
   );
 }
 
-function AvatarFrame({ avatar, avatarUrl, className = "h-12 w-12 rounded-2xl text-base" }) {
+function AvatarFrame({ avatar, avatarUrl, className = "h-12 w-12 rounded-2xl text-base", frame = null }) {
   const baseClass =
     "grid flex-none place-items-center overflow-hidden border border-white/20 bg-gradient-to-br from-night-800 via-aurora/70 to-sakura/70 font-black text-white shadow-glow";
+  const avatarContent = avatarUrl ? (
+    <img alt="" className="h-full w-full object-cover" src={avatarUrl} />
+  ) : (
+    avatar
+  );
 
-  if (avatarUrl) {
-    return (
-      <div className={`${baseClass} ${className}`}>
-        <img alt="" className="h-full w-full object-cover" src={avatarUrl} />
-      </div>
-    );
+  if (!frame) {
+    if (avatarUrl) {
+      return (
+        <div className={`${baseClass} ${className}`}>
+          {avatarContent}
+        </div>
+      );
+    }
+
+    return <div className={`${baseClass} ${className}`}>{avatarContent}</div>;
   }
 
-  return <div className={`${baseClass} ${className}`}>{avatar}</div>;
+  const frameStyle = {
+    "--profile-frame-offset-x": `${frame.offsetX ?? 0}%`,
+    "--profile-frame-offset-y": `${frame.offsetY ?? 0}%`,
+    "--profile-frame-scale": frame.scale ?? 1.22,
+  };
+
+  return (
+    <div className={`relative flex-none ${className}`} style={frameStyle}>
+      <div className={`${baseClass} h-full w-full rounded-[inherit]`}>
+        {avatarContent}
+      </div>
+      <img
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-1/2 z-10 max-w-none select-none"
+        draggable={false}
+        src={frame.assetPath}
+        style={{
+          height: "calc(100% * var(--profile-frame-scale, 1.22))",
+          transform:
+            "translate(calc(-50% + var(--profile-frame-offset-x, 0%)), calc(-50% + var(--profile-frame-offset-y, 0%)))",
+          width: "calc(100% * var(--profile-frame-scale, 1.22))",
+        }}
+      />
+    </div>
+  );
 }
 
 function AvatarCropper({
@@ -7650,6 +7893,7 @@ function ProfileEditor({ profile }) {
   const previewUrl = profile.avatarPreviewUrl || profile.form.avatar_url;
   const previewName = profile.form.display_name || defaultProfileView.display_name;
   const previewAvatar = getAvatarText(previewName);
+  const selectedFrame = profile.selectedFrame;
 
   return (
     <form className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-night-950/35 p-3" onSubmit={profile.onSubmit}>
@@ -7690,7 +7934,7 @@ function ProfileEditor({ profile }) {
       <div className="rounded-2xl border border-comet/20 bg-comet/10 p-3">
         <p className="text-xs font-black text-comet">星影</p>
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <AvatarFrame avatar={previewAvatar} avatarUrl={previewUrl} className="h-16 w-16 rounded-3xl text-xl" />
+          <AvatarFrame avatar={previewAvatar} avatarUrl={previewUrl} className="h-16 w-16 rounded-3xl text-xl" frame={selectedFrame} />
           <div className="min-w-0 flex-1">
             <label className="inline-flex min-h-10 cursor-pointer items-center rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01]">
               写真フォルダから星影を選ぶ
@@ -7722,6 +7966,76 @@ function ProfileEditor({ profile }) {
           value={profile.form.avatar_url}
         />
       </label>
+
+      <div className="rounded-2xl border border-white/10 bg-night-950/45 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-black text-comet">アイコンフレーム</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">所持しているフレームだけを装着できます。</p>
+          </div>
+          {profile.profileFramesLoading && <span className="text-[11px] font-bold text-slate-500">読込中...</span>}
+        </div>
+        {profile.profileFramesError && (
+          <p className="mt-3 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-5 text-sakura">
+            {profile.profileFramesError}
+          </p>
+        )}
+        {!profile.profileFramesAvailable ? (
+          <p className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 px-3 py-2 text-xs leading-5 text-comet">
+            アイコンフレームを使うには、Supabase SQL Editorでプロフィールアイコンフレームmigrationの実行が必要です。
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-2">
+            <button
+              className={`flex min-h-12 items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-left text-xs font-bold transition ${
+                !profile.form.active_frame_id
+                  ? "border-comet/40 bg-comet/15 text-white"
+                  : "border-white/10 bg-white/5 text-slate-300 hover:border-comet/30 hover:bg-comet/10"
+              }`}
+              disabled={profile.loading || profile.saving || profile.avatarUploading}
+              onClick={() => profile.onChange("active_frame_id", "")}
+              type="button"
+            >
+              <span>
+                <span className="block font-black">フレームを使用しない</span>
+                <span className="mt-1 block text-[11px] text-slate-500">現在の星影だけを表示します。</span>
+              </span>
+              {!profile.form.active_frame_id && <span className="text-comet">選択中</span>}
+            </button>
+
+            {profile.ownedProfileFrames.length === 0 ? (
+              <p className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-500">
+                所持しているアイコンフレームはまだありません。
+              </p>
+            ) : (
+              profile.ownedProfileFrames.map((frame) => {
+                const isSelected = profile.form.active_frame_id === frame.id;
+
+                return (
+                  <button
+                    className={`flex min-h-16 items-center gap-3 rounded-2xl border px-3 py-2 text-left transition ${
+                      isSelected
+                        ? "border-comet/40 bg-comet/15 text-white"
+                        : "border-white/10 bg-white/5 text-slate-300 hover:border-comet/30 hover:bg-comet/10"
+                    }`}
+                    disabled={profile.loading || profile.saving || profile.avatarUploading}
+                    key={frame.id}
+                    onClick={() => profile.onChange("active_frame_id", frame.id)}
+                    type="button"
+                  >
+                    <AvatarFrame avatar={previewAvatar} avatarUrl={previewUrl} className="h-11 w-11 rounded-2xl text-sm" frame={frame} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-black">{frame.name}</span>
+                      <span className="mt-1 block text-[11px] leading-4 text-slate-500">{frame.description}</span>
+                    </span>
+                    {isSelected && <span className="text-xs font-black text-comet">選択中</span>}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
 
       <label className="block text-xs font-bold text-slate-400">
         自己紹介
@@ -9184,10 +9498,10 @@ function PostCard({
               onClick={handleOpenAuthorProfile}
               type="button"
             >
-              <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
+              <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} frame={post.avatarFrame} />
             </button>
           ) : (
-            <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} />
+            <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} frame={post.avatarFrame} />
           )}
           <div className="min-w-0 flex-1 pt-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -9430,7 +9744,7 @@ function StarLetterItem({ letter, starLetters }) {
   return (
     <article className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
       <div className="flex gap-3">
-        <AvatarFrame avatar={letter.avatar} avatarUrl={letter.avatarUrl} className="h-9 w-9 rounded-2xl text-xs" />
+        <AvatarFrame avatar={letter.avatar} avatarUrl={letter.avatarUrl} className="h-9 w-9 rounded-2xl text-xs" frame={letter.avatarFrame} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-sm font-black text-white">{letter.name}</span>
