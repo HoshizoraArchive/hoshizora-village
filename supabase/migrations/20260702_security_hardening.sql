@@ -3,6 +3,8 @@
 -- moves meteor media buckets to private access, and tightens browser-role grants.
 -- Do not use service_role keys in the frontend.
 
+begin;
+
 -- 1. Hide soft-deleted public posts and linked public data from browser roles.
 drop policy if exists posts_select_visible on public.posts;
 create policy posts_select_visible on public.posts
@@ -343,3 +345,5 @@ alter table public.post_tags
     char_length(trim(label)) > 0
     and char_length(trim(label)) <= 30
   );
+
+commit;
