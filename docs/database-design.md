@@ -41,22 +41,24 @@ Supabase Storageは、プロフィール画像アップロードMVPで `avatars`
 - 保存パス: `{userId}/avatar-{timestamp}.{ext}`
 
 - bucket名: `meteor-media`
-- public read: 有効
+- public read: 無効
 - 最大サイズ: 8MB
 - 許可MIME type: `image/jpeg`, `image/png`, `image/webp`
 - 保存パス: `{userId}/{uploadBatchId}/{sortOrder}-{randomId}.{ext}`
+- 表示方法: `post_media` と `posts` の可視性に連動したStorage RLSを通し、クライアント側で短時間のsigned URLを発行
 
 - bucket名: `meteor-video`
-- public read: 有効
+- public read: 無効
 - 最大サイズ: 100MB
 - 許可MIME type: `video/mp4`, `video/quicktime`, `video/webm`
 - 保存パス: `{userId}/{uploadBatchId}/video-{randomId}.{ext}`
+- 表示方法: `post_media` と `posts` の可視性に連動したStorage RLSを通し、クライアント側で短時間のsigned URLを発行
 
 Storage policy方針:
 
 - 誰でも `avatars` bucket の画像をselect可能
-- 誰でも `meteor-media` bucket の画像をselect可能
-- 誰でも `meteor-video` bucket の動画をselect可能
+- `meteor-media` bucket の画像は、公開中かつ削除されていない流星便、または投稿者本人の流星便に紐づく場合だけselect可能
+- `meteor-video` bucket の動画は、公開中かつ削除されていない流星便、または投稿者本人の流星便に紐づく場合だけselect可能
 - ログイン済みユーザーだけがinsert可能
 - insertできるのは `auth.uid()` と同じ名前のフォルダ配下のみ
 - `meteor-media` はログイン済みユーザーが自分のフォルダ配下だけdelete可能
@@ -70,6 +72,7 @@ Storage policy方針:
 - `supabase/migrations/20260613_add_meteor_image_media.sql`
 - `supabase/migrations/20260616_add_meteor_video_media.sql`
 - `supabase/migrations/20260630_add_meteor_tags.sql`
+- `supabase/migrations/20260702_security_hardening.sql`
 
 ### 将来の拡張
 
@@ -318,15 +321,16 @@ RLS方針:
 
 RLS方針:
 
-- 見える流星便に紐づく共鳴はselect可能
+- 公開中かつ削除されていない流星便、または投稿者本人の流星便に紐づく共鳴はselect可能
 - ログインユーザーのみ、自分の共鳴をinsert可能
 - 自分の共鳴のみdelete可能
 
 補足:
 
 - 初期MVPでは、同じユーザーが同じ流星便に何度も共鳴できる設計です。
-- 将来、1投稿1ユーザー1共鳴にする場合は `unique(post_id, profile_id)` を追加します。
+- `resonances` に `unique(post_id, profile_id)` は追加しません。
 - 共鳴が作成されると、DBトリガーで流星便の作者にR.Connect通知を作成します。
+- 共鳴通知は、同じ `recipient_id` / `actor_id` / `post_id` の組み合わせにつき1件だけ作成します。
 
 ### notifications
 
@@ -472,6 +476,7 @@ RLS方針:
 観測ログを保存します。
 
 人間の閲覧ログだけでなく、将来のAI住人観測APIの出力も保存できる形にします。
+AI住人の内部判断や下書きが入るため、browser roleから raw table を直接selectさせません。
 
 主なカラム:
 
@@ -493,6 +498,13 @@ RLS方針:
 - `archive_tags`: Archiveタグ候補のJSON配列
 - `work_constellation`: 作品につける星座名
 - `created_at`: 作成日時
+
+RLS / 権限方針:
+
+- `anon` / `authenticated` から `observations` raw table への直接selectは許可しない
+- 現在のフロントエンドは `observations` を直接参照しない
+- 将来public表示が必要な場合は、安全な列だけを返すviewまたはRPCを別途追加する
+- AI処理はフロントエンドではなく、信頼できるサーバー側処理から扱う
 
 `observer_type`:
 
