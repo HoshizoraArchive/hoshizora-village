@@ -53,3 +53,46 @@ test("AI observation config rejects missing required numeric limits", () => {
     /invalid_env:AI_DAILY_REQUEST_LIMIT/,
   );
 });
+
+test("AI observation config accepts retry boundary values 0 and 9", () => {
+  assert.equal(readAiObservationConfig(enabledEnv({ AI_OBSERVATION_MAX_RETRIES: "0" })).maxRetries, 0);
+  assert.equal(readAiObservationConfig(enabledEnv({ AI_OBSERVATION_MAX_RETRIES: "9" })).maxRetries, 9);
+});
+
+test("AI observation config rejects retry values above 9", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_OBSERVATION_MAX_RETRIES: "10" })),
+    /invalid_env:AI_OBSERVATION_MAX_RETRIES/,
+  );
+});
+
+test("AI observation config rejects values above JavaScript safe integer", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_DAILY_COST_LIMIT_MICRO_USD: "9007199254740992" })),
+    /invalid_env:AI_DAILY_COST_LIMIT_MICRO_USD/,
+  );
+});
+
+test("AI observation config rejects zero for positive-only settings", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_RESERVED_COST_MICRO_USD: "0" })),
+    /invalid_env:AI_RESERVED_COST_MICRO_USD/,
+  );
+});
+
+test("AI observation config allows zero for non-negative settings", () => {
+  const config = readAiObservationConfig(enabledEnv({
+    AI_OBSERVATION_MAX_RETRIES: "0",
+    AI_MIN_SECONDS_BETWEEN_REQUESTS: "0",
+  }));
+
+  assert.equal(config.maxRetries, 0);
+  assert.equal(config.minSecondsBetweenRequests, 0);
+});
+
+test("AI observation config rejects excessively large timeout values", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_OBSERVATION_TIMEOUT_MS: "300001" })),
+    /invalid_env:AI_OBSERVATION_TIMEOUT_MS/,
+  );
+});

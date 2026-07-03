@@ -11,9 +11,10 @@
 4. Functionは `SUPABASE_SERVICE_ROLE_KEY` を使い、Supabase Auth tokenをサーバー側で検証する。
 5. `AI_OPERATOR_USER_IDS` に含まれるAuth UUIDだけをoperatorとして許可する。
 6. FunctionはDBから対象流星便と `post_media` を取得し、公開・未削除・対応メディア条件をサーバー側で確認する。
-7. 画像・動画ではStorage APIで対象オブジェクトのメタデータも取得し、DB上のMIME・サイズと一致することを確認する。
-8. Functionは `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。
-9. 成功時は `queued` の `public.ai_observation_jobs` 行だけを作成し、202を返す。
+7. 画像・動画ではStorage pathの先頭フォルダが投稿者UUIDと一致することをFunctionとDB制約の両方で確認する。
+8. 画像・動画ではStorage APIで対象オブジェクトのメタデータも取得し、DB上のMIME・サイズと一致することを確認する。
+9. Functionは `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。
+10. 成功時は `queued` の `public.ai_observation_jobs` 行だけを作成し、202を返す。
 
 ## 信頼境界
 
@@ -75,9 +76,14 @@ DB側で以下を保証する。
 - `idempotency_key` はunique。
 - `(post_id, ai_resident_key)` について、`queued` または `processing` はpartial unique indexで1件だけ。
 - `(post_id, ai_resident_key)` について、`succeeded` はpartial unique indexで1件だけ。
-- `(post_id, ai_resident_key)` の `failed` 件数が `max_attempts` 以上の場合は、DB側で追加予約を拒否する。
 - `reserve_ai_observation_job` はtransaction内でadvisory lockを取り、上限判定とinsertを同じ処理で行う。
 - 競合はFunctionで409へ変換する。
+
+`attempt_count` はprovider APIを実際に呼び出した回数として扱う。
+`max_attempts` は1つの観測処理で許可するprovider API呼び出し総数であり、自動リトライは同じジョブ行の中で `attempt_count` を増やす前提にする。
+新しい `failed` ジョブ行の件数をAPI試行回数の代わりには使わない。
+将来、手動再実行を許可する場合は、通常の自動リトライとは別の明示的な処理として設計する。
+現時点の通常予約RPCは、同じ `post_id` + `ai_resident_key` に `failed` がある場合も409相当で拒否し、暗黙の再実行を作らない。
 
 ## 利用回数・料金上限
 
@@ -86,13 +92,21 @@ DB側で以下を保証する。
 - 日次: UTC 00:00以降
 - 月次: UTC月初00:00以降
 
-`queued` / `processing` / `succeeded` の `reserved_cost_micro_usd` を予約済み利用として集計する。
+料金集計は `app_private.ai_observation_billable_cost_micro_usd` で統一する。
+`queued` / `processing` は予約料金を数える。
+`succeeded` は実料金があれば実料金、なければ予約料金を数える。
+`failed` は `attempt_count > 0` の場合、実料金または安全側の予約料金を数える。
+provider呼び出し前に失敗したジョブは `attempt_count = 0` で区別する。
 本PRでは実際のGemini料金計算は行わず、`AI_RESERVED_COST_MICRO_USD` を予約単価として使う。
 具体的な予算値はリポジトリにハードコードしない。
+環境変数の数値は `Number.isSafeInteger` と範囲上限を検証し、巨大値やPostgreSQL integer / bigintへ安全に渡せない値は設定不備として503でfail closedする。
+`AI_OBSERVATION_MAX_RETRIES` は0〜9のみ許可し、保存される `max_attempts` は1〜10に収める。
 
 ## メディア検証
 
 Functionはクライアント入力ではなくDBの `posts` / `post_media` を取得して検証する。
+`post_media.storage_path` と `thumbnail_storage_path` は、先頭フォルダが `uploader_id` / 投稿者UUIDと一致することをDB制約 `post_media_storage_path_owner_check` / `post_media_thumbnail_storage_path_owner_check` で保証する。
+空パス、先頭/末尾スラッシュ、空セグメント、`.` / `..`、バックスラッシュ、`%` を含むURLエンコード回避は拒否する。
 画像・動画では、Storage APIから取得したオブジェクトメタデータのMIMEとサイズも `post_media` と照合する。
 
 - 画像: `image/jpeg`, `image/png`, `image/webp`, 最大8MB, 最大4枚。

@@ -124,6 +124,46 @@ function assertMediaOwnership(row, post) {
   }
 }
 
+export function isOwnedStoragePath(storagePath, ownerId) {
+  if (typeof storagePath !== "string" || typeof ownerId !== "string" || !UUID_PATTERN.test(ownerId)) {
+    return false;
+  }
+
+  if (
+    storagePath.length === 0 ||
+    storagePath.trim() !== storagePath ||
+    storagePath.startsWith("/") ||
+    storagePath.endsWith("/") ||
+    storagePath.includes("\\") ||
+    storagePath.includes("%") ||
+    storagePath.includes("//")
+  ) {
+    return false;
+  }
+
+  const segments = storagePath.split("/");
+
+  if (segments.length < 2 || segments[0] !== ownerId.toLowerCase()) {
+    return false;
+  }
+
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function assertOwnedStoragePath(storagePath, ownerId) {
+  if (!isOwnedStoragePath(storagePath, ownerId)) {
+    throw aiHttpError(422, AI_ERROR.UNSUPPORTED_MEDIA);
+  }
+}
+
+function assertMediaStoragePaths(row, post) {
+  assertOwnedStoragePath(row.storage_path, post.author_id);
+
+  if (row.thumbnail_storage_path !== null && row.thumbnail_storage_path !== undefined) {
+    assertOwnedStoragePath(row.thumbnail_storage_path, post.author_id);
+  }
+}
+
 export function validatePostMedia(post, mediaRows) {
   const rows = mediaRows ?? [];
 
@@ -134,6 +174,7 @@ export function validatePostMedia(post, mediaRows) {
 
     rows.forEach((row, index) => {
       assertMediaOwnership(row, post);
+      assertMediaStoragePaths(row, post);
       const sizeBytes = Number(row.size_bytes);
 
       if (
@@ -163,6 +204,7 @@ export function validatePostMedia(post, mediaRows) {
 
     const [row] = rows;
     assertMediaOwnership(row, post);
+    assertMediaStoragePaths(row, post);
     const sizeBytes = Number(row.size_bytes);
     const durationSeconds = Number(row.duration_seconds);
 

@@ -7,6 +7,48 @@ begin;
 create schema if not exists app_private;
 revoke all on schema app_private from public, anon, authenticated;
 
+create or replace function app_private.storage_path_belongs_to_owner(
+  p_path text,
+  p_owner_id uuid
+)
+returns boolean
+language sql
+immutable
+strict
+set search_path = ''
+as $$
+  select
+    p_path = btrim(p_path)
+    and p_path <> ''
+    and position('/' in p_path) > 0
+    and split_part(p_path, '/', 1) = p_owner_id::text
+    and p_path !~ '^/'
+    and p_path !~ '/$'
+    and p_path !~ '//'
+    and p_path !~ '(^|/)\.{1,2}(/|$)'
+    and position(chr(92) in p_path) = 0
+    and position('%' in p_path) = 0;
+$$;
+
+revoke all on function app_private.storage_path_belongs_to_owner(text, uuid) from public, anon, authenticated;
+
+alter table public.post_media
+drop constraint if exists post_media_storage_path_owner_check;
+
+alter table public.post_media
+add constraint post_media_storage_path_owner_check
+check (app_private.storage_path_belongs_to_owner(storage_path, uploader_id));
+
+alter table public.post_media
+drop constraint if exists post_media_thumbnail_storage_path_owner_check;
+
+alter table public.post_media
+add constraint post_media_thumbnail_storage_path_owner_check
+check (
+  thumbnail_storage_path is null
+  or app_private.storage_path_belongs_to_owner(thumbnail_storage_path, uploader_id)
+);
+
 do $$
 begin
   if not exists (
@@ -79,6 +121,34 @@ comment on column public.ai_observation_jobs.reserved_cost_micro_usd is '利用�
 comment on column public.ai_observation_jobs.actual_cost_micro_usd is 'AI実行後に確定する実料金。micro USD単位の整数で保存する。';
 comment on column public.ai_observation_jobs.request_fingerprint is '同じ入力を安全に識別するハッシュ。投稿本文やStorage pathそのものは保存しない。';
 comment on column public.ai_observation_jobs.public_error_code is '外部へ出してよい短いエラーコード。内部エラー本文は保存しない。';
+comment on column public.ai_observation_jobs.attempt_count is 'provider APIを実際に呼び出した回数。自動リトライは同じジョブ行の中でこの値を増やす。';
+comment on column public.ai_observation_jobs.max_attempts is '1つの観測処理で許可するprovider API呼び出し総数。';
+
+create or replace function app_private.ai_observation_billable_cost_micro_usd(
+  p_status public.ai_observation_job_status,
+  p_attempt_count integer,
+  p_reserved_cost_micro_usd bigint,
+  p_actual_cost_micro_usd bigint
+)
+returns bigint
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when p_status in ('queued', 'processing') then greatest(coalesce(p_reserved_cost_micro_usd, 0), 0)
+    when p_status = 'succeeded' then greatest(coalesce(p_actual_cost_micro_usd, p_reserved_cost_micro_usd, 0), 0)
+    when p_status = 'failed' and coalesce(p_attempt_count, 0) > 0 then greatest(coalesce(p_actual_cost_micro_usd, p_reserved_cost_micro_usd, 0), 0)
+    else 0
+  end;
+$$;
+
+revoke all on function app_private.ai_observation_billable_cost_micro_usd(
+  public.ai_observation_job_status,
+  integer,
+  bigint,
+  bigint
+) from public, anon, authenticated;
 
 create index if not exists ai_observation_jobs_post_id_idx on public.ai_observation_jobs(post_id);
 create index if not exists ai_observation_jobs_requested_by_created_at_idx
@@ -141,7 +211,6 @@ declare
   v_job_id uuid;
   v_day_start timestamptz := (date_trunc('day', now() at time zone 'UTC') at time zone 'UTC');
   v_month_start timestamptz := (date_trunc('month', now() at time zone 'UTC') at time zone 'UTC');
-  v_failed_attempts integer;
   v_daily_requests bigint;
   v_monthly_requests bigint;
   v_daily_cost bigint;
@@ -155,7 +224,7 @@ begin
     or p_request_fingerprint !~ '^[0-9a-f]{64}$'
     or p_input_kind not in ('text', 'image', 'audio', 'video', 'youtube')
     or p_input_size_bytes < 0
-    or p_reserved_cost_micro_usd < 0
+    or p_reserved_cost_micro_usd < 1
     or p_max_attempts < 1
     or p_max_attempts > 10
     or p_daily_request_limit < 1
@@ -219,15 +288,14 @@ begin
     return;
   end if;
 
-  select count(*)
-    into v_failed_attempts
-  from public.ai_observation_jobs j
-  where j.post_id = p_post_id
-    and j.ai_resident_key = p_ai_resident_key
-    and j.status = 'failed';
-
-  if v_failed_attempts >= p_max_attempts then
-    outcome := 'max_attempts_exceeded';
+  if exists (
+    select 1
+    from public.ai_observation_jobs j
+    where j.post_id = p_post_id
+      and j.ai_resident_key = p_ai_resident_key
+      and j.status = 'failed'
+  ) then
+    outcome := 'already_failed';
     return next;
     return;
   end if;
@@ -244,17 +312,29 @@ begin
     return;
   end if;
 
-  select count(*), coalesce(sum(j.reserved_cost_micro_usd), 0)
+  select count(*),
+    coalesce(sum(app_private.ai_observation_billable_cost_micro_usd(
+      j.status,
+      j.attempt_count,
+      j.reserved_cost_micro_usd,
+      j.actual_cost_micro_usd
+    )), 0)
     into v_daily_requests, v_daily_cost
   from public.ai_observation_jobs j
   where j.created_at >= v_day_start
-    and j.status in ('queued', 'processing', 'succeeded');
+    and j.status in ('queued', 'processing', 'succeeded', 'failed');
 
-  select count(*), coalesce(sum(j.reserved_cost_micro_usd), 0)
+  select count(*),
+    coalesce(sum(app_private.ai_observation_billable_cost_micro_usd(
+      j.status,
+      j.attempt_count,
+      j.reserved_cost_micro_usd,
+      j.actual_cost_micro_usd
+    )), 0)
     into v_monthly_requests, v_monthly_cost
   from public.ai_observation_jobs j
   where j.created_at >= v_month_start
-    and j.status in ('queued', 'processing', 'succeeded');
+    and j.status in ('queued', 'processing', 'succeeded', 'failed');
 
   if v_daily_requests >= p_daily_request_limit
     or v_monthly_requests >= p_monthly_request_limit

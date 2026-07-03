@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildReservationParams, getUtcPeriodStarts, isRetriableProviderFailure } from "./aiLimits.mjs";
+import {
+  buildReservationParams,
+  canStartProviderAttempt,
+  getBillableCostMicroUsd,
+  getUtcPeriodStarts,
+  isRetriableProviderFailure,
+} from "./aiLimits.mjs";
 
 test("UTC period starts are fixed to UTC day and month boundaries", () => {
   const starts = getUtcPeriodStarts(new Date("2026-07-03T15:45:10.000Z"));
@@ -36,4 +42,37 @@ test("only transient provider statuses are retry candidates", () => {
   assert.equal(isRetriableProviderFailure(429), true);
   assert.equal(isRetriableProviderFailure(422), false);
   assert.equal(isRetriableProviderFailure(403), false);
+});
+
+test("billable cost counts reservations and provider-call failures conservatively", () => {
+  assert.equal(getBillableCostMicroUsd({
+    status: "queued",
+    attempt_count: 0,
+    reserved_cost_micro_usd: 100,
+    actual_cost_micro_usd: null,
+  }), 100);
+  assert.equal(getBillableCostMicroUsd({
+    status: "succeeded",
+    attempt_count: 1,
+    reserved_cost_micro_usd: 100,
+    actual_cost_micro_usd: 80,
+  }), 80);
+  assert.equal(getBillableCostMicroUsd({
+    status: "failed",
+    attempt_count: 1,
+    reserved_cost_micro_usd: 100,
+    actual_cost_micro_usd: null,
+  }), 100);
+  assert.equal(getBillableCostMicroUsd({
+    status: "failed",
+    attempt_count: 0,
+    reserved_cost_micro_usd: 100,
+    actual_cost_micro_usd: null,
+  }), 0);
+});
+
+test("provider attempts are bounded by attempt_count and max_attempts on one job", () => {
+  assert.equal(canStartProviderAttempt({ status: "processing", attempt_count: 0, max_attempts: 1 }), true);
+  assert.equal(canStartProviderAttempt({ status: "processing", attempt_count: 1, max_attempts: 1 }), false);
+  assert.equal(canStartProviderAttempt({ status: "failed", attempt_count: 0, max_attempts: 1 }), false);
 });

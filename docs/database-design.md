@@ -31,6 +31,7 @@ Databaseには以下を保存します。
 - `star_letters`: 星文
 - `archives`: Archive
 - `observations`: 観測ログ
+- `ai_observation_jobs`: AI住人観測ジョブ
 
 ### Storage
 
@@ -63,6 +64,7 @@ Storage policy方針:
 - `meteor-video` bucket の動画は、公開中かつ削除されていない流星便、または投稿者本人の流星便に紐づく場合だけselect可能
 - ログイン済みユーザーだけがinsert可能
 - insertできるのは `auth.uid()` と同じ名前のフォルダ配下のみ
+- `post_media.storage_path` と `thumbnail_storage_path` はDB制約でも `uploader_id` のUUIDフォルダ配下に限定する
 - `meteor-media` はログイン済みユーザーが自分のフォルダ配下だけdelete可能
 - `meteor-video` はログイン済みユーザーが自分のフォルダ配下だけdelete可能
 - 他人のフォルダにはアップロードできない
@@ -76,6 +78,7 @@ Storage policy方針:
 - `supabase/migrations/20260630_add_meteor_tags.sql`
 - `supabase/migrations/20260702_security_hardening.sql`
 - `supabase/migrations/20260702_add_profile_icon_frames.sql`
+- `supabase/migrations/20260703_add_ai_observation_security_foundation.sql`
 
 ### 将来の拡張
 
@@ -584,15 +587,47 @@ RLS / 権限方針:
 
 RLS方針:
 
-- 公開流星便に紐づく観測ログはselect可能
-- 自分が観測したログ、または自分の流星便に紐づくログはselect可能
+- `anon` / `authenticated` からraw tableを直接selectさせない
+- 公開表示が必要な場合は、安全な列だけを返すviewまたはRPCを別途追加する
 - 人間ユーザーは、自分の `human` 観測ログのみinsert / update / delete可能
 - AI住人の書き込みは将来のサーバー側 `service_role` 運用で行う
 
 注意:
 
-- RLSは行単位の制御なので、`analysis_summary` や `x_post_draft` などを画面に出すかどうかはアプリ側/API側でも制御します。
-- 公開画面にAI内部情報をそのまま出したくない場合は、将来 `is_public` カラムや公開用ビューを追加します。
+- `analysis_summary` や `x_post_draft` などの内部情報を公開画面へ直接出さない。
+- 将来公開が必要な観測情報は、公開用ビュー/RPCで列を絞って扱います。
+
+### ai_observation_jobs
+
+AI住人の観測処理を安全に予約・状態管理する内部ジョブテーブルです。
+このテーブルはブラウザから直接操作させず、Netlify Functionなど信頼済みサーバー側処理が `service_role` で扱います。
+
+主なカラム:
+
+- `post_id`: 観測対象の流星便
+- `requested_by`: 予約した運営ユーザー
+- `ai_resident_key`: MVPでは `hoshizora_chia`
+- `provider`: MVPでは `gemini`
+- `model`: サーバー側で固定するモデル名
+- `status`: `queued`, `processing`, `succeeded`, `failed`, `cancelled`
+- `idempotency_key`: 同じリクエストの二重受理防止
+- `request_fingerprint`: 入力識別用のハッシュ
+- `attempt_count`: provider APIを実際に呼び出した回数
+- `max_attempts`: 1つの観測処理で許可するprovider API呼び出し総数
+- `reserved_cost_micro_usd`: 予約時に利用上限へ計上するmicro USD
+- `actual_cost_micro_usd`: 実行後に確定するmicro USD
+- `observation_id`: 将来作成する `observations` 行
+- `star_letter_id`: 将来作成する `star_letters` 行
+- `public_error_code`: 外部へ出してよい短いエラーコード
+
+制約 / 権限方針:
+
+- `idempotency_key` はunique
+- 同じ `post_id` + `ai_resident_key` の `queued` / `processing` は1件だけ
+- 同じ `post_id` + `ai_resident_key` の `succeeded` は1件だけ
+- `attempt_count <= max_attempts`
+- RLSを有効化し、`anon` / `authenticated` / `PUBLIC` の直接操作権限を付与しない
+- 予約処理は `public.reserve_ai_observation_job(...)` でDB側transaction内に閉じる
 
 ## 今回まだ実装しないこと
 

@@ -49,6 +49,7 @@ function mapOutcomeToError(outcome) {
     outcome === "duplicate_idempotency" ||
     outcome === "already_queued" ||
     outcome === "already_succeeded" ||
+    outcome === "already_failed" ||
     outcome === "retry_too_soon" ||
     outcome === "max_attempts_exceeded"
   ) {

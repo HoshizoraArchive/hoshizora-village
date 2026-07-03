@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   extractYoutubeVideoId,
   getStorageRequirements,
+  isOwnedStoragePath,
   validateObservationRequestPayload,
   validatePostMedia,
   validatePublicPost,
@@ -36,6 +37,22 @@ function imageRow(overrides = {}) {
     mime_type: "image/jpeg",
     size_bytes: "1024",
     duration_seconds: null,
+    ...overrides,
+  };
+}
+
+function videoRow(overrides = {}) {
+  return {
+    id: "55555555-5555-4555-8555-555555555555",
+    post_id: POST_ID,
+    uploader_id: AUTHOR_ID,
+    media_type: "video",
+    storage_path: `${AUTHOR_ID}/batch/0-video.mp4`,
+    thumbnail_storage_path: `${AUTHOR_ID}/batch/0-thumb.jpg`,
+    sort_order: 0,
+    mime_type: "video/mp4",
+    size_bytes: "2048",
+    duration_seconds: 12.5,
     ...overrides,
   };
 }
@@ -105,6 +122,47 @@ test("image media validation checks ownership, limits, and storage metadata", ()
       },
     },
   ]));
+});
+
+test("storage path owner validation rejects cross-owner and ambiguous paths", () => {
+  const otherUserId = "99999999-9999-4999-8999-999999999999";
+
+  assert.equal(isOwnedStoragePath(`${AUTHOR_ID}/batch/image.jpg`, AUTHOR_ID), true);
+  assert.equal(isOwnedStoragePath(`${otherUserId}/batch/image.jpg`, AUTHOR_ID), false);
+  assert.equal(isOwnedStoragePath(`${AUTHOR_ID}/../image.jpg`, AUTHOR_ID), false);
+  assert.equal(isOwnedStoragePath(`${AUTHOR_ID}\\batch\\image.jpg`, AUTHOR_ID), false);
+  assert.equal(isOwnedStoragePath(`${AUTHOR_ID}/%2e%2e/image.jpg`, AUTHOR_ID), false);
+  assert.equal(isOwnedStoragePath(`${AUTHOR_ID}//image.jpg`, AUTHOR_ID), false);
+});
+
+test("image media validation rejects cross-owner storage paths before storage access", () => {
+  const post = publicPost({ type: "image" });
+  const otherUserId = "99999999-9999-4999-8999-999999999999";
+
+  assert.throws(
+    () => validatePostMedia(post, [imageRow({ storage_path: `${otherUserId}/batch/image.jpg` })]),
+    (error) => error.status === 422 && error.code === "UNSUPPORTED_MEDIA",
+  );
+});
+
+test("video media validation rejects cross-owner thumbnail paths", () => {
+  const post = publicPost({ type: "video" });
+  const otherUserId = "99999999-9999-4999-8999-999999999999";
+
+  assert.throws(
+    () => validatePostMedia(post, [videoRow({ thumbnail_storage_path: `${otherUserId}/batch/thumb.jpg` })]),
+    (error) => error.status === 422 && error.code === "UNSUPPORTED_MEDIA",
+  );
+});
+
+test("video media validation accepts owner-scoped video and thumbnail paths", () => {
+  const summary = validatePostMedia(publicPost({ type: "video" }), [videoRow()]);
+
+  assert.deepEqual(summary, {
+    inputKind: "video",
+    inputSizeBytes: 2048,
+    inputDurationSeconds: 12.5,
+  });
 });
 
 test("storage metadata mismatch is rejected", () => {

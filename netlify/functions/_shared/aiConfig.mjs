@@ -1,4 +1,8 @@
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const POSTGRES_INTEGER_MAX = 2147483647;
+const MAX_REQUEST_LIMIT = 1000000;
+const MAX_TIMEOUT_MS = 300000;
+const MAX_SECONDS_BETWEEN_REQUESTS = 86400;
 
 function defaultEnvSource() {
   return globalThis.Netlify?.env ?? process.env;
@@ -12,24 +16,20 @@ export function readEnv(name, env = defaultEnvSource()) {
   return env?.[name] ?? "";
 }
 
-function parseRequiredPositiveInteger(name, env) {
-  const rawValue = readEnv(name, env).trim();
-
-  if (!/^[1-9][0-9]*$/.test(rawValue)) {
-    throw new Error(`invalid_env:${name}`);
-  }
-
-  return Number(rawValue);
-}
-
-function parseRequiredNonNegativeInteger(name, env) {
+function parseRequiredInteger(name, env, { min, max }) {
   const rawValue = readEnv(name, env).trim();
 
   if (!/^(0|[1-9][0-9]*)$/.test(rawValue)) {
     throw new Error(`invalid_env:${name}`);
   }
 
-  return Number(rawValue);
+  const value = Number(rawValue);
+
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(`invalid_env:${name}`);
+  }
+
+  return value;
 }
 
 function parseOperatorUserIds(env) {
@@ -76,14 +76,38 @@ export function readAiObservationConfig(env = defaultEnvSource()) {
     supabaseServiceRoleKey,
     geminiApiKeyPresent: true,
     operatorUserIds: parseOperatorUserIds(env),
-    dailyRequestLimit: parseRequiredPositiveInteger("AI_DAILY_REQUEST_LIMIT", env),
-    monthlyRequestLimit: parseRequiredPositiveInteger("AI_MONTHLY_REQUEST_LIMIT", env),
-    dailyCostLimitMicroUsd: parseRequiredPositiveInteger("AI_DAILY_COST_LIMIT_MICRO_USD", env),
-    monthlyCostLimitMicroUsd: parseRequiredPositiveInteger("AI_MONTHLY_COST_LIMIT_MICRO_USD", env),
-    observationTimeoutMs: parseRequiredPositiveInteger("AI_OBSERVATION_TIMEOUT_MS", env),
-    maxRetries: parseRequiredNonNegativeInteger("AI_OBSERVATION_MAX_RETRIES", env),
-    minSecondsBetweenRequests: parseRequiredNonNegativeInteger("AI_MIN_SECONDS_BETWEEN_REQUESTS", env),
-    reservedCostMicroUsd: parseRequiredPositiveInteger("AI_RESERVED_COST_MICRO_USD", env),
+    dailyRequestLimit: parseRequiredInteger("AI_DAILY_REQUEST_LIMIT", env, {
+      min: 1,
+      max: Math.min(MAX_REQUEST_LIMIT, POSTGRES_INTEGER_MAX),
+    }),
+    monthlyRequestLimit: parseRequiredInteger("AI_MONTHLY_REQUEST_LIMIT", env, {
+      min: 1,
+      max: Math.min(MAX_REQUEST_LIMIT, POSTGRES_INTEGER_MAX),
+    }),
+    dailyCostLimitMicroUsd: parseRequiredInteger("AI_DAILY_COST_LIMIT_MICRO_USD", env, {
+      min: 1,
+      max: Number.MAX_SAFE_INTEGER,
+    }),
+    monthlyCostLimitMicroUsd: parseRequiredInteger("AI_MONTHLY_COST_LIMIT_MICRO_USD", env, {
+      min: 1,
+      max: Number.MAX_SAFE_INTEGER,
+    }),
+    observationTimeoutMs: parseRequiredInteger("AI_OBSERVATION_TIMEOUT_MS", env, {
+      min: 1,
+      max: MAX_TIMEOUT_MS,
+    }),
+    maxRetries: parseRequiredInteger("AI_OBSERVATION_MAX_RETRIES", env, {
+      min: 0,
+      max: 9,
+    }),
+    minSecondsBetweenRequests: parseRequiredInteger("AI_MIN_SECONDS_BETWEEN_REQUESTS", env, {
+      min: 0,
+      max: MAX_SECONDS_BETWEEN_REQUESTS,
+    }),
+    reservedCostMicroUsd: parseRequiredInteger("AI_RESERVED_COST_MICRO_USD", env, {
+      min: 1,
+      max: Number.MAX_SAFE_INTEGER,
+    }),
   };
 }
 
