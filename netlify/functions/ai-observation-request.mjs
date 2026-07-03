@@ -82,12 +82,13 @@ async function handlePost(request, requestId, startedAt) {
   const config = await readConfigOrThrow();
   const supabase = createSupabaseAdminClient(config);
   const operator = await requireAiOperator({ request, supabase, config });
-  const { post, mediaSummary } = await validateCurrentPostInput({ supabase, postId: payload.postId });
+  const { post, mediaRows, mediaSummary } = await validateCurrentPostInput({ supabase, postId: payload.postId });
   const job = await reserveAiObservationJob({
     supabase,
     operatorUserId: operator.id,
     payload,
     post,
+    mediaRows,
     mediaSummary,
     config,
   });

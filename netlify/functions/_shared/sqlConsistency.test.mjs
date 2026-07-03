@@ -67,9 +67,9 @@ test("AI observation MVP migration and schema.sql contain worker state RPCs with
     "public.cancel_ai_observation_job",
     "for update",
     "p_expected_request_fingerprint",
-    "v_job.request_fingerprint <> p_expected_request_fingerprint",
-    "v_post.visibility <> 'public'",
-    "v_post.deleted_at is not null",
+    "app_private.ai_observation_current_request_fingerprint(v_job.post_id)",
+    "v_current_request_fingerprint <> v_job.request_fingerprint",
+    "v_current_request_fingerprint <> p_expected_request_fingerprint",
     "p_model <> 'gemini-3.5-flash'",
     "to service_role",
   ];
@@ -77,6 +77,91 @@ test("AI observation MVP migration and schema.sql contain worker state RPCs with
   for (const token of tokens) {
     assert.equal(observationMvpMigrationSql.includes(token), true, `MVP migration missing ${token}`);
     assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
+  }
+});
+
+test("AI observation MVP current fingerprint helper locks and hashes current post and media rows", () => {
+  const tokens = [
+    "app_private.ai_observation_current_request_fingerprint",
+    "from public.posts p",
+    "for update",
+    "from public.post_media pm",
+    "order by pm.sort_order, pm.id",
+    "for share",
+    '"aiResidentKey"',
+    '"body"',
+    '"media"',
+    '"mediaRows"',
+    '"postId"',
+    '"postType"',
+    '"updatedAt"',
+    '"youtubeUrl"',
+    '"youtubeVideoId"',
+    '"durationSeconds"',
+    '"mediaType"',
+    '"mimeType"',
+    '"sizeBytes"',
+    '"sortOrder"',
+    '"storagePath"',
+    '"thumbnailStoragePath"',
+    '"uploaderId"',
+  ];
+
+  for (const token of tokens) {
+    assert.equal(observationMvpMigrationSql.includes(token), true, `MVP migration missing current fingerprint token: ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing current fingerprint token: ${token}`);
+  }
+
+  assert.equal(observationMvpMigrationSql.includes("v_current_request_fingerprint is null"), true);
+  assert.equal(schemaSql.includes("v_current_request_fingerprint is null"), true);
+});
+
+test("AI observation MVP private fingerprint helpers are not executable by browser roles", () => {
+  const helperNames = [
+    "ai_observation_json_text",
+    "ai_observation_json_timestamptz",
+    "ai_observation_json_number",
+    "ai_observation_current_request_fingerprint",
+  ];
+
+  for (const helperName of helperNames) {
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+app_private\\.${helperName}`, "i").test(observationMvpMigrationSql),
+      true,
+      `MVP migration missing browser-role revoke for app_private.${helperName}`,
+    );
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+app_private\\.${helperName}`, "i").test(schemaSql),
+      true,
+      `schema.sql missing browser-role revoke for app_private.${helperName}`,
+    );
+  }
+});
+
+test("AI observation MVP JS and SQL fingerprint canonical fields stay aligned", () => {
+  const jsTokens = [
+    "aiResidentKey",
+    "body",
+    "mediaRows",
+    "postId",
+    "postType",
+    "updatedAt",
+    "youtubeUrl",
+    "youtubeVideoId",
+    "durationSeconds",
+    "mediaType",
+    "mimeType",
+    "sizeBytes",
+    "sortOrder",
+    "storagePath",
+    "thumbnailStoragePath",
+    "uploaderId",
+  ];
+  const aiJobReservation = readFileSync("netlify/functions/_shared/aiJobReservation.mjs", "utf8");
+
+  for (const token of jsTokens) {
+    assert.equal(aiJobReservation.includes(token), true, `JS fingerprint missing ${token}`);
+    assert.equal(observationMvpMigrationSql.includes(`"${token}"`) || observationMvpMigrationSql.includes(token), true, `SQL fingerprint missing ${token}`);
   }
 });
 

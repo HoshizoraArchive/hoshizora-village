@@ -16,7 +16,7 @@
 9. Functionは `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。
 10. 成功時は `queued` の `public.ai_observation_jobs` 行を作成し、`/api/ai-observation-worker` Background Functionへ `jobId` だけをdispatchする。
 11. workerはservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。
-12. 検証済み出力だけを `public.complete_ai_observation_job(...)` へ渡し、`public.observations` 保存、必要時の星文insert、job成功更新を同一transactionで確定する。
+12. 検証済み出力だけを `public.complete_ai_observation_job(...)` へ渡す。completion RPCはtransaction内で現在の `posts` / `post_media` からfingerprintを再計算し、job保存値とworker入力値の両方に一致する場合だけ `public.observations` 保存、必要時の星文insert、job成功更新を同一transactionで確定する。
 
 ## 信頼境界
 

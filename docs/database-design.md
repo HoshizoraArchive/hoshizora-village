@@ -613,7 +613,7 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - `model`: サーバー側で固定するモデル名
 - `status`: `queued`, `processing`, `succeeded`, `failed`, `cancelled`
 - `idempotency_key`: 同じリクエストの二重受理防止
-- `request_fingerprint`: 投稿本文、投稿タイプ、YouTube識別情報、更新時刻、media summaryを含む入力識別用ハッシュ
+- `request_fingerprint`: 投稿本文、投稿タイプ、YouTube識別情報、更新時刻、media summary、個別 `post_media` 行を含む入力識別用ハッシュ
 - `attempt_count`: provider APIを実際に呼び出した回数
 - `max_attempts`: 1つの観測処理で許可するprovider API呼び出し総数
 - `reserved_cost_micro_usd`: 予約時に利用上限へ計上するmicro USD
@@ -621,6 +621,12 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - `observation_id`: 完了RPCで作成した `observations` 行
 - `star_letter_id`: 星文を残した場合に完了RPCで作成した `star_letters` 行
 - `public_error_code`: 外部へ出してよい短いエラーコード
+
+`request_fingerprint` のcanonical対象は、JS (`netlify/functions/_shared/aiJobReservation.mjs`) とDB (`app_private.ai_observation_current_request_fingerprint`) で揃えます。
+最上位キー順は `aiResidentKey`, `body`, `media`, `mediaRows`, `postId`, `postType`, `updatedAt`, `youtubeUrl`, `youtubeVideoId` です。
+`media` は `inputDurationSeconds`, `inputKind`, `inputSizeBytes` の順です。
+`mediaRows` は `sort_order`, `id` 昇順で、各行の `durationSeconds`, `id`, `mediaType`, `mimeType`, `sizeBytes`, `sortOrder`, `storagePath`, `thumbnailStoragePath`, `uploaderId` を含めます。
+completion RPCはtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post_media` を安定順で `FOR SHARE` し、DB内で再計算したfingerprintがjob保存値とworker入力値の両方に一致する場合だけobservation/star_letterを確定します。
 
 制約 / 権限方針:
 

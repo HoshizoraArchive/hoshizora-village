@@ -25,6 +25,55 @@ function textPost(overrides = {}) {
   };
 }
 
+test("request fingerprint changes when post body or media row fields change", () => {
+  const post = textPost({ type: "image" });
+  const mediaSummary = {
+    inputKind: "image",
+    inputSizeBytes: 1024,
+    inputDurationSeconds: null,
+  };
+  const mediaRows = [{
+    id: "55555555-5555-4555-8555-555555555555",
+    post_id: POST_ID,
+    uploader_id: AUTHOR_ID,
+    media_type: "image",
+    storage_path: `${AUTHOR_ID}/batch/0-image.jpg`,
+    thumbnail_storage_path: null,
+    duration_seconds: null,
+    sort_order: 0,
+    mime_type: "image/jpeg",
+    size_bytes: 1024,
+  }];
+  const original = createRequestFingerprint({ post, mediaRows, mediaSummary });
+
+  assert.notEqual(
+    createRequestFingerprint({ post: { ...post, body: "本文が変わった" }, mediaRows, mediaSummary }),
+    original,
+  );
+  assert.notEqual(
+    createRequestFingerprint({
+      post,
+      mediaSummary,
+      mediaRows: [{
+        ...mediaRows[0],
+        storage_path: `${AUTHOR_ID}/batch/changed-image.jpg`,
+      }],
+    }),
+    original,
+  );
+  assert.notEqual(
+    createRequestFingerprint({
+      post,
+      mediaSummary,
+      mediaRows: [{
+        ...mediaRows[0],
+        mime_type: "image/png",
+      }],
+    }),
+    original,
+  );
+});
+
 function config() {
   return {
     hoshizoraChiaProfileId: CHIA_ID,
@@ -67,6 +116,7 @@ function createMockSupabase({
   const firstPost = postRows[0];
   const fingerprint = claimFingerprint ?? createRequestFingerprint({
     post: firstPost,
+    mediaRows: [],
     mediaSummary: {
       inputKind: "text",
       inputSizeBytes: 0,

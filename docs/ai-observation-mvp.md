@@ -15,7 +15,7 @@
 8. Gemini Interactions APIへ、text / image / video / YouTubeの観測対象だけを渡す。Google Search、URL Context、Code Execution、Function Callingは有効にしない。
 9. 出力は固定JSON Schemaとローカルvalidatorで検証する。AI生レスポンスは保存しない。
 10. DB確定直前に投稿、`post_media`、Storage metadataを再取得し、予約時fingerprintと一致することを再確認する。
-11. `complete_ai_observation_job` が期待fingerprint、post公開状態、未削除状態をtransaction内で再確認し、`public.observations` 保存、必要時のちあ名義 `star_letters` insert、job `succeeded` 更新を同一transactionで確定する。
+11. `complete_ai_observation_job` がtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post_media` を安定順で `FOR SHARE` し、DB現在値からfingerprintを再計算する。再計算値がjob保存値とworker入力値の両方に一致する場合だけ、`public.observations` 保存、必要時のちあ名義 `star_letters` insert、job `succeeded` 更新を同一transactionで確定する。
 12. フロントは `GET /api/ai-observation-status` をpollし、成功時に該当投稿の星文を再取得する。
 
 ## 対応形式
@@ -25,6 +25,14 @@
 - video: `meteor-video` からservice_roleで1本をdownloadし、ファイルシグネチャと `mediabunny` による実durationを検証してからFiles APIへ渡す。Gemini側の映像・音声理解を使い、ffmpeg等で別音声を抽出しない。
 - YouTube: DB保存済みの検証済み公開YouTube URLだけをvideo inputとして渡す。任意URL fetchは行わない。
 - audio: 現schemaではserver-verifiableなMIME、Storage path、サイズ、秒数を確認できないためfail closed。
+
+## request fingerprint
+
+fingerprintはJSとSQLで同じcanonical payloadからSHA-256を計算する。
+最上位キー順は `aiResidentKey`, `body`, `media`, `mediaRows`, `postId`, `postType`, `updatedAt`, `youtubeUrl`, `youtubeVideoId`。
+`media` は `inputDurationSeconds`, `inputKind`, `inputSizeBytes`。
+`mediaRows` は `sort_order`, `id` 昇順で、各行の `durationSeconds`, `id`, `mediaType`, `mimeType`, `sizeBytes`, `sortOrder`, `storagePath`, `thumbnailStoragePath`, `uploaderId` を含める。
+これによりGemini後のJS再検証とcompletion RPCの間で、本文、type、YouTube URL/ID、updated_at、個別media行、Storage path、thumbnail path、MIME、size、duration、sort order、uploaderが変わった場合は `post_changed` になる。
 
 ## 秘密情報と環境変数
 

@@ -114,7 +114,7 @@ export async function runAiObservationJob({
       supabase,
       postId: claim.post_id,
     });
-    const currentFingerprint = createRequestFingerprint({ post, mediaSummary });
+    const currentFingerprint = createRequestFingerprint({ post, mediaRows, mediaSummary });
 
     if (currentFingerprint !== claim.request_fingerprint) {
       throw aiHttpError(422, AI_ERROR.POST_CHANGED);
@@ -138,6 +138,7 @@ export async function runAiObservationJob({
     });
     const latestFingerprint = createRequestFingerprint({
       post: latest.post,
+      mediaRows: latest.mediaRows,
       mediaSummary: latest.mediaSummary,
     });
 
