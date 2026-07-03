@@ -170,6 +170,9 @@ test("AI observation frontend polling has timeout, fatal status stop, and no set
   assert.equal(appJsx.includes("isAiObservationFatalStatus"), true);
   assert.equal(appJsx.includes("window.setTimeout"), true);
   assert.equal(appJsx.includes("window.setInterval"), false);
+  assert.equal(appJsx.includes("aiObservationPollingAccessTokenRef"), true);
+  assert.equal(appJsx.includes("previousAccessToken && previousAccessToken !== nextAccessToken"), true);
+  assert.equal(appJsx.includes("aiObservationPollingAccessTokenRef.current !== accessToken"), true);
   assert.equal(appJsx.includes("status === \"failed\""), true);
   assert.equal(appJsx.includes("status === \"succeeded\""), true);
   assert.equal(appJsx.includes("status === \"status_unknown\""), true);

@@ -23,22 +23,34 @@ test("Gemini media validation checks basic video signatures", () => {
   assert.equal(bufferMatchesMimeType(Buffer.from("not-a-video!"), "video/mp4"), false);
 });
 
-test("Interactions API usage uses official snake_case fields without double-counting thinking tokens", () => {
+function validTextObservationOutput() {
+  return JSON.stringify({
+    media_type: "text",
+    text_observation: "投稿本文の短い揺れを観測した。",
+    visual_observation: null,
+    audio_observation: null,
+    lyric_observation: null,
+    key_moments: [],
+    confidence: 0.82,
+    should_post: true,
+    star_letter: "まだ言葉になる前の揺れまで、ちゃんと残っていたよ。",
+  });
+}
+
+test("Interactions API usage bills output plus thinking tokens and allows optional usage fields to be missing", () => {
   const usage = getUsageTokens({
     usage: {
-      total_input_tokens: 1200,
-      total_output_tokens: 180,
-      total_thought_tokens: 80,
-      total_cached_tokens: 0,
-      total_tool_use_tokens: 0,
-      total_tokens: 1380,
+      total_input_tokens: 533,
+      total_output_tokens: 27,
+      total_thought_tokens: 230,
+      total_tokens: 790,
     },
   });
 
   assert.deepEqual(usage, {
-    inputTokens: 1200,
-    outputTokens: 180,
-    totalTokens: 1380,
+    inputTokens: 533,
+    outputTokens: 257,
+    totalTokens: 790,
   });
 });
 
@@ -51,9 +63,6 @@ test("Interactions API usage rejects missing or invalid fields", () => {
     usage: {
       total_input_tokens: 1,
       total_output_tokens: -1,
-      total_thought_tokens: 0,
-      total_cached_tokens: 0,
-      total_tool_use_tokens: 0,
       total_tokens: 1,
     },
   }));
@@ -61,9 +70,6 @@ test("Interactions API usage rejects missing or invalid fields", () => {
     usage: {
       total_input_tokens: 1.1,
       total_output_tokens: 1,
-      total_thought_tokens: 0,
-      total_cached_tokens: 0,
-      total_tool_use_tokens: 0,
       total_tokens: 2,
     },
   }));
@@ -71,12 +77,60 @@ test("Interactions API usage rejects missing or invalid fields", () => {
     usage: {
       total_input_tokens: Number.MAX_SAFE_INTEGER + 1,
       total_output_tokens: 1,
-      total_thought_tokens: 0,
-      total_cached_tokens: 0,
-      total_tool_use_tokens: 0,
       total_tokens: Number.MAX_SAFE_INTEGER + 2,
     },
   }));
+  assert.throws(() => getUsageTokens({
+    usage: {
+      total_input_tokens: 1,
+      total_tokens: 1,
+    },
+  }));
+  assert.throws(() => getUsageTokens({
+    usage: {
+      total_output_tokens: 1,
+      total_tokens: 1,
+    },
+  }));
+  assert.throws(() => getUsageTokens({
+    usage: {
+      total_input_tokens: 1,
+      total_output_tokens: 1,
+    },
+  }));
+});
+
+test("Interactions API usage rejects overflow and contradictory totals", () => {
+  assert.throws(() => getUsageTokens({
+    usage: {
+      total_input_tokens: 1,
+      total_output_tokens: Number.MAX_SAFE_INTEGER,
+      total_thought_tokens: 1,
+      total_tokens: Number.MAX_SAFE_INTEGER,
+    },
+  }));
+  assert.throws(() => getUsageTokens({
+    usage: {
+      total_input_tokens: 533,
+      total_output_tokens: 27,
+      total_thought_tokens: 230,
+      total_tokens: 789,
+    },
+  }));
+});
+
+test("Interactions API usage treats missing optional thought/cached/tool fields as zero", () => {
+  assert.deepEqual(getUsageTokens({
+    usage: {
+      total_input_tokens: 533,
+      total_output_tokens: 27,
+      total_tokens: 560,
+    },
+  }), {
+    inputTokens: 533,
+    outputTokens: 27,
+    totalTokens: 560,
+  });
 });
 
 test("video duration validation rejects over-limit or mismatched files", () => {
@@ -187,4 +241,131 @@ test("SDK 400 errors are mapped without becoming retryable 503 errors", async ()
     }),
     (error) => error?.status === 422 && error?.code === AI_ERROR.MEDIA_UNAVAILABLE[0],
   );
+});
+
+test("Interactions create disables SDK retry and receives timeout options and AbortSignal", async () => {
+  const calls = [];
+  const result = await runGeminiObservation({
+    client: {
+      interactions: {
+        create(request, options) {
+          calls.push({ request, options });
+          return Promise.resolve({
+            output_text: validTextObservationOutput(),
+            usage: {
+              total_input_tokens: 533,
+              total_output_tokens: 27,
+              total_thought_tokens: 230,
+              total_tokens: 790,
+            },
+          });
+        },
+      },
+      files: {
+        delete() {
+          return Promise.resolve({});
+        },
+      },
+    },
+    config: {
+      model: "gemini-3.5-flash",
+      observationTimeoutMs: 1234,
+    },
+    post: {
+      id: "22222222-2222-4222-8222-222222222222",
+      type: "text",
+      body: "本文",
+    },
+    mediaRows: [],
+    storageRequirements: [],
+    supabase: {},
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.retries.strategy, "none");
+  assert.equal(calls[0].options.timeout_ms, 1234);
+  assert.equal(calls[0].options.signal instanceof AbortSignal, true);
+  assert.equal(result.usage.outputTokens, 257);
+  assert.equal(result.usage.actualCostMicroUsd, 3113);
+});
+
+test("timeout after Interactions create does not call generation more than once", async () => {
+  let calls = 0;
+
+  await assert.rejects(
+    () => runGeminiObservation({
+      client: {
+        interactions: {
+          create(_request, options) {
+            calls += 1;
+            assert.equal(options.retries.strategy, "none");
+            assert.equal(options.signal instanceof AbortSignal, true);
+            return new Promise((resolve, reject) => {
+              options.signal.addEventListener("abort", () => {
+                reject(Object.assign(new Error("aborted"), { name: "AbortError", status: 408 }));
+              });
+            });
+          },
+        },
+        files: {
+          delete() {
+            return Promise.resolve({});
+          },
+        },
+      },
+      config: {
+        model: "gemini-3.5-flash",
+        observationTimeoutMs: 1,
+      },
+      post: {
+        id: "22222222-2222-4222-8222-222222222222",
+        type: "text",
+        body: "本文",
+      },
+      mediaRows: [],
+      storageRequirements: [],
+      supabase: {},
+    }),
+    (error) => error?.code === AI_ERROR.GEMINI_TIMEOUT[0],
+  );
+
+  assert.equal(calls, 1);
+});
+
+test("429 and 5xx provider errors are not retried by app code", async () => {
+  for (const status of [429, 503]) {
+    let calls = 0;
+
+    await assert.rejects(
+      () => runGeminiObservation({
+        client: {
+          interactions: {
+            create() {
+              calls += 1;
+              return Promise.reject({ status });
+            },
+          },
+          files: {
+            delete() {
+              return Promise.resolve({});
+            },
+          },
+        },
+        config: {
+          model: "gemini-3.5-flash",
+          observationTimeoutMs: 100,
+        },
+        post: {
+          id: "22222222-2222-4222-8222-222222222222",
+          type: "text",
+          body: "本文",
+        },
+        mediaRows: [],
+        storageRequirements: [],
+        supabase: {},
+      }),
+    );
+
+    assert.equal(calls, 1);
+  }
 });

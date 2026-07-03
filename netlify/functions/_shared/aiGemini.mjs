@@ -33,7 +33,7 @@ async function blobToBuffer(blob) {
   return Buffer.from(await blob.arrayBuffer());
 }
 
-function readUsageInteger(usage, key) {
+function readRequiredUsageInteger(usage, key) {
   const value = usage?.[key];
 
   if (!Number.isSafeInteger(value) || value < 0) {
@@ -43,24 +43,49 @@ function readUsageInteger(usage, key) {
   return value;
 }
 
+function readOptionalUsageInteger(usage, key) {
+  const value = usage?.[key];
+
+  if (value === undefined || value === null) {
+    return 0;
+  }
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw aiHttpError(422, AI_ERROR.AI_OUTPUT_INVALID);
+  }
+
+  return value;
+}
+
+function addUsageIntegers(...values) {
+  let total = 0;
+
+  for (const value of values) {
+    if (value > Number.MAX_SAFE_INTEGER - total) {
+      throw aiHttpError(422, AI_ERROR.AI_OUTPUT_INVALID);
+    }
+    total += value;
+  }
+
+  return total;
+}
+
 export function getUsageTokens(interaction) {
   const usage = interaction?.usage ?? interaction?.usageMetadata;
-  const inputTokens = readUsageInteger(usage, "total_input_tokens");
-  // @google/genai's Interactions Usage type defines total_output_tokens as
-  // "Total number of tokens across all the generated responses"; pricing says
-  // output price includes thinking tokens, so do not add total_thought_tokens
-  // unless the SDK exposes a separate billable-output field in the future.
-  const outputTokens = readUsageInteger(usage, "total_output_tokens");
-  const thoughtTokens = readUsageInteger(usage, "total_thought_tokens");
-  const cachedTokens = readUsageInteger(usage, "total_cached_tokens");
-  const toolUseTokens = readUsageInteger(usage, "total_tool_use_tokens");
-  const totalTokens = readUsageInteger(usage, "total_tokens");
+  const inputTokens = readRequiredUsageInteger(usage, "total_input_tokens");
+  const visibleOutputTokens = readRequiredUsageInteger(usage, "total_output_tokens");
+  const thoughtTokens = readOptionalUsageInteger(usage, "total_thought_tokens");
+  const cachedTokens = readOptionalUsageInteger(usage, "total_cached_tokens");
+  const toolUseTokens = readOptionalUsageInteger(usage, "total_tool_use_tokens");
+  const totalTokens = readRequiredUsageInteger(usage, "total_tokens");
+  // Gemini 3.5 Flash Standard bills generated output and thinking tokens at
+  // the output rate. The Interactions Usage fields are separate, so persist the
+  // billable output sum while keeping provider total_tokens as returned.
+  const outputTokens = addUsageIntegers(visibleOutputTokens, thoughtTokens);
+  const minimumTotalTokens = addUsageIntegers(inputTokens, visibleOutputTokens, thoughtTokens);
 
   if (
-    totalTokens < inputTokens ||
-    totalTokens < outputTokens ||
-    totalTokens < inputTokens + outputTokens ||
-    thoughtTokens > outputTokens ||
+    totalTokens < minimumTotalTokens ||
     cachedTokens > inputTokens ||
     toolUseTokens > totalTokens
   ) {
@@ -316,18 +341,25 @@ export async function runGeminiObservation({
 
   try {
     const interaction = await withTimeout(
-      () => client.interactions.create({
-        model: config.model,
-        system_instruction: SYSTEM_INSTRUCTION,
-        input: buildGeminiInput({ post, mediaRows, uploadedFiles: mediaUpload.uploadedFiles }),
-        response_format: {
-          type: "text",
-          mime_type: "application/json",
-          schema: AI_OBSERVATION_OUTPUT_JSON_SCHEMA,
+      (signal) => client.interactions.create(
+        {
+          model: config.model,
+          system_instruction: SYSTEM_INSTRUCTION,
+          input: buildGeminiInput({ post, mediaRows, uploadedFiles: mediaUpload.uploadedFiles }),
+          response_format: {
+            type: "text",
+            mime_type: "application/json",
+            schema: AI_OBSERVATION_OUTPUT_JSON_SCHEMA,
+          },
+          tools: [],
+          store: false,
         },
-        tools: [],
-        store: false,
-      }),
+        {
+          retries: { strategy: "none" },
+          timeout_ms: config.observationTimeoutMs,
+          signal,
+        },
+      ),
       config.observationTimeoutMs,
     );
     const parsed = parseAiObservationOutput(interaction?.output_text ?? interaction?.outputText, {

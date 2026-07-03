@@ -92,9 +92,9 @@ test("Gemini 3.5 Flash pricing uses input/output token rates with ceiling", () =
   }), 10_500_000);
   assert.equal(estimateGeminiCostMicroUsd({
     model: "gemini-3.5-flash",
-    inputTokens: 1200,
-    outputTokens: 180,
-  }), 3420);
+    inputTokens: 533,
+    outputTokens: 257,
+  }), 3113);
 });
 
 test("Gemini cost estimation rejects missing or overflowing usage", () => {

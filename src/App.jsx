@@ -1607,6 +1607,7 @@ function App() {
   const [aiObservationMessage, setAiObservationMessage] = useState("");
   const [aiObservationError, setAiObservationError] = useState("");
   const aiObservationPollingRef = useRef(new Map());
+  const aiObservationPollingAccessTokenRef = useRef(null);
   const [feedbackType, setFeedbackType] = useState(FEEDBACK_TYPES[0]);
   const [feedbackBody, setFeedbackBody] = useState("");
   const [feedbackSaving, setFeedbackSaving] = useState(false);
@@ -1709,9 +1710,18 @@ function App() {
   );
 
   useEffect(() => {
-    if (!session?.access_token) {
+    const nextAccessToken = session?.access_token ?? null;
+    const previousAccessToken = aiObservationPollingAccessTokenRef.current;
+
+    if (previousAccessToken && previousAccessToken !== nextAccessToken) {
       stopAllAiObservationPolling();
     }
+
+    if (!nextAccessToken) {
+      stopAllAiObservationPolling();
+    }
+
+    aiObservationPollingAccessTokenRef.current = nextAccessToken;
   }, [session?.access_token]);
 
   useEffect(() => {
@@ -5007,7 +5017,7 @@ function App() {
     const accessToken = session?.access_token;
 
     if (!accessToken) {
-      aiObservationPollingRef.current.delete(jobId);
+      stopAiObservationPolling(jobId);
       return;
     }
 
@@ -5021,6 +5031,14 @@ function App() {
           Authorization: `Bearer ${accessToken}`,
         },
       });
+
+      if (
+        aiObservationPollingAccessTokenRef.current !== accessToken ||
+        aiObservationPollingRef.current.get(jobId) !== polling
+      ) {
+        shouldContinue = false;
+        return;
+      }
 
       if (!response.ok) {
         shouldContinue = handleAiObservationPollFailure(jobId, postId, response.status);
@@ -5067,6 +5085,14 @@ function App() {
         setAiObservationError("ちあは今回、この流星便を観測できませんでした。");
       }
     } catch (_error) {
+      if (
+        aiObservationPollingAccessTokenRef.current !== accessToken ||
+        aiObservationPollingRef.current.get(jobId) !== polling
+      ) {
+        shouldContinue = false;
+        return;
+      }
+
       shouldContinue = handleAiObservationPollFailure(jobId, postId, 500);
     } finally {
       const currentPolling = aiObservationPollingRef.current.get(jobId);

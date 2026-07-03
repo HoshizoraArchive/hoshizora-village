@@ -83,13 +83,15 @@ Gemini 3.5 Flash Standardのpricing snapshot:
 
 `actual_cost_micro_usd` はprovider usageから計算する推定値であり、請求書上の確定額ではない。
 usageが取得できない場合は成功扱いしない。
-Interactions APIの `usage.total_input_tokens` を `input_tokens`、`usage.total_output_tokens` を `output_tokens`、`usage.total_tokens` を `total_tokens` として保存する。
-`@google/genai` のInteractions `Usage` 型では `total_output_tokens` は「generated responses total」と定義され、GoogleのpricingではGemini 3.5 Flashの出力料金がthinking token込みで表示されているため、MVPでは `total_thought_tokens` を別加算せず、二重計上を避ける。
+Interactions APIの `usage.total_input_tokens` を `input_tokens`、`usage.total_output_tokens + usage.total_thought_tokens` をbillable outputとして `output_tokens`、providerが返した `usage.total_tokens` を `total_tokens` として保存する。
+`@google/genai` v2.10.0 のInteractions `Usage` 型では `total_input_tokens`、`total_output_tokens`、`total_thought_tokens`、`total_cached_tokens`、`total_tool_use_tokens`、`total_tokens` はoptionalだが、成功記録には input / output / total の3項目を必須にする。thinking / cached / tool-use は欠損時0として扱い、存在する場合は非負safe integerだけを許可する。
+Gemini 3.5 Flash Standardの出力料金はthinking tokenを含むため、`total_thought_tokens` は出力料金対象へ含める。cached tokenはinputの内数であり、tool-use tokenはツール無効のMVPでは別加算しない。
 
 ## timeout / retry方針
 
 Interactions APIへ生成リクエストを送信した後のclient-side timeout、AbortError、接続切断、status不明、usage欠損、AI出力Schema不正は自動retryしない。
 provider側の処理や課金が止まったと確実に判断できないため、同じjob内で再送しない安全側のMVP方針とする。
+`@google/genai` SDKのHTTP retryは `retries: { strategy: "none" }` で明示的に無効化し、`timeout_ms` とAbortSignalをInteractions API呼び出しへ渡す。ただしtimeoutやAbortSignalはprovider側の処理・課金停止を保証するものではない。
 `AI_OBSERVATION_MAX_RETRIES` は基盤との互換性のため残すが、Gemini生成処理のblind retryには使わない。
 Files API upload前など、生成処理が始まっていない段階のretryだけを将来の対象にする。
 
