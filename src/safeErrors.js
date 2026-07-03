@@ -31,6 +31,9 @@ export const ERROR_OPERATION = Object.freeze({
   DEFAULT: "default",
 });
 
+const KNOWN_OPERATIONS = new Set(Object.values(ERROR_OPERATION));
+const SAFE_USER_ERRORS = new WeakSet();
+
 const USER_ERROR_MESSAGES = Object.freeze({
   [ERROR_OPERATION.ARCHIVE_LOAD]: "Archiveの読み込みに失敗しました。時間をおいてもう一度お試しください。",
   [ERROR_OPERATION.ARCHIVE_SAVE]: "Archiveの更新に失敗しました。時間をおいてもう一度お試しください。",
@@ -64,12 +67,16 @@ const USER_ERROR_MESSAGES = Object.freeze({
   [ERROR_OPERATION.DEFAULT]: "処理に失敗しました。時間をおいてもう一度お試しください。",
 });
 
-export class SafeUserFacingError extends Error {
+class SafeUserFacingError extends Error {
   constructor(message) {
-    super(message);
+    super(typeof message === "string" && message.trim() ? message : USER_ERROR_MESSAGES[ERROR_OPERATION.DEFAULT]);
     this.name = "SafeUserFacingError";
-    this.safeForUser = true;
+    SAFE_USER_ERRORS.add(this);
   }
+}
+
+function getSafeOperation(operation) {
+  return KNOWN_OPERATIONS.has(operation) ? operation : ERROR_OPERATION.DEFAULT;
 }
 
 export function createUserFacingError(message) {
@@ -77,7 +84,7 @@ export function createUserFacingError(message) {
 }
 
 export function isSafeUserFacingError(error) {
-  return error instanceof SafeUserFacingError || error?.safeForUser === true;
+  return typeof error === "object" && error !== null && SAFE_USER_ERRORS.has(error);
 }
 
 export function getUserFacingError(error, operation = ERROR_OPERATION.DEFAULT) {
@@ -85,24 +92,24 @@ export function getUserFacingError(error, operation = ERROR_OPERATION.DEFAULT) {
     return error.message;
   }
 
-  return USER_ERROR_MESSAGES[operation] ?? USER_ERROR_MESSAGES[ERROR_OPERATION.DEFAULT];
+  return USER_ERROR_MESSAGES[getSafeOperation(operation)];
 }
 
 function getSafeErrorCode(error) {
-  if (typeof error?.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(error.code)) {
-    return error.code;
+  if (typeof error?.code === "string") {
+    const code = error.code.toUpperCase();
+
+    if (/^[0-9A-Z]{5}$/.test(code) || /^PGRST[0-9]{3}$/.test(code)) {
+      return code;
+    }
   }
 
-  if (typeof error?.status === "number") {
+  if (typeof error?.status === "number" && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
     return `${error.status}`;
   }
 
-  if (typeof error?.status === "string" && /^[0-9]{3}$/.test(error.status)) {
+  if (typeof error?.status === "string" && /^[1-5][0-9]{2}$/.test(error.status)) {
     return error.status;
-  }
-
-  if (typeof error?.name === "string" && /^[A-Za-z0-9_-]{1,60}$/.test(error.name)) {
-    return error.name;
   }
 
   return "unknown";
@@ -110,7 +117,7 @@ function getSafeErrorCode(error) {
 
 export function getSafeErrorLogContext(error, operation = ERROR_OPERATION.DEFAULT) {
   return {
-    operation,
+    operation: getSafeOperation(operation),
     code: getSafeErrorCode(error),
   };
 }
