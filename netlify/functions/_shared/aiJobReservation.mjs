@@ -4,7 +4,6 @@ import { buildReservationParams } from "./aiLimits.mjs";
 
 const AI_RESIDENT_KEY = "hoshizora_chia";
 const AI_PROVIDER = "gemini";
-const AI_MODEL_PLACEHOLDER = "gemini-observation-mvp-disabled";
 
 function stableJson(value) {
   if (Array.isArray(value)) {
@@ -68,7 +67,7 @@ export async function reserveAiObservationJob({ supabase, operatorUserId, payloa
     p_requested_by: operatorUserId,
     p_ai_resident_key: AI_RESIDENT_KEY,
     p_provider: AI_PROVIDER,
-    p_model: AI_MODEL_PLACEHOLDER,
+    p_model: config.model,
     p_idempotency_key: payload.idempotencyKey,
     p_request_fingerprint: requestFingerprint,
     p_input_kind: reservation.inputKind,
@@ -100,4 +99,4 @@ export async function reserveAiObservationJob({ supabase, operatorUserId, payloa
   };
 }
 
-export { AI_RESIDENT_KEY, AI_PROVIDER, AI_MODEL_PLACEHOLDER };
+export { AI_RESIDENT_KEY, AI_PROVIDER };

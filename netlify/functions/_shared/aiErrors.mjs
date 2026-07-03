@@ -22,6 +22,14 @@ export const AI_ERROR = Object.freeze({
   UNSUPPORTED_TYPE: ["UNSUPPORTED_CONTENT_TYPE", "対応していないリクエスト形式です。"],
   SCHEMA_INVALID: ["AI_OUTPUT_SCHEMA_INVALID", "AI出力の形式が正しくありません。"],
   CONFIGURATION_ERROR: ["AI_CONFIGURATION_ERROR", "AI観測機能は現在利用できません。"],
+  WORKER_DISPATCH_FAILED: ["WORKER_DISPATCH_FAILED", "観測を始められませんでした。もう一度試してください。"],
+  POST_CHANGED: ["POST_CHANGED", "流星便の内容が変わったため、観測を中止しました。"],
+  MEDIA_UNAVAILABLE: ["MEDIA_UNAVAILABLE", "作品データを確認できませんでした。"],
+  GEMINI_UPLOAD_FAILED: ["GEMINI_UPLOAD_FAILED", "作品データの準備に失敗しました。"],
+  GEMINI_TIMEOUT: ["GEMINI_TIMEOUT", "観測に時間がかかりすぎました。"],
+  GEMINI_RATE_LIMITED: ["GEMINI_RATE_LIMITED", "AI観測が混み合っています。時間をおいてもう一度お試しください。"],
+  AI_OUTPUT_INVALID: ["AI_OUTPUT_INVALID", "観測結果の形式を確認できませんでした。"],
+  CHIA_PROFILE_MISMATCH: ["CHIA_PROFILE_MISMATCH", "星空ちあの設定を確認できませんでした。"],
   INTERNAL: ["AI_INTERNAL_ERROR", "AI観測の準備に失敗しました。時間をおいてもう一度お試しください。"],
 });
 

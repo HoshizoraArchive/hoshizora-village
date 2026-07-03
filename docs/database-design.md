@@ -543,7 +543,7 @@ RLS方針:
 
 観測ログを保存します。
 
-人間の閲覧ログだけでなく、将来のAI住人観測APIの出力も保存できる形にします。
+人間の閲覧ログだけでなく、AI住人観測APIの検証済み出力も保存できる形にします。
 AI住人の内部判断や下書きが入るため、browser roleから raw table を直接selectさせません。
 
 主なカラム:
@@ -592,7 +592,7 @@ RLS方針:
 - `anon` / `authenticated` からraw tableを直接selectさせない
 - 公開表示が必要な場合は、安全な列だけを返すviewまたはRPCを別途追加する
 - 人間ユーザーは、自分の `human` 観測ログのみinsert / update / delete可能
-- AI住人の書き込みは将来のサーバー側 `service_role` 運用で行う
+- AI住人の書き込みはNetlify Functionの信頼済みサーバー側 `service_role` 処理で行う
 
 注意:
 
@@ -617,9 +617,9 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - `attempt_count`: provider APIを実際に呼び出した回数
 - `max_attempts`: 1つの観測処理で許可するprovider API呼び出し総数
 - `reserved_cost_micro_usd`: 予約時に利用上限へ計上するmicro USD
-- `actual_cost_micro_usd`: 実行後に確定するmicro USD
-- `observation_id`: 将来作成する `observations` 行
-- `star_letter_id`: 将来作成する `star_letters` 行
+- `actual_cost_micro_usd`: provider usageから推定したmicro USD。請求書上の確定額ではない
+- `observation_id`: 完了RPCで作成した `observations` 行
+- `star_letter_id`: 星文を残した場合に完了RPCで作成した `star_letters` 行
 - `public_error_code`: 外部へ出してよい短いエラーコード
 
 制約 / 権限方針:
@@ -630,6 +630,11 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - `attempt_count <= max_attempts`
 - RLSを有効化し、`anon` / `authenticated` / `PUBLIC` の直接操作権限を付与しない
 - 予約処理は `public.reserve_ai_observation_job(...)` でDB側transaction内に閉じる
+- workerは `public.claim_ai_observation_job(...)` でrow lockを取り、同じjobの並列処理を防ぐ
+- provider呼び出し直前に `public.start_ai_observation_attempt(...)` で `attempt_count` を増やす
+- `public.complete_ai_observation_job(...)` は `observations` insert、必要時の `star_letters` insert、job `succeeded` 更新を同一transactionで行う
+- `public.fail_ai_observation_job(...)` と `public.cancel_ai_observation_job(...)` は安全な公開エラーコードだけを保存する
+- すべてのAI job RPCは `security definer` + `set search_path = ''` とし、browser roleからのEXECUTEを許可しない
 
 本番適用時は、先に `docs/ai-resident-security-preflight.sql` を実行し、既存 `post_media` のStorage path違反件数がすべて0件であることを確認してからmigrationを適用します。適用後は `docs/ai-resident-security-verification.sql` で制約、RLS、GRANT、RPC権限を確認します。
 

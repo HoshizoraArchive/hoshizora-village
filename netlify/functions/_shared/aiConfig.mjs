@@ -3,6 +3,8 @@ const POSTGRES_INTEGER_MAX = 2147483647;
 const MAX_REQUEST_LIMIT = 1000000;
 const MAX_TIMEOUT_MS = 300000;
 const MAX_SECONDS_BETWEEN_REQUESTS = 86400;
+const SUPPORTED_AI_OBSERVATION_MODEL = "gemini-3.5-flash";
+const MIN_WORKER_SHARED_SECRET_LENGTH = 32;
 
 function defaultEnvSource() {
   return globalThis.Netlify?.env ?? process.env;
@@ -65,16 +67,35 @@ export function readAiObservationConfig(env = defaultEnvSource()) {
   const supabaseUrl = readEnv("SUPABASE_URL", env).trim();
   const supabaseServiceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY", env).trim();
   const geminiApiKey = readEnv("GEMINI_API_KEY", env).trim();
+  const model = readEnv("AI_OBSERVATION_MODEL", env).trim();
+  const hoshizoraChiaProfileId = readEnv("AI_HOSHIZORA_CHIA_PROFILE_ID", env).trim().toLowerCase();
+  const workerSharedSecret = readEnv("AI_WORKER_SHARED_SECRET", env).trim();
 
   if (!supabaseUrl || !supabaseServiceRoleKey || !geminiApiKey) {
     throw new Error("invalid_env:required_secret");
+  }
+
+  if (model !== SUPPORTED_AI_OBSERVATION_MODEL) {
+    throw new Error("invalid_env:AI_OBSERVATION_MODEL");
+  }
+
+  if (!UUID_PATTERN.test(hoshizoraChiaProfileId)) {
+    throw new Error("invalid_env:AI_HOSHIZORA_CHIA_PROFILE_ID");
+  }
+
+  if (workerSharedSecret.length < MIN_WORKER_SHARED_SECRET_LENGTH) {
+    throw new Error("invalid_env:AI_WORKER_SHARED_SECRET");
   }
 
   return {
     enabled: true,
     supabaseUrl,
     supabaseServiceRoleKey,
+    geminiApiKey,
     geminiApiKeyPresent: true,
+    model,
+    hoshizoraChiaProfileId,
+    workerSharedSecret,
     operatorUserIds: parseOperatorUserIds(env),
     dailyRequestLimit: parseRequiredInteger("AI_DAILY_REQUEST_LIMIT", env, {
       min: 1,
@@ -111,4 +132,4 @@ export function readAiObservationConfig(env = defaultEnvSource()) {
   };
 }
 
-export { UUID_PATTERN };
+export { SUPPORTED_AI_OBSERVATION_MODEL, UUID_PATTERN };

@@ -4,6 +4,7 @@ import test from "node:test";
 
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const migrationSql = readFileSync("supabase/migrations/20260703_add_ai_observation_security_foundation.sql", "utf8");
+const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 
 const requiredTokens = [
@@ -52,6 +53,47 @@ test("AI security migration and schema.sql contain the same critical DB elements
   for (const token of requiredTokens) {
     assert.equal(migrationSql.includes(token), true, `migration missing ${token}`);
     assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
+  }
+});
+
+test("AI observation MVP migration and schema.sql contain worker state RPCs with locked execution", () => {
+  const tokens = [
+    "public.claim_ai_observation_job",
+    "public.start_ai_observation_attempt",
+    "public.complete_ai_observation_job",
+    "public.fail_ai_observation_job",
+    "public.cancel_ai_observation_job",
+    "for update",
+    "p_model <> 'gemini-3.5-flash'",
+    "to service_role",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(observationMvpMigrationSql.includes(token), true, `MVP migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
+  }
+});
+
+test("AI observation MVP RPCs are not executable by browser roles", () => {
+  const rpcNames = [
+    "claim_ai_observation_job",
+    "start_ai_observation_attempt",
+    "complete_ai_observation_job",
+    "fail_ai_observation_job",
+    "cancel_ai_observation_job",
+  ];
+
+  for (const rpcName of rpcNames) {
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${rpcName}`, "i").test(observationMvpMigrationSql),
+      true,
+      `MVP migration missing browser-role revoke for ${rpcName}`,
+    );
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${rpcName}`, "i").test(schemaSql),
+      true,
+      `schema.sql missing browser-role revoke for ${rpcName}`,
+    );
   }
 });
 
