@@ -69,7 +69,7 @@ MVPでは `AI_OPERATOR_USER_IDS` をカンマ区切りAuth UUIDとして扱う�
 `public.ai_observation_jobs.status` はPostgreSQL enumで管理する。
 
 - `queued`: 予約済み。今回のFunctionが作成する唯一の状態。
-- `processing`: 将来の観測workerが処理開始時に遷移する。
+- `processing`: 観測workerが処理開始時にclaimして遷移する。
 - `succeeded`: 観測結果と星文処理が完了した状態。
 - `failed`: 観測失敗。
 - `cancelled`: 明示的に中止された状態。
@@ -102,7 +102,7 @@ DB側で以下を保証する。
 `succeeded` は実料金があれば実料金、なければ予約料金を数える。
 `failed` は `attempt_count > 0` の場合、実料金または安全側の予約料金を数える。
 provider呼び出し前に失敗したジョブは `attempt_count = 0` で区別する。
-本PRでは実際のGemini料金計算は行わず、`AI_RESERVED_COST_MICRO_USD` を予約単価として使う。
+星空ちあ観測MVPでは、Interactions APIの `usage` とGemini 3.5 Flash Standardのpricing snapshotから `actual_cost_micro_usd` を推定する。usageが欠損または矛盾する場合は成功扱いしない。
 具体的な予算値はリポジトリにハードコードしない。
 環境変数の数値は `Number.isSafeInteger` と範囲上限を検証し、巨大値やPostgreSQL integer / bigintへ安全に渡せない値は設定不備として503でfail closedする。
 `AI_OBSERVATION_MAX_RETRIES` は0〜9のみ許可し、保存される `max_attempts` は1〜10に収める。
@@ -120,8 +120,8 @@ Functionはクライアント入力ではなくDBの `posts` / `post_media` を�
 - YouTube: 許可hostだけをURL parseし、video IDを再検証する。任意URL fetchはしない。
 - 音声: 現schemaではserver-verifiableなMIME metadataが不足しているため、この基盤ではfail closedにする。
 
-ファイルシグネチャ検証と動画/音声実体の再生時間検証は、Gemini実呼び出しPRで実行環境を確認して追加する。
-現時点で実体検証済みとして扱わない。
+画像・動画はdownload後にファイルシグネチャを確認する。動画は既存依存の `mediabunny` をNode環境で利用し、実durationが有限・0秒超・35秒以内で、DBの `duration_seconds` と許容差内で一致することを確認する。
+音声単体はserver-verifiableなStorage metadataが不足しているため、引き続きfail closedにする。
 
 ## AI出力Schema検証
 
@@ -163,7 +163,7 @@ DBテーブル名、RLS policy名、SQL、stack trace、Supabase生エラー、s
 MVPでは運営ユーザーだけが手動で公開流星便1件を観測できる。
 対応形式は text / image / video / YouTube。audio単体はserver-verifiableなStorage metadataがないためfail closedのままにする。
 workerは `claim_ai_observation_job` で `queued -> processing` をclaimし、Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
-一時的な429/5xxなどだけを同じjob行の中で再試行し、terminal jobを再処理しない。
+Interactions APIへ生成リクエストを送信した後のtimeout、接続切断、status不明、usage欠損、Schema不正は、provider側の処理・課金停止を保証できないため同じjob内で自動再送しない。`AI_OBSERVATION_MAX_RETRIES` は互換設定として残すが、MVPでは生成処理のblind retryには使わない。
 Gemini出力は固定JSON Schemaとローカルvalidatorで再検証し、AI生レスポンスはDBにもログにも保存しない。
 星文を残す場合は、service_roleから `AI_HOSHIZORA_CHIA_PROFILE_ID` の `profiles.username = 'chia_hoshizora'` をDB側でも確認し、ちあ名義の `star_letters` を作成する。星空ちあのパスワードログインは使用しない。
 使用量が取得できない場合は成功扱いせず、料金はGemini 3.5 Flash Standardのpricing snapshotからmicro USD単位で推定する。

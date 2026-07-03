@@ -613,7 +613,7 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - `model`: サーバー側で固定するモデル名
 - `status`: `queued`, `processing`, `succeeded`, `failed`, `cancelled`
 - `idempotency_key`: 同じリクエストの二重受理防止
-- `request_fingerprint`: 入力識別用のハッシュ
+- `request_fingerprint`: 投稿本文、投稿タイプ、YouTube識別情報、更新時刻、media summaryを含む入力識別用ハッシュ
 - `attempt_count`: provider APIを実際に呼び出した回数
 - `max_attempts`: 1つの観測処理で許可するprovider API呼び出し総数
 - `reserved_cost_micro_usd`: 予約時に利用上限へ計上するmicro USD
@@ -632,7 +632,7 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - 予約処理は `public.reserve_ai_observation_job(...)` でDB側transaction内に閉じる
 - workerは `public.claim_ai_observation_job(...)` でrow lockを取り、同じjobの並列処理を防ぐ
 - provider呼び出し直前に `public.start_ai_observation_attempt(...)` で `attempt_count` を増やす
-- `public.complete_ai_observation_job(...)` は `observations` insert、必要時の `star_letters` insert、job `succeeded` 更新を同一transactionで行う
+- `public.complete_ai_observation_job(...)` は期待fingerprintと公開・未削除状態を確認し、`observations` insert、必要時の `star_letters` insert、job `succeeded` 更新を同一transactionで行う
 - `public.fail_ai_observation_job(...)` と `public.cancel_ai_observation_job(...)` は安全な公開エラーコードだけを保存する
 - すべてのAI job RPCは `security definer` + `set search_path = ''` とし、browser roleからのEXECUTEを許可しない
 

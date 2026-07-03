@@ -48,15 +48,25 @@ function output(overrides = {}) {
   };
 }
 
-function createMockSupabase({ post = textPost(), claimFingerprint, claimOutcome = "claimed" } = {}) {
+function createMockSupabase({
+  claimFingerprint,
+  claimOutcome = "claimed",
+  completeOutcome = "completed",
+  failOutcome = "failed",
+  posts,
+} = {}) {
   const calls = {
     rpc: [],
     failArgs: null,
     completeArgs: null,
     attempts: 0,
+    completeCalls: 0,
+    postReads: 0,
   };
+  const postRows = posts ?? [textPost()];
+  const firstPost = postRows[0];
   const fingerprint = claimFingerprint ?? createRequestFingerprint({
-    post,
+    post: firstPost,
     mediaSummary: {
       inputKind: "text",
       inputSizeBytes: 0,
@@ -103,13 +113,18 @@ function createMockSupabase({ post = textPost(), claimFingerprint, claimOutcome 
 
         if (name === "complete_ai_observation_job") {
           calls.completeArgs = args;
+          calls.completeCalls += 1;
           return Promise.resolve({
             data: [{
-              outcome: "completed",
+              outcome: completeOutcome,
               job_id: args.p_job_id,
-              job_status: "succeeded",
-              observation_id: "55555555-5555-4555-8555-555555555555",
-              star_letter_id: "66666666-6666-4666-8666-666666666666",
+              job_status: completeOutcome === "completed" || completeOutcome === "already_succeeded" ? "succeeded" : "processing",
+              observation_id: completeOutcome === "already_succeeded"
+                ? "55555555-5555-4555-8555-555555555555"
+                : null,
+              star_letter_id: completeOutcome === "already_succeeded"
+                ? "66666666-6666-4666-8666-666666666666"
+                : null,
             }],
             error: null,
           });
@@ -119,9 +134,9 @@ function createMockSupabase({ post = textPost(), claimFingerprint, claimOutcome 
           calls.failArgs = args;
           return Promise.resolve({
             data: [{
-              outcome: "failed",
+              outcome: failOutcome,
               job_id: args.p_job_id,
-              job_status: "failed",
+              job_status: failOutcome === "already_succeeded" ? "succeeded" : "failed",
             }],
             error: null,
           });
@@ -139,7 +154,9 @@ function createMockSupabase({ post = textPost(), claimFingerprint, claimOutcome 
           },
           maybeSingle() {
             if (table === "posts") {
-              return Promise.resolve({ data: post, error: null });
+              const row = postRows[Math.min(calls.postReads, postRows.length - 1)];
+              calls.postReads += 1;
+              return Promise.resolve({ data: row, error: null });
             }
 
             if (table === "profiles") {
@@ -215,7 +232,7 @@ test("post fingerprint mismatch fails before provider attempt", async () => {
   assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.POST_CHANGED[0]);
 });
 
-test("transient provider failure retries on the same job row", async () => {
+test("provider failure after attempt is not blindly retried", async () => {
   const { supabase, calls } = createMockSupabase();
   let providerCalls = 0;
   const result = await runAiObservationJob({
@@ -226,25 +243,100 @@ test("transient provider failure retries on the same job row", async () => {
     geminiClient: {},
     runProvider: async () => {
       providerCalls += 1;
+      throw aiHttpError(503, AI_ERROR.MEDIA_UNAVAILABLE);
+    },
+  });
 
-      if (providerCalls === 1) {
-        throw aiHttpError(503, AI_ERROR.MEDIA_UNAVAILABLE);
-      }
+  assert.equal(result.outcome, "failed");
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.attempts, 1);
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.MEDIA_UNAVAILABLE[0]);
+});
 
+test("completion invalid_payload is failed instead of being logged as success", async () => {
+  const { supabase, calls } = createMockSupabase({ completeOutcome: "invalid_payload" });
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    runProvider: async () => ({
+      output: output(),
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, actualCostMicroUsd: 60 },
+    }),
+  });
+
+  assert.equal(result.outcome, "failed");
+  assert.equal(calls.completeCalls, 1);
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.AI_OUTPUT_INVALID[0]);
+});
+
+test("completion already_succeeded exits without failing or duplicating", async () => {
+  const { supabase, calls } = createMockSupabase({ completeOutcome: "already_succeeded" });
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    runProvider: async () => ({
+      output: output(),
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, actualCostMicroUsd: 60 },
+    }),
+  });
+
+  assert.equal(result.outcome, "already_succeeded");
+  assert.equal(calls.completeCalls, 1);
+  assert.equal(calls.failArgs, null);
+});
+
+test("post changes after provider output are rejected before completion", async () => {
+  const { supabase, calls } = createMockSupabase({
+    posts: [
+      textPost(),
+      textPost({ body: "Gemini処理中に編集された投稿" }),
+    ],
+  });
+  let providerCalls = 0;
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    runProvider: async () => {
+      providerCalls += 1;
       return {
         output: output(),
-        usage: {
-          inputTokens: 10,
-          outputTokens: 5,
-          totalTokens: 15,
-          actualCostMicroUsd: 60,
-        },
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, actualCostMicroUsd: 60 },
       };
     },
   });
 
-  assert.equal(result.outcome, "completed");
-  assert.equal(providerCalls, 2);
-  assert.equal(calls.attempts, 2);
-  assert.equal(calls.completeArgs.p_actual_cost_micro_usd, 60);
+  assert.equal(result.outcome, "failed");
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.completeCalls, 0);
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.POST_CHANGED[0]);
+});
+
+test("failure RPC already_succeeded outcome does not throw or overwrite success", async () => {
+  const { supabase, calls } = createMockSupabase({
+    completeOutcome: "invalid_payload",
+    failOutcome: "already_succeeded",
+  });
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    runProvider: async () => ({
+      output: output(),
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, actualCostMicroUsd: 60 },
+    }),
+  });
+
+  assert.equal(result.outcome, "failed");
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.AI_OUTPUT_INVALID[0]);
 });

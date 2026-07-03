@@ -331,9 +331,14 @@ begin
 end;
 $$;
 
+drop function if exists public.complete_ai_observation_job(
+  uuid, uuid, jsonb, text, boolean, text, integer, integer, integer, bigint
+);
+
 create or replace function public.complete_ai_observation_job(
   p_job_id uuid,
   p_chia_profile_id uuid,
+  p_expected_request_fingerprint text,
   p_observed_points jsonb,
   p_analysis_summary text,
   p_should_post boolean,
@@ -356,6 +361,7 @@ set search_path = ''
 as $$
 declare
   v_job public.ai_observation_jobs%rowtype;
+  v_post public.posts%rowtype;
   v_observation_id uuid;
   v_star_letter_id uuid;
 begin
@@ -404,6 +410,8 @@ begin
 
   if p_observed_points is null
     or jsonb_typeof(p_observed_points) <> 'array'
+    or p_expected_request_fingerprint is null
+    or p_expected_request_fingerprint !~ '^[0-9a-f]{64}$'
     or p_input_tokens is null
     or p_output_tokens is null
     or p_total_tokens is null
@@ -424,6 +432,26 @@ begin
     or ((not p_should_post) and p_star_letter_body is not null)
   then
     outcome := 'invalid_payload';
+    return next;
+    return;
+  end if;
+
+  select *
+    into v_post
+  from public.posts p
+  where p.id = v_job.post_id
+  for update;
+
+  if not found
+    or v_post.visibility <> 'public'
+    or v_post.deleted_at is not null
+    or v_job.request_fingerprint <> p_expected_request_fingerprint
+  then
+    outcome := 'post_changed';
+    job_id := v_job.id;
+    job_status := v_job.status::text;
+    observation_id := v_job.observation_id;
+    star_letter_id := v_job.star_letter_id;
     return next;
     return;
   end if;
@@ -628,7 +656,7 @@ revoke all on function public.reserve_ai_observation_job(
 revoke all on function public.claim_ai_observation_job(uuid) from public, anon, authenticated;
 revoke all on function public.start_ai_observation_attempt(uuid) from public, anon, authenticated;
 revoke all on function public.complete_ai_observation_job(
-  uuid, uuid, jsonb, text, boolean, text, integer, integer, integer, bigint
+  uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint
 ) from public, anon, authenticated;
 revoke all on function public.fail_ai_observation_job(
   uuid, text, integer, integer, integer, bigint
@@ -641,7 +669,7 @@ grant execute on function public.reserve_ai_observation_job(
 grant execute on function public.claim_ai_observation_job(uuid) to service_role;
 grant execute on function public.start_ai_observation_attempt(uuid) to service_role;
 grant execute on function public.complete_ai_observation_job(
-  uuid, uuid, jsonb, text, boolean, text, integer, integer, integer, bigint
+  uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint
 ) to service_role;
 grant execute on function public.fail_ai_observation_job(
   uuid, text, integer, integer, integer, bigint

@@ -91,6 +91,8 @@ const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
 const VISIBLE_POST_TYPES = ["text", "image", "video", "youtube"];
 const AI_OBSERVATION_TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
 const AI_OBSERVATION_STATUS_POLL_MS = 2500;
+const AI_OBSERVATION_STATUS_MAX_MS = 10 * 60 * 1000;
+const AI_OBSERVATION_STATUS_MAX_ERRORS = 4;
 
 const emptyProfileForm = {
   display_name: "",
@@ -1701,14 +1703,16 @@ function App() {
 
   useEffect(
     () => () => {
-      for (const intervalId of aiObservationPollingRef.current.values()) {
-        window.clearInterval(intervalId);
-      }
-
-      aiObservationPollingRef.current.clear();
+      stopAllAiObservationPolling();
     },
     [],
   );
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      stopAllAiObservationPolling();
+    }
+  }, [session?.access_token]);
 
   useEffect(() => {
     if (!avatarModal) {
@@ -4902,6 +4906,10 @@ function App() {
       return "ちあが観測中…";
     }
 
+    if (job.status === "status_unknown") {
+      return "観測状況を確認中";
+    }
+
     if (job.status === "succeeded") {
       return job.starLetterId ? "ちあから星文が届きました" : "ちあは観測しました";
     }
@@ -4918,31 +4926,93 @@ function App() {
   }
 
   function stopAiObservationPolling(jobId) {
-    const intervalId = aiObservationPollingRef.current.get(jobId);
+    const polling = aiObservationPollingRef.current.get(jobId);
 
-    if (intervalId) {
-      window.clearInterval(intervalId);
-      aiObservationPollingRef.current.delete(jobId);
+    if (polling?.timerId) {
+      window.clearTimeout(polling.timerId);
+    }
+
+    aiObservationPollingRef.current.delete(jobId);
+  }
+
+  function stopAllAiObservationPolling() {
+    for (const jobId of aiObservationPollingRef.current.keys()) {
+      stopAiObservationPolling(jobId);
     }
   }
 
-  function updateAiObservationJob(postId, nextJob) {
-    setAiObservationJobsByPostId((currentJobs) => ({
-      ...currentJobs,
-      [postId]: {
-        ...(currentJobs[postId] ?? {}),
-        ...nextJob,
-      },
-    }));
+  function scheduleAiObservationPoll(jobId, postId) {
+    const polling = aiObservationPollingRef.current.get(jobId);
+
+    if (!polling) {
+      return;
+    }
+
+    if (polling.timerId) {
+      window.clearTimeout(polling.timerId);
+    }
+
+    polling.timerId = window.setTimeout(() => {
+      pollAiObservationStatus(jobId, postId);
+    }, AI_OBSERVATION_STATUS_POLL_MS);
+  }
+
+  function markAiObservationStatusUnknown(jobId, postId) {
+    stopAiObservationPolling(jobId);
+    updateAiObservationJob(postId, {
+      jobId,
+      status: "status_unknown",
+    });
+    setAiObservationError("観測状況の確認に時間がかかっています。画面を開き直して確認してください。");
+  }
+
+  function isAiObservationFatalStatus(status) {
+    return status === 401 || status === 403 || status === 404;
+  }
+
+  function handleAiObservationPollFailure(jobId, postId, status) {
+    const polling = aiObservationPollingRef.current.get(jobId);
+
+    if (!polling) {
+      return false;
+    }
+
+    if (isAiObservationFatalStatus(status)) {
+      markAiObservationStatusUnknown(jobId, postId);
+      return false;
+    }
+
+    polling.consecutiveErrors += 1;
+
+    if (polling.consecutiveErrors >= AI_OBSERVATION_STATUS_MAX_ERRORS) {
+      markAiObservationStatusUnknown(jobId, postId);
+      return false;
+    }
+
+    return true;
   }
 
   async function pollAiObservationStatus(jobId, postId) {
+    const polling = aiObservationPollingRef.current.get(jobId);
+
+    if (!polling || polling.inFlight) {
+      return;
+    }
+
+    if (Date.now() - polling.startedAt > AI_OBSERVATION_STATUS_MAX_MS) {
+      markAiObservationStatusUnknown(jobId, postId);
+      return;
+    }
+
     const accessToken = session?.access_token;
 
     if (!accessToken) {
-      stopAiObservationPolling(jobId);
+      aiObservationPollingRef.current.delete(jobId);
       return;
     }
+
+    polling.inFlight = true;
+    let shouldContinue = true;
 
     try {
       const response = await fetch(`/api/ai-observation-status?jobId=${encodeURIComponent(jobId)}`, {
@@ -4953,6 +5023,7 @@ function App() {
       });
 
       if (!response.ok) {
+        shouldContinue = handleAiObservationPollFailure(jobId, postId, response.status);
         return;
       }
 
@@ -4960,9 +5031,11 @@ function App() {
       const nextStatus = payload?.status;
 
       if (!nextStatus) {
+        shouldContinue = handleAiObservationPollFailure(jobId, postId, 500);
         return;
       }
 
+      polling.consecutiveErrors = 0;
       updateAiObservationJob(postId, {
         jobId,
         status: nextStatus,
@@ -4972,6 +5045,7 @@ function App() {
       });
 
       if (AI_OBSERVATION_TERMINAL_STATUSES.has(nextStatus)) {
+        shouldContinue = false;
         stopAiObservationPolling(jobId);
 
         if (nextStatus === "succeeded") {
@@ -4993,17 +5067,39 @@ function App() {
         setAiObservationError("ちあは今回、この流星便を観測できませんでした。");
       }
     } catch (_error) {
-      // Polling failures are intentionally quiet. The operator can retry status on the next tick.
+      shouldContinue = handleAiObservationPollFailure(jobId, postId, 500);
+    } finally {
+      const currentPolling = aiObservationPollingRef.current.get(jobId);
+
+      if (currentPolling) {
+        currentPolling.inFlight = false;
+
+        if (shouldContinue) {
+          scheduleAiObservationPoll(jobId, postId);
+        }
+      }
     }
+  }
+
+  function updateAiObservationJob(postId, nextJob) {
+    setAiObservationJobsByPostId((currentJobs) => ({
+      ...currentJobs,
+      [postId]: {
+        ...(currentJobs[postId] ?? {}),
+        ...nextJob,
+      },
+    }));
   }
 
   function startAiObservationPolling(jobId, postId) {
     stopAiObservationPolling(jobId);
+    aiObservationPollingRef.current.set(jobId, {
+      consecutiveErrors: 0,
+      inFlight: false,
+      startedAt: Date.now(),
+      timerId: null,
+    });
     pollAiObservationStatus(jobId, postId);
-    const intervalId = window.setInterval(() => {
-      pollAiObservationStatus(jobId, postId);
-    }, AI_OBSERVATION_STATUS_POLL_MS);
-    aiObservationPollingRef.current.set(jobId, intervalId);
   }
 
   async function handleStartAiObservation(postId) {
@@ -9717,6 +9813,10 @@ function PostCard({
     aiObservation?.savingPostId === post.id ||
     aiObservationJob?.status === "queued" ||
     aiObservationJob?.status === "processing";
+  const isAiObservationTerminalLocked =
+    aiObservationJob?.status === "succeeded" ||
+    aiObservationJob?.status === "failed" ||
+    aiObservationJob?.status === "status_unknown";
   const canShowAiObservation =
     Boolean(aiObservation?.allowed) &&
     !isPostEditing &&
@@ -9921,7 +10021,7 @@ function PostCard({
           {canShowAiObservation && (
             <ActionButton
               active={isAiObservationBusy || aiObservationJob?.status === "succeeded"}
-              disabled={isAiObservationBusy || aiObservation?.checking || !aiObservation?.onStart}
+              disabled={isAiObservationBusy || isAiObservationTerminalLocked || aiObservation?.checking || !aiObservation?.onStart}
               icon="✩"
               label={aiObservation?.getLabel?.(aiObservationJob) ?? "ちあに観測してもらう"}
               onClick={() => aiObservation?.onStart?.(post.id)}

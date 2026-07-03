@@ -6,6 +6,8 @@ const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const migrationSql = readFileSync("supabase/migrations/20260703_add_ai_observation_security_foundation.sql", "utf8");
 const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
+const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
+const appJsx = readFileSync("src/App.jsx", "utf8");
 
 const requiredTokens = [
   "public.ai_observation_job_status",
@@ -64,6 +66,10 @@ test("AI observation MVP migration and schema.sql contain worker state RPCs with
     "public.fail_ai_observation_job",
     "public.cancel_ai_observation_job",
     "for update",
+    "p_expected_request_fingerprint",
+    "v_job.request_fingerprint <> p_expected_request_fingerprint",
+    "v_post.visibility <> 'public'",
+    "v_post.deleted_at is not null",
     "p_model <> 'gemini-3.5-flash'",
     "to service_role",
   ];
@@ -72,6 +78,15 @@ test("AI observation MVP migration and schema.sql contain worker state RPCs with
     assert.equal(observationMvpMigrationSql.includes(token), true, `MVP migration missing ${token}`);
     assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
   }
+});
+
+test("AI observation MVP completion RPC old overload is removed and new signature is granted", () => {
+  const oldSignature = "uuid, uuid, jsonb, text, boolean, text, integer, integer, integer, bigint";
+  const newSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint";
+
+  assert.equal(observationMvpMigrationSql.includes(`drop function if exists public.complete_ai_observation_job(\n  ${oldSignature}`), true);
+  assert.equal(observationMvpMigrationSql.includes(newSignature), true);
+  assert.equal(schemaSql.includes(newSignature), true);
 });
 
 test("AI observation MVP RPCs are not executable by browser roles", () => {
@@ -141,4 +156,21 @@ test("preflight SQL does not depend on objects created by the AI security migrat
   for (const token of migrationOnlyTokens) {
     assert.equal(preflightSql.includes(token), false, `preflight SQL unexpectedly references ${token}`);
   }
+});
+
+test("AI observation MVP preflight treats missing chia profile as an anomaly", () => {
+  assert.equal(observationMvpPreflightSql.includes("when observed_count = 0 then 1"), true);
+  assert.equal(observationMvpPreflightSql.includes("left join auth.users"), true);
+  assert.equal(observationMvpPreflightSql.includes("auth_user_count"), true);
+});
+
+test("AI observation frontend polling has timeout, fatal status stop, and no setInterval loop", () => {
+  assert.equal(appJsx.includes("AI_OBSERVATION_STATUS_MAX_MS"), true);
+  assert.equal(appJsx.includes("AI_OBSERVATION_STATUS_MAX_ERRORS"), true);
+  assert.equal(appJsx.includes("isAiObservationFatalStatus"), true);
+  assert.equal(appJsx.includes("window.setTimeout"), true);
+  assert.equal(appJsx.includes("window.setInterval"), false);
+  assert.equal(appJsx.includes("status === \"failed\""), true);
+  assert.equal(appJsx.includes("status === \"succeeded\""), true);
+  assert.equal(appJsx.includes("status === \"status_unknown\""), true);
 });

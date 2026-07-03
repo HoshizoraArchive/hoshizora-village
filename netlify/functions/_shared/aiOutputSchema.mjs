@@ -104,16 +104,16 @@ function validateKeyMoment(value) {
 }
 
 function validateMinimumObservation(value) {
-  if (value.media_type === "text" && !isFilledString(value.text_observation)) {
+  if (value.expected_media_type === "text" && !isFilledString(value.text_observation)) {
     return "missing_text_observation";
   }
 
-  if (value.media_type === "image" && !isFilledString(value.visual_observation)) {
+  if (value.expected_media_type === "image" && !isFilledString(value.visual_observation)) {
     return "missing_visual_observation";
   }
 
   if (
-    (value.media_type === "video" || value.media_type === "youtube") &&
+    (value.expected_media_type === "video" || value.expected_media_type === "youtube") &&
     !isFilledString(value.visual_observation) &&
     !isFilledString(value.audio_observation)
   ) {
@@ -123,19 +123,19 @@ function validateMinimumObservation(value) {
   return null;
 }
 
-export function parseAiObservationOutput(text) {
+export function parseAiObservationOutput(text, options = {}) {
   if (typeof text !== "string") {
     return { ok: false, code: "not_json_text" };
   }
 
   try {
-    return validateAiObservationOutput(JSON.parse(text));
+    return validateAiObservationOutput(JSON.parse(text), options);
   } catch {
     return { ok: false, code: "json_parse_failed" };
   }
 }
 
-export function validateAiObservationOutput(value) {
+export function validateAiObservationOutput(value, options = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, code: "not_object" };
   }
@@ -152,6 +152,18 @@ export function validateAiObservationOutput(value) {
 
   if (!MEDIA_TYPES.has(value.media_type)) {
     return { ok: false, code: "invalid_media_type" };
+  }
+
+  const expectedMediaType = options.expectedMediaType;
+
+  if (expectedMediaType !== undefined) {
+    if (!MEDIA_TYPES.has(expectedMediaType)) {
+      return { ok: false, code: "invalid_expected_media_type" };
+    }
+
+    if (value.media_type !== expectedMediaType) {
+      return { ok: false, code: "media_type_mismatch" };
+    }
   }
 
   if (
@@ -188,6 +200,10 @@ export function validateAiObservationOutput(value) {
       return { ok: false, code: "invalid_star_letter_format" };
     }
 
+    if (/#|https?:\/\//i.test(value.star_letter)) {
+      return { ok: false, code: "invalid_star_letter_forbidden_content" };
+    }
+
     const length = Array.from(value.star_letter).length;
 
     if (length < STAR_LETTER_MIN_LENGTH || length > STAR_LETTER_MAX_LENGTH) {
@@ -203,7 +219,10 @@ export function validateAiObservationOutput(value) {
     return { ok: false, code: "unexpected_star_letter_for_non_post" };
   }
 
-  const minimumObservationError = validateMinimumObservation(value);
+  const minimumObservationError = validateMinimumObservation({
+    ...value,
+    expected_media_type: expectedMediaType ?? value.media_type,
+  });
 
   if (minimumObservationError) {
     return { ok: false, code: minimumObservationError };

@@ -25,9 +25,12 @@ export function createRequestFingerprint({ post, mediaSummary }) {
   hash.update(
     stableJson({
       aiResidentKey: AI_RESIDENT_KEY,
+      body: post.body ?? "",
       postId: post.id,
       postType: post.type,
       updatedAt: post.updated_at ?? null,
+      youtubeUrl: post.youtube_url ?? null,
+      youtubeVideoId: post.youtube_video_id ?? null,
       media: mediaSummary,
     }),
   );

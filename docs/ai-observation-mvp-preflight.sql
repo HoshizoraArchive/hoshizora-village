@@ -2,12 +2,30 @@
 -- Read-only. Run before applying supabase/migrations/20260704_add_chia_observation_mvp.sql.
 -- If any anomaly_count is greater than 0, inspect data before applying the migration.
 
+with chia_profiles as (
+  select id
+  from public.profiles
+  where username = 'chia_hoshizora'
+),
+chia_summary as (
+  select
+    count(*)::bigint as observed_count,
+    count(*) filter (where id is not null)::bigint as non_null_id_count,
+    count(u.id)::bigint as auth_user_count
+  from chia_profiles p
+  left join auth.users u on u.id = p.id
+)
 select
-  'chia_profile_username_count' as check_name,
-  count(*)::bigint as observed_count,
-  case when count(*) = 1 then 0 else count(*) end::bigint as anomaly_count
-from public.profiles
-where username = 'chia_hoshizora';
+  'chia_profile_username_auth_count' as check_name,
+  observed_count,
+  non_null_id_count,
+  auth_user_count,
+  case
+    when observed_count = 1 and non_null_id_count = 1 and auth_user_count = 1 then 0
+    when observed_count = 0 then 1
+    else greatest(observed_count, 1)
+  end::bigint as anomaly_count
+from chia_summary;
 
 select
   'required_tables_exist' as check_name,

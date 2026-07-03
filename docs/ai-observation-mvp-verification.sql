@@ -21,6 +21,19 @@ where n.nspname = 'public'
 order by p.proname;
 
 select
+  'completion_rpc_signature' as check_name,
+  pg_get_function_identity_arguments(p.oid) as identity_arguments,
+  case
+    when pg_get_function_identity_arguments(p.oid) = 'p_job_id uuid, p_chia_profile_id uuid, p_expected_request_fingerprint text, p_observed_points jsonb, p_analysis_summary text, p_should_post boolean, p_star_letter_body text, p_input_tokens integer, p_output_tokens integer, p_total_tokens integer, p_actual_cost_micro_usd bigint'
+    then 0
+    else 1
+  end::bigint as anomaly_count
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname = 'complete_ai_observation_job';
+
+select
   'browser_execute_grants' as check_name,
   coalesce(r.rolname, 'PUBLIC') as grantee,
   n.nspname as schema_name,

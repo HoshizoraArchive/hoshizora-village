@@ -7,7 +7,6 @@ import {
   failAiObservationJob,
   startAiObservationAttempt,
 } from "./aiJobState.mjs";
-import { isRetriableProviderFailure } from "./aiLimits.mjs";
 import { loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
 
 const OBSERVATION_SUMMARY_MAX_LENGTH = 1200;
@@ -107,6 +106,8 @@ export async function runAiObservationJob({
     };
   }
 
+  let providerUsage = null;
+
   try {
     await loadChiaProfile({ supabase, chiaProfileId: config.hoshizoraChiaProfileId });
     const { post, mediaRows, mediaSummary, storageRequirements } = await validateCurrentPostInput({
@@ -119,34 +120,29 @@ export async function runAiObservationJob({
       throw aiHttpError(422, AI_ERROR.POST_CHANGED);
     }
 
-    let output;
-    let usage;
+    await startAiObservationAttempt({ supabase, jobId });
 
-    while (true) {
-      const attempt = await startAiObservationAttempt({ supabase, jobId });
+    const { output, usage } = await runProvider({
+      client: geminiClient,
+      config,
+      post,
+      mediaRows,
+      storageRequirements,
+      supabase,
+    });
+    providerUsage = usage;
 
-      if (attempt?.outcome !== "attempt_started") {
-        throw aiHttpError(409, AI_ERROR.CONFLICT);
-      }
+    const latest = await validateCurrentPostInput({
+      supabase,
+      postId: claim.post_id,
+    });
+    const latestFingerprint = createRequestFingerprint({
+      post: latest.post,
+      mediaSummary: latest.mediaSummary,
+    });
 
-      try {
-        ({ output, usage } = await runProvider({
-          client: geminiClient,
-          config,
-          post,
-          mediaRows,
-          storageRequirements,
-          supabase,
-        }));
-        break;
-      } catch (error) {
-        const status = mapSafeErrorToStatus(error);
-        const canRetry = isRetriableProviderFailure(status) && Number(attempt.attempt_count) < Number(attempt.max_attempts);
-
-        if (!canRetry) {
-          throw error;
-        }
-      }
+    if (latestFingerprint !== claim.request_fingerprint) {
+      throw aiHttpError(422, AI_ERROR.POST_CHANGED);
     }
 
     const observation = normalizeObservationForDb(output);
@@ -154,6 +150,7 @@ export async function runAiObservationJob({
       supabase,
       jobId,
       chiaProfileId: config.hoshizoraChiaProfileId,
+      expectedRequestFingerprint: latestFingerprint,
       observation,
       usage,
     });
@@ -176,6 +173,7 @@ export async function runAiObservationJob({
       supabase,
       jobId,
       publicErrorCode: code,
+      usage: providerUsage ?? {},
     });
 
     logAiEvent(status >= 500 ? "error" : "warn", "ai_observation_worker_failed", {

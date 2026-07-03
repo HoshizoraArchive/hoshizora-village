@@ -14,14 +14,15 @@
 7. Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
 8. Gemini Interactions APIへ、text / image / video / YouTubeの観測対象だけを渡す。Google Search、URL Context、Code Execution、Function Callingは有効にしない。
 9. 出力は固定JSON Schemaとローカルvalidatorで検証する。AI生レスポンスは保存しない。
-10. `complete_ai_observation_job` が `public.observations` 保存、必要時のちあ名義 `star_letters` insert、job `succeeded` 更新を同一transactionで確定する。
-11. フロントは `GET /api/ai-observation-status` をpollし、成功時に該当投稿の星文を再取得する。
+10. DB確定直前に投稿、`post_media`、Storage metadataを再取得し、予約時fingerprintと一致することを再確認する。
+11. `complete_ai_observation_job` が期待fingerprint、post公開状態、未削除状態をtransaction内で再確認し、`public.observations` 保存、必要時のちあ名義 `star_letters` insert、job `succeeded` 更新を同一transactionで確定する。
+12. フロントは `GET /api/ai-observation-status` をpollし、成功時に該当投稿の星文を再取得する。
 
 ## 対応形式
 
 - text: 投稿本文をdelimiterで囲んで観測対象として渡す。
 - image: `meteor-media` からservice_roleで最大4枚をdownloadし、Files APIへsort_order順で渡す。
-- video: `meteor-video` からservice_roleで1本をdownloadし、Files APIへ渡す。Gemini側の映像・音声理解を使い、ffmpeg等で別音声を抽出しない。
+- video: `meteor-video` からservice_roleで1本をdownloadし、ファイルシグネチャと `mediabunny` による実durationを検証してからFiles APIへ渡す。Gemini側の映像・音声理解を使い、ffmpeg等で別音声を抽出しない。
 - YouTube: DB保存済みの検証済み公開YouTube URLだけをvideo inputとして渡す。任意URL fetchは行わない。
 - audio: 現schemaではserver-verifiableなMIME、Storage path、サイズ、秒数を確認できないためfail closed。
 
@@ -68,8 +69,10 @@ Netlify Functionsだけが以下を参照する。`VITE_` へ置かない。
 - image: `visual_observation` 必須
 - video / youtube: `visual_observation` または `audio_observation` 必須
 
+validatorには信頼済みサーバー側の投稿タイプを `expectedMediaType` として渡す。AIが返した `media_type` と実投稿タイプが一致しない場合は、必要観測欄があっても拒否する。
+
 `should_post=false` の場合、`star_letter` は必ず `null`。
-星文は20〜80文字、改行、Markdown、URL、ハッシュタグなし。
+星文は20〜80文字、前後空白なし、改行、URL、ハッシュタグなし。
 
 ## 料金記録
 
@@ -80,6 +83,15 @@ Gemini 3.5 Flash Standardのpricing snapshot:
 
 `actual_cost_micro_usd` はprovider usageから計算する推定値であり、請求書上の確定額ではない。
 usageが取得できない場合は成功扱いしない。
+Interactions APIの `usage.total_input_tokens` を `input_tokens`、`usage.total_output_tokens` を `output_tokens`、`usage.total_tokens` を `total_tokens` として保存する。
+`@google/genai` のInteractions `Usage` 型では `total_output_tokens` は「generated responses total」と定義され、GoogleのpricingではGemini 3.5 Flashの出力料金がthinking token込みで表示されているため、MVPでは `total_thought_tokens` を別加算せず、二重計上を避ける。
+
+## timeout / retry方針
+
+Interactions APIへ生成リクエストを送信した後のclient-side timeout、AbortError、接続切断、status不明、usage欠損、AI出力Schema不正は自動retryしない。
+provider側の処理や課金が止まったと確実に判断できないため、同じjob内で再送しない安全側のMVP方針とする。
+`AI_OBSERVATION_MAX_RETRIES` は基盤との互換性のため残すが、Gemini生成処理のblind retryには使わない。
+Files API upload前など、生成処理が始まっていない段階のretryだけを将来の対象にする。
 
 ## 本番適用手順
 

@@ -10,6 +10,33 @@ function throwInternalOnError(error) {
   }
 }
 
+const OUTCOME_ERROR_MAP = new Map([
+  ["invalid_payload", AI_ERROR.AI_OUTPUT_INVALID],
+  ["chia_profile_mismatch", AI_ERROR.CHIA_PROFILE_MISMATCH],
+  ["post_changed", AI_ERROR.POST_CHANGED],
+  ["invalid_status", AI_ERROR.CONFLICT],
+  ["max_attempts_exceeded", AI_ERROR.CONFLICT],
+  ["invalid_request", AI_ERROR.BAD_REQUEST],
+  ["not_found", AI_ERROR.NOT_FOUND],
+]);
+
+function assertKnownOutcome(row, allowedOutcomes) {
+  const outcome = row?.outcome;
+
+  if (allowedOutcomes.has(outcome)) {
+    return row;
+  }
+
+  const mappedError = OUTCOME_ERROR_MAP.get(outcome);
+
+  if (mappedError) {
+    const status = outcome === "not_found" ? 404 : outcome === "invalid_payload" ? 422 : 409;
+    throw aiHttpError(status, mappedError);
+  }
+
+  throw aiHttpError(503, AI_ERROR.INTERNAL);
+}
+
 export async function cancelAiObservationJob({ supabase, jobId, publicErrorCode = "WORKER_DISPATCH_FAILED" }) {
   const { data, error } = await supabase.rpc("cancel_ai_observation_job", {
     p_job_id: jobId,
@@ -17,7 +44,7 @@ export async function cancelAiObservationJob({ supabase, jobId, publicErrorCode 
   });
 
   throwInternalOnError(error);
-  return firstRpcRow(data);
+  return assertKnownOutcome(firstRpcRow(data), new Set(["cancelled", "invalid_status"]));
 }
 
 export async function claimAiObservationJob({ supabase, jobId }) {
@@ -26,7 +53,13 @@ export async function claimAiObservationJob({ supabase, jobId }) {
   });
 
   throwInternalOnError(error);
-  return firstRpcRow(data);
+  return assertKnownOutcome(firstRpcRow(data), new Set([
+    "claimed",
+    "already_processing",
+    "already_succeeded",
+    "already_failed",
+    "already_cancelled",
+  ]));
 }
 
 export async function startAiObservationAttempt({ supabase, jobId }) {
@@ -35,13 +68,14 @@ export async function startAiObservationAttempt({ supabase, jobId }) {
   });
 
   throwInternalOnError(error);
-  return firstRpcRow(data);
+  return assertKnownOutcome(firstRpcRow(data), new Set(["attempt_started"]));
 }
 
-export async function completeAiObservationJob({ supabase, jobId, chiaProfileId, observation, usage }) {
+export async function completeAiObservationJob({ supabase, jobId, chiaProfileId, expectedRequestFingerprint, observation, usage }) {
   const { data, error } = await supabase.rpc("complete_ai_observation_job", {
     p_job_id: jobId,
     p_chia_profile_id: chiaProfileId,
+    p_expected_request_fingerprint: expectedRequestFingerprint,
     p_observed_points: observation.observedPoints,
     p_analysis_summary: observation.analysisSummary,
     p_should_post: observation.shouldPost,
@@ -53,7 +87,7 @@ export async function completeAiObservationJob({ supabase, jobId, chiaProfileId,
   });
 
   throwInternalOnError(error);
-  return firstRpcRow(data);
+  return assertKnownOutcome(firstRpcRow(data), new Set(["completed", "already_succeeded"]));
 }
 
 export async function failAiObservationJob({ supabase, jobId, publicErrorCode, usage = {} }) {
@@ -67,5 +101,5 @@ export async function failAiObservationJob({ supabase, jobId, publicErrorCode, u
   });
 
   throwInternalOnError(error);
-  return firstRpcRow(data);
+  return assertKnownOutcome(firstRpcRow(data), new Set(["failed", "already_succeeded", "already_failed", "already_cancelled"]));
 }

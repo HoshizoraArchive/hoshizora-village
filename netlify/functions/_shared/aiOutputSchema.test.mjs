@@ -23,7 +23,7 @@ function validOutput(overrides = {}) {
 }
 
 test("AI output schema accepts the strict expected shape", () => {
-  const result = validateAiObservationOutput(validOutput());
+  const result = validateAiObservationOutput(validOutput(), { expectedMediaType: "image" });
 
   assert.equal(result.ok, true);
 });
@@ -90,10 +90,56 @@ test("AI output schema requires text observation for text posts", () => {
     media_type: "text",
     text_observation: null,
     visual_observation: null,
-  }));
+  }), { expectedMediaType: "text" });
 
   assert.equal(result.ok, false);
   assert.equal(result.code, "missing_text_observation");
+});
+
+test("AI output schema rejects media type mismatches against trusted post type", () => {
+  assert.equal(validateAiObservationOutput(validOutput({
+    media_type: "text",
+    text_observation: "本文だけを見た説明です。",
+    visual_observation: null,
+  }), { expectedMediaType: "image" }).code, "media_type_mismatch");
+
+  assert.equal(validateAiObservationOutput(validOutput({
+    media_type: "image",
+    visual_observation: "静かな画面です。",
+  }), { expectedMediaType: "video" }).code, "media_type_mismatch");
+
+  assert.equal(validateAiObservationOutput(validOutput({
+    media_type: "video",
+    visual_observation: "映像の光が動いています。",
+  }), { expectedMediaType: "youtube" }).code, "media_type_mismatch");
+});
+
+test("AI output schema validates minimum observation by trusted post type", () => {
+  const result = validateAiObservationOutput(validOutput({
+    media_type: "video",
+    visual_observation: null,
+    audio_observation: "小さな音が残っています。",
+  }), { expectedMediaType: "video" });
+
+  assert.equal(result.ok, true);
+});
+
+test("AI output schema rejects star letters DB completion would reject", () => {
+  assert.equal(validateAiObservationOutput(validOutput({
+    star_letter: "小さな余白の奥まで、#光が残っていたよ。",
+  })).code, "invalid_star_letter_forbidden_content");
+  assert.equal(validateAiObservationOutput(validOutput({
+    star_letter: "小さな余白の奥まで、https://example.com が残っていたよ。",
+  })).code, "invalid_star_letter_forbidden_content");
+  assert.equal(validateAiObservationOutput(validOutput({
+    star_letter: "小さな余白の奥まで、\nひかりが残っていたよ。",
+  })).code, "invalid_star_letter_format");
+  assert.equal(validateAiObservationOutput(validOutput({
+    star_letter: " 小さな余白の奥まで、ひかりが残っていたよ。",
+  })).code, "invalid_star_letter_format");
+  assert.equal(validateAiObservationOutput(validOutput({
+    star_letter: "小さな余白の奥まで、ひかりが残っていたよ。",
+  })).ok, true);
 });
 
 test("AI output schema rejects JSON parse failures through parser", async () => {

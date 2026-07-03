@@ -3,13 +3,15 @@ import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { GoogleGenAI } from "@google/genai";
-import { AI_ERROR, aiHttpError } from "./aiErrors.mjs";
+import { AI_ERROR, AiHttpError, aiHttpError } from "./aiErrors.mjs";
 import { estimateGeminiCostMicroUsd, withTimeout } from "./aiLimits.mjs";
 import { AI_OBSERVATION_OUTPUT_JSON_SCHEMA, parseAiObservationOutput } from "./aiOutputSchema.mjs";
 import { SYSTEM_INSTRUCTION, buildObservationPrompt } from "./aiPrompt.mjs";
 
 const FILE_PROCESSING_POLL_MS = 5000;
 const FILE_PROCESSING_MAX_MS = 60000;
+const MAX_VIDEO_DURATION_SECONDS = 35;
+const VIDEO_DURATION_TOLERANCE_SECONDS = 0.75;
 const SAFE_EXTENSIONS_BY_MIME = new Map([
   ["image/jpeg", ".jpg"],
   ["image/png", ".png"],
@@ -31,33 +33,36 @@ async function blobToBuffer(blob) {
   return Buffer.from(await blob.arrayBuffer());
 }
 
-function getUsageTokens(interaction) {
-  const usage = interaction?.usageMetadata ?? interaction?.usage ?? {};
-  const inputTokens = Number(
-    usage.inputTokenCount ??
-      usage.promptTokenCount ??
-      usage.input_tokens ??
-      usage.prompt_tokens,
-  );
-  const outputTokens = Number(
-    usage.outputTokenCount ??
-      usage.candidatesTokenCount ??
-      usage.output_tokens ??
-      usage.completion_tokens,
-  );
-  const totalTokens = Number(
-    usage.totalTokenCount ??
-      usage.total_tokens ??
-      (Number.isFinite(inputTokens) && Number.isFinite(outputTokens) ? inputTokens + outputTokens : NaN),
-  );
+function readUsageInteger(usage, key) {
+  const value = usage?.[key];
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw aiHttpError(422, AI_ERROR.AI_OUTPUT_INVALID);
+  }
+
+  return value;
+}
+
+export function getUsageTokens(interaction) {
+  const usage = interaction?.usage ?? interaction?.usageMetadata;
+  const inputTokens = readUsageInteger(usage, "total_input_tokens");
+  // @google/genai's Interactions Usage type defines total_output_tokens as
+  // "Total number of tokens across all the generated responses"; pricing says
+  // output price includes thinking tokens, so do not add total_thought_tokens
+  // unless the SDK exposes a separate billable-output field in the future.
+  const outputTokens = readUsageInteger(usage, "total_output_tokens");
+  const thoughtTokens = readUsageInteger(usage, "total_thought_tokens");
+  const cachedTokens = readUsageInteger(usage, "total_cached_tokens");
+  const toolUseTokens = readUsageInteger(usage, "total_tool_use_tokens");
+  const totalTokens = readUsageInteger(usage, "total_tokens");
 
   if (
-    !Number.isSafeInteger(inputTokens) ||
-    !Number.isSafeInteger(outputTokens) ||
-    !Number.isSafeInteger(totalTokens) ||
-    inputTokens < 0 ||
-    outputTokens < 0 ||
-    totalTokens < inputTokens + outputTokens
+    totalTokens < inputTokens ||
+    totalTokens < outputTokens ||
+    totalTokens < inputTokens + outputTokens ||
+    thoughtTokens > outputTokens ||
+    cachedTokens > inputTokens ||
+    toolUseTokens > totalTokens
   ) {
     throw aiHttpError(422, AI_ERROR.AI_OUTPUT_INVALID);
   }
@@ -98,6 +103,10 @@ export function bufferMatchesMimeType(buffer, mimeType) {
 }
 
 function mapProviderError(error) {
+  if (error instanceof AiHttpError) {
+    return error;
+  }
+
   if (error?.name === "AbortError") {
     return aiHttpError(503, AI_ERROR.GEMINI_TIMEOUT);
   }
@@ -112,7 +121,11 @@ function mapProviderError(error) {
     return aiHttpError(503, AI_ERROR.MEDIA_UNAVAILABLE);
   }
 
-  return aiHttpError(422, AI_ERROR.MEDIA_UNAVAILABLE);
+  if (status >= 400 && status <= 499) {
+    return aiHttpError(422, AI_ERROR.MEDIA_UNAVAILABLE);
+  }
+
+  return aiHttpError(503, AI_ERROR.INTERNAL);
 }
 
 async function waitForGeminiFileActive({ client, file, timeoutMs }) {
@@ -120,12 +133,15 @@ async function waitForGeminiFileActive({ client, file, timeoutMs }) {
   let currentFile = file;
 
   while (currentFile?.state === "PROCESSING") {
-    if (Date.now() - startedAt > Math.min(timeoutMs, FILE_PROCESSING_MAX_MS)) {
+    const maxWaitMs = Math.min(timeoutMs, FILE_PROCESSING_MAX_MS);
+    const elapsedMs = Date.now() - startedAt;
+
+    if (elapsedMs >= maxWaitMs) {
       throw aiHttpError(503, AI_ERROR.GEMINI_TIMEOUT);
     }
 
     await new Promise((resolve) => {
-      setTimeout(resolve, FILE_PROCESSING_POLL_MS);
+      setTimeout(resolve, Math.min(FILE_PROCESSING_POLL_MS, Math.max(1, maxWaitMs - elapsedMs)));
     });
     currentFile = await client.files.get({ name: currentFile.name });
   }
@@ -137,7 +153,37 @@ async function waitForGeminiFileActive({ client, file, timeoutMs }) {
   return currentFile;
 }
 
-async function downloadStorageFile({ supabase, requirement }) {
+export async function readVideoDurationSeconds(buffer, mimeType) {
+  if (!mimeType.startsWith("video/")) {
+    return null;
+  }
+
+  const { ALL_FORMATS, BlobSource, Input } = await import("mediabunny");
+  const input = new Input({
+    formats: ALL_FORMATS,
+    source: new BlobSource(new Blob([buffer], { type: mimeType })),
+  });
+
+  return input.computeDuration();
+}
+
+export function assertVideoDurationMatches({ actualDurationSeconds, expectedDurationSeconds }) {
+  const actual = Number(actualDurationSeconds);
+  const expected = Number(expectedDurationSeconds);
+
+  if (
+    !Number.isFinite(actual) ||
+    actual <= 0 ||
+    actual > MAX_VIDEO_DURATION_SECONDS + 0.05 ||
+    !Number.isFinite(expected) ||
+    expected <= 0 ||
+    Math.abs(actual - expected) > VIDEO_DURATION_TOLERANCE_SECONDS
+  ) {
+    throw aiHttpError(422, AI_ERROR.MEDIA_UNAVAILABLE);
+  }
+}
+
+async function downloadStorageFile({ readVideoDuration = readVideoDurationSeconds, requirement, supabase }) {
   const { data, error } = await supabase.storage.from(requirement.bucket).download(requirement.storagePath);
 
   if (error || !data) {
@@ -158,16 +204,24 @@ async function downloadStorageFile({ supabase, requirement }) {
     throw aiHttpError(422, AI_ERROR.MEDIA_UNAVAILABLE);
   }
 
+  if (requirement.mimeType.startsWith("video/")) {
+    const actualDurationSeconds = await readVideoDuration(buffer, requirement.mimeType);
+    assertVideoDurationMatches({
+      actualDurationSeconds,
+      expectedDurationSeconds: requirement.durationSeconds,
+    });
+  }
+
   return buffer;
 }
 
-async function uploadMediaFiles({ client, supabase, storageRequirements, timeoutMs }) {
+export async function uploadMediaFiles({ client, readVideoDuration, storageRequirements, supabase, timeoutMs }) {
   const uploadedFiles = [];
   const localPaths = [];
 
   try {
     for (const requirement of storageRequirements) {
-      const buffer = await downloadStorageFile({ supabase, requirement });
+      const buffer = await downloadStorageFile({ readVideoDuration, supabase, requirement });
       const extension = getLocalExtension(requirement.mimeType, requirement.storagePath);
       const localPath = join(tmpdir(), `hoshizora-ai-${randomUUID()}${extension}`);
       localPaths.push(localPath);
@@ -176,15 +230,19 @@ async function uploadMediaFiles({ client, supabase, storageRequirements, timeout
         file: localPath,
         config: { mimeType: requirement.mimeType },
       });
+      const uploadedRecord = {
+        type: requirement.mimeType.startsWith("video/") ? "video" : "image",
+        name: uploadedFile.name,
+        uri: uploadedFile.uri,
+        mimeType: uploadedFile.mimeType ?? requirement.mimeType,
+      };
+      uploadedFiles.push(uploadedRecord);
       const activeFile = requirement.mimeType.startsWith("video/")
         ? await waitForGeminiFileActive({ client, file: uploadedFile, timeoutMs })
         : uploadedFile;
-      uploadedFiles.push({
-        type: requirement.mimeType.startsWith("video/") ? "video" : "image",
-        name: activeFile.name,
-        uri: activeFile.uri,
-        mimeType: activeFile.mimeType ?? requirement.mimeType,
-      });
+      uploadedRecord.name = activeFile.name ?? uploadedRecord.name;
+      uploadedRecord.uri = activeFile.uri ?? uploadedRecord.uri;
+      uploadedRecord.mimeType = activeFile.mimeType ?? uploadedRecord.mimeType;
     }
 
     return {
@@ -198,7 +256,7 @@ async function uploadMediaFiles({ client, supabase, storageRequirements, timeout
     await cleanupGeminiFiles(client, uploadedFiles);
     await cleanupLocalFiles(localPaths);
 
-    if (error?.status) {
+    if (error instanceof AiHttpError) {
       throw error;
     }
 
@@ -272,7 +330,9 @@ export async function runGeminiObservation({
       }),
       config.observationTimeoutMs,
     );
-    const parsed = parseAiObservationOutput(interaction?.output_text ?? interaction?.outputText);
+    const parsed = parseAiObservationOutput(interaction?.output_text ?? interaction?.outputText, {
+      expectedMediaType: post.type,
+    });
 
     if (!parsed.ok) {
       throw aiHttpError(422, AI_ERROR.AI_OUTPUT_INVALID);
@@ -293,7 +353,7 @@ export async function runGeminiObservation({
       },
     };
   } catch (error) {
-    if (error?.status) {
+    if (error instanceof AiHttpError) {
       throw error;
     }
 
