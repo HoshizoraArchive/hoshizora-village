@@ -357,37 +357,24 @@ before insert or update on public.post_media
 for each row
 execute function app_private.prevent_mixed_post_media();
 
-create or replace function app_private.storage_path_belongs_to_owner(
-  p_path text,
-  p_owner_id uuid
-)
-returns boolean
-language sql
-immutable
-strict
-set search_path = ''
-as $$
-  select
-    p_path = btrim(p_path)
-    and p_path <> ''
-    and position('/' in p_path) > 0
-    and split_part(p_path, '/', 1) = p_owner_id::text
-    and p_path !~ '^/'
-    and p_path !~ '/$'
-    and p_path !~ '//'
-    and p_path !~ '(^|/)\.{1,2}(/|$)'
-    and position(chr(92) in p_path) = 0
-    and position('%' in p_path) = 0;
-$$;
-
-revoke all on function app_private.storage_path_belongs_to_owner(text, uuid) from public, anon, authenticated;
-
 alter table public.post_media
 drop constraint if exists post_media_storage_path_owner_check;
 
 alter table public.post_media
 add constraint post_media_storage_path_owner_check
-check (app_private.storage_path_belongs_to_owner(storage_path, uploader_id));
+check (
+  storage_path is not null
+  and storage_path = btrim(storage_path)
+  and storage_path <> ''
+  and position('/' in storage_path) > 0
+  and split_part(storage_path, '/', 1) = uploader_id::text
+  and storage_path !~ '^/'
+  and storage_path !~ '/$'
+  and storage_path !~ '//'
+  and storage_path !~ '(^|/)\.{1,2}(/|$)'
+  and position(chr(92) in storage_path) = 0
+  and position('%' in storage_path) = 0
+);
 
 alter table public.post_media
 drop constraint if exists post_media_thumbnail_storage_path_owner_check;
@@ -396,7 +383,18 @@ alter table public.post_media
 add constraint post_media_thumbnail_storage_path_owner_check
 check (
   thumbnail_storage_path is null
-  or app_private.storage_path_belongs_to_owner(thumbnail_storage_path, uploader_id)
+  or (
+    thumbnail_storage_path = btrim(thumbnail_storage_path)
+    and thumbnail_storage_path <> ''
+    and position('/' in thumbnail_storage_path) > 0
+    and split_part(thumbnail_storage_path, '/', 1) = uploader_id::text
+    and thumbnail_storage_path !~ '^/'
+    and thumbnail_storage_path !~ '/$'
+    and thumbnail_storage_path !~ '//'
+    and thumbnail_storage_path !~ '(^|/)\.{1,2}(/|$)'
+    and position(chr(92) in thumbnail_storage_path) = 0
+    and position('%' in thumbnail_storage_path) = 0
+  )
 );
 
 -- profile_tags: わたしの星座.

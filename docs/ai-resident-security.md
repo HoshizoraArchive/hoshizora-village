@@ -106,6 +106,7 @@ provider呼び出し前に失敗したジョブは `attempt_count = 0` で区別
 
 Functionはクライアント入力ではなくDBの `posts` / `post_media` を取得して検証する。
 `post_media.storage_path` と `thumbnail_storage_path` は、先頭フォルダが `uploader_id` / 投稿者UUIDと一致することをDB制約 `post_media_storage_path_owner_check` / `post_media_thumbnail_storage_path_owner_check` で保証する。
+このCHECK制約は `app_private` の関数を呼ばず、PostgreSQL組み込み関数と演算子だけで直接判定する。通常の `authenticated` ユーザーによる既存の画像・動画投稿が、private関数のEXECUTE権限不足で失敗しないようにするため。
 空パス、先頭/末尾スラッシュ、空セグメント、`.` / `..`、バックスラッシュ、`%` を含むURLエンコード回避は拒否する。
 画像・動画では、Storage APIから取得したオブジェクトメタデータのMIMEとサイズも `post_media` と照合する。
 
@@ -166,7 +167,9 @@ DBテーブル名、RLS policy名、SQL、stack trace、Supabase生エラー、s
 
 ## 本番適用前の手動作業
 
-1. `supabase/migrations/20260703_add_ai_observation_security_foundation.sql` をSupabase SQL Editorで確認後に適用する。
-2. `docs/ai-resident-security-verification.sql` を読み取り専用で実行し、RLS、GRANT、index、RPC権限を確認する。
-3. Netlifyへ必要な環境変数を設定する。ただし、このPR時点では本番値を未設定のままにする。
-4. 明示的に有効化するまで `AI_OBSERVATION_ENABLED` は空または未設定にする。
+1. `docs/ai-resident-security-preflight.sql` を読み取り専用で実行する。
+2. Storage path違反件数がすべて0件であることを確認する。1件以上ある場合は、migration適用前に対象データを確認する。
+3. `supabase/migrations/20260703_add_ai_observation_security_foundation.sql` をSupabase SQL Editorで確認後に適用する。
+4. `docs/ai-resident-security-verification.sql` を読み取り専用で実行し、RLS、GRANT、制約、index、RPC権限を確認する。
+5. Netlify環境変数は、観測MVP実装時まで未設定または機能OFFのまま維持する。
+6. 明示的に有効化するまで `AI_OBSERVATION_ENABLED` は空または未設定にする。

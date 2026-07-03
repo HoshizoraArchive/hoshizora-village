@@ -65,6 +65,7 @@ Storage policy方針:
 - ログイン済みユーザーだけがinsert可能
 - insertできるのは `auth.uid()` と同じ名前のフォルダ配下のみ
 - `post_media.storage_path` と `thumbnail_storage_path` はDB制約でも `uploader_id` のUUIDフォルダ配下に限定する
+- Storage path所有者制約はCHECK式に直接記述し、`authenticated` が `app_private` 関数を実行する必要がない形にする
 - `meteor-media` はログイン済みユーザーが自分のフォルダ配下だけdelete可能
 - `meteor-video` はログイン済みユーザーが自分のフォルダ配下だけdelete可能
 - 他人のフォルダにはアップロードできない
@@ -245,6 +246,7 @@ RLS方針:
 - 動画は35秒以内、100MB以内
 - 同一投稿内で `sort_order` は重複しない
 - `storage_path` は重複しない
+- `storage_path` / `thumbnail_storage_path` は、空パス、先頭/末尾スラッシュ、空セグメント、`.` / `..`、バックスラッシュ、`%` を拒否し、先頭セグメントを `uploader_id::text` と一致させる
 - 公開URLはDBに固定保存せず、クライアント側で `storage_path` から生成する
 
 RLS方針:
@@ -628,6 +630,8 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - `attempt_count <= max_attempts`
 - RLSを有効化し、`anon` / `authenticated` / `PUBLIC` の直接操作権限を付与しない
 - 予約処理は `public.reserve_ai_observation_job(...)` でDB側transaction内に閉じる
+
+本番適用時は、先に `docs/ai-resident-security-preflight.sql` を実行し、既存 `post_media` のStorage path違反件数がすべて0件であることを確認してからmigrationを適用します。適用後は `docs/ai-resident-security-verification.sql` で制約、RLS、GRANT、RPC権限を確認します。
 
 ## 今回まだ実装しないこと
 

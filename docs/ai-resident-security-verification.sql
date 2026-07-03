@@ -57,15 +57,35 @@ where schemaname = 'public'
 order by indexname;
 
 -- 06. post_media storage paths should belong to uploader_id folders.
--- Any nonzero count here must be resolved before applying the path-owner constraint in production.
 select
   '06_post_media_storage_path_owner_violations' as check_name,
   count(*) filter (
-    where not app_private.storage_path_belongs_to_owner(storage_path, uploader_id)
+    where storage_path is null
+      or storage_path <> btrim(storage_path)
+      or storage_path = ''
+      or position('/' in storage_path) = 0
+      or split_part(storage_path, '/', 1) <> uploader_id::text
+      or storage_path ~ '^/'
+      or storage_path ~ '/$'
+      or storage_path ~ '//'
+      or storage_path ~ '(^|/)\.{1,2}(/|$)'
+      or position(chr(92) in storage_path) > 0
+      or position('%' in storage_path) > 0
   ) as storage_path_violation_count,
   count(*) filter (
     where thumbnail_storage_path is not null
-      and not app_private.storage_path_belongs_to_owner(thumbnail_storage_path, uploader_id)
+      and (
+        thumbnail_storage_path <> btrim(thumbnail_storage_path)
+        or thumbnail_storage_path = ''
+        or position('/' in thumbnail_storage_path) = 0
+        or split_part(thumbnail_storage_path, '/', 1) <> uploader_id::text
+        or thumbnail_storage_path ~ '^/'
+        or thumbnail_storage_path ~ '/$'
+        or thumbnail_storage_path ~ '//'
+        or thumbnail_storage_path ~ '(^|/)\.{1,2}(/|$)'
+        or position(chr(92) in thumbnail_storage_path) > 0
+        or position('%' in thumbnail_storage_path) > 0
+      )
   ) as thumbnail_storage_path_violation_count
 from public.post_media;
 
@@ -74,7 +94,8 @@ select
   '07_post_media_storage_path_constraints' as check_name,
   conname,
   contype,
-  pg_get_constraintdef(oid) as definition
+  pg_get_constraintdef(oid) as definition,
+  pg_get_constraintdef(oid) like '%app_private.storage_path_belongs_to_owner%' as depends_on_private_helper
 from pg_constraint
 where conrelid = 'public.post_media'::regclass
   and conname in (
@@ -96,10 +117,7 @@ join pg_namespace n on n.oid = p.pronamespace
 cross join lateral aclexplode(coalesce(p.proacl, acldefault('f'::"char", p.proowner))) acl
 left join pg_roles r on r.oid = acl.grantee
 where n.nspname = 'app_private'
-  and p.proname in (
-    'storage_path_belongs_to_owner',
-    'ai_observation_billable_cost_micro_usd'
-  )
+  and p.proname = 'ai_observation_billable_cost_micro_usd'
   and (acl.grantee = 0 or r.rolname in ('anon', 'authenticated'))
 order by function_name, grantee, acl.privilege_type;
 
