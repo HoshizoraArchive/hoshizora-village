@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  ERROR_OPERATION,
+  createUserFacingError,
+  getUserFacingError,
+  isSafeUserFacingError,
+  logSafeError,
+} from "./safeErrors";
 import { supabase } from "./lib/supabaseClient";
 
 const bottomNavItems = [
@@ -202,7 +209,7 @@ function loadImageFromFile(file) {
 
     image.onerror = () => {
       URL.revokeObjectURL(imageUrl);
-      reject(new Error("画像の読み込みに失敗しました。"));
+      reject(createUserFacingError("画像の読み込みに失敗しました。"));
     };
 
     image.src = imageUrl;
@@ -239,7 +246,7 @@ async function createCroppedPostCoverBlob({ file, frameSize, offset, zoom }) {
   const context = canvas.getContext("2d");
 
   if (!context) {
-    throw new Error("星映の表紙の準備に失敗しました。");
+    throw createUserFacingError("星映の表紙の準備に失敗しました。");
   }
 
   context.fillStyle = "#050816";
@@ -254,7 +261,7 @@ async function createCroppedPostCoverBlob({ file, frameSize, offset, zoom }) {
           return;
         }
 
-        reject(new Error("星映の表紙の切り取りに失敗しました。"));
+        reject(createUserFacingError("星映の表紙の切り取りに失敗しました。"));
       },
       METEOR_VIDEO_THUMBNAIL_TYPE,
       METEOR_VIDEO_THUMBNAIL_QUALITY,
@@ -282,7 +289,7 @@ async function createCroppedAvatarBlob({ file, frameSize, offset, zoom }) {
   const context = canvas.getContext("2d");
 
   if (!context) {
-    throw new Error("星影の切り抜き準備に失敗しました。");
+    throw createUserFacingError("星影の切り抜き準備に失敗しました。");
   }
 
   context.fillStyle = "#050816";
@@ -297,7 +304,7 @@ async function createCroppedAvatarBlob({ file, frameSize, offset, zoom }) {
           return;
         }
 
-        reject(new Error("星影の切り抜きに失敗しました。"));
+        reject(createUserFacingError("星影の切り抜きに失敗しました。"));
       },
       AVATAR_CROP_OUTPUT_TYPE,
       AVATAR_CROP_OUTPUT_QUALITY,
@@ -554,7 +561,7 @@ function loadVideoMetadataFromFile(file) {
       const durationSeconds = video.duration;
 
       if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-        settle(reject, new Error("星映の再生時間を確認できませんでした。"));
+        settle(reject, createUserFacingError("星映の再生時間を確認できませんでした。"));
         return;
       }
 
@@ -564,7 +571,7 @@ function loadVideoMetadataFromFile(file) {
         width: video.videoWidth || null,
       });
     };
-    video.onerror = () => settle(reject, new Error("この星映はブラウザで再生確認できませんでした。"));
+    video.onerror = () => settle(reject, createUserFacingError("この星映はブラウザで再生確認できませんでした。"));
     video.src = objectUrl;
   });
 }
@@ -614,7 +621,7 @@ function createVideoCoverBlob(file, durationSeconds) {
       const context = canvas.getContext("2d");
 
       if (!context) {
-        settle(reject, new Error("星映の表紙を生成できませんでした。"));
+        settle(reject, createUserFacingError("星映の表紙を生成できませんでした。"));
         return;
       }
 
@@ -628,13 +635,13 @@ function createVideoCoverBlob(file, durationSeconds) {
             return;
           }
 
-          settle(reject, new Error("星映の表紙を生成できませんでした。"));
+          settle(reject, createUserFacingError("星映の表紙を生成できませんでした。"));
         },
         METEOR_VIDEO_THUMBNAIL_TYPE,
         METEOR_VIDEO_THUMBNAIL_QUALITY,
       );
     };
-    video.onerror = () => settle(reject, new Error("星映の表紙を生成できませんでした。"));
+    video.onerror = () => settle(reject, createUserFacingError("星映の表紙を生成できませんでした。"));
     video.src = objectUrl;
   });
 }
@@ -682,7 +689,7 @@ async function createTrimmedVideoFile({ endSeconds, file, onConversionReady, onP
   onConversionReady?.(conversion);
 
   if (!conversion.isValid) {
-    throw new Error("星映を切り取れませんでした。");
+    throw createUserFacingError("星映を切り取れませんでした。");
   }
 
   conversion.onProgress = (progress) => {
@@ -692,7 +699,7 @@ async function createTrimmedVideoFile({ endSeconds, file, onConversionReady, onP
   await conversion.execute();
 
   if (!outputTarget.buffer) {
-    throw new Error("星映を切り取れませんでした。");
+    throw createUserFacingError("星映を切り取れませんでした。");
   }
 
   return createFileFromBlob(
@@ -748,7 +755,7 @@ async function createMeteorMediaSignedUrl(bucket, storagePath) {
     .createSignedUrl(storagePath, METEOR_MEDIA_SIGNED_URL_EXPIRES_IN_SECONDS);
 
   if (error) {
-    console.warn("流星便メディアの署名付きURL作成に失敗しました。", error);
+    logSafeError(ERROR_OPERATION.MEDIA_SIGNED_URL, error);
     return null;
   }
 
@@ -1713,7 +1720,7 @@ function App() {
 
       if (error) {
         setAuthStatus("確認エラー");
-        setAuthError(error.message);
+        setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SESSION));
         return;
       }
 
@@ -1759,7 +1766,7 @@ function App() {
       }
 
       if (error) {
-        setResonanceError(error.message);
+        setResonanceError(getUserFacingError(error, ERROR_OPERATION.RESONANCE_LOAD));
         return;
       }
 
@@ -2003,7 +2010,7 @@ function App() {
 
       if (error) {
         if (!isMissingPostMediaError(error)) {
-          console.warn("post_mediaの読み込みに失敗しました。", error);
+          logSafeError(ERROR_OPERATION.MEDIA_LOAD, error);
         }
         return;
       }
@@ -2048,7 +2055,7 @@ function App() {
 
       if (error) {
         if (!isMissingMeteorTagsError(error)) {
-          console.warn("流星タグの読み込みに失敗しました。", error);
+          logSafeError(ERROR_OPERATION.METEOR_TAG_LOAD, error);
         }
         return;
       }
@@ -2103,7 +2110,7 @@ function App() {
         }
 
         setProfileFramesAvailable(true);
-        setProfileFramesError(frameError.message);
+        setProfileFramesError(getUserFacingError(frameError, ERROR_OPERATION.PROFILE_FRAME_LOAD));
         return;
       }
 
@@ -2137,7 +2144,7 @@ function App() {
           return;
         }
 
-        setProfileFramesError(ownershipError.message);
+        setProfileFramesError(getUserFacingError(ownershipError, ERROR_OPERATION.PROFILE_FRAME_LOAD));
         setOwnedProfileFrameIds([]);
         return;
       }
@@ -2185,7 +2192,7 @@ function App() {
       setProfileLoading(false);
 
       if (error) {
-        setProfileError(error.message);
+        setProfileError(getUserFacingError(error, ERROR_OPERATION.PROFILE_LOAD));
         return;
       }
 
@@ -2317,7 +2324,7 @@ function App() {
       }
 
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
-        console.warn("流星便詳細の添付情報読み込みに失敗しました。", assetsError);
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
       setDetailPost(hydratedPosts[0] ?? basePost);
@@ -2366,7 +2373,7 @@ function App() {
         setPublicProfileTags([]);
         setPublicProfilePosts([]);
         setPublicProfileLoading(false);
-        setPublicProfileError(profileError.message);
+        setPublicProfileError(getUserFacingError(profileError, ERROR_OPERATION.PROFILE_LOAD));
         return;
       }
 
@@ -2419,7 +2426,7 @@ function App() {
         setPublicProfileTags(tagRows ?? []);
         setPublicProfilePosts([]);
         setPublicProfileLoading(false);
-        setPublicProfileError(postsError.message);
+        setPublicProfileError(getUserFacingError(postsError, ERROR_OPERATION.POST_LOAD));
         return;
       }
 
@@ -2431,7 +2438,7 @@ function App() {
       }
 
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
-        console.warn("公開プロフィールの添付情報読み込みに失敗しました。", assetsError);
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
       setPublicProfile(nextPublicProfile);
@@ -2490,8 +2497,8 @@ function App() {
         setMeteorTagLoading(false);
         setMeteorTagError(
           isMissingMeteorTagsError(tagError)
-            ? "流星タグを使うには、Supabase SQL Editorで流星タグmigrationの実行が必要です。"
-            : tagError.message,
+            ? "流星タグ機能の準備がまだ完了していません。"
+            : getUserFacingError(tagError, ERROR_OPERATION.METEOR_TAG_LOAD),
         );
         return;
       }
@@ -2519,7 +2526,7 @@ function App() {
       if (relationError) {
         setMeteorTagPosts([]);
         setMeteorTagLoading(false);
-        setMeteorTagError(relationError.message);
+        setMeteorTagError(getUserFacingError(relationError, ERROR_OPERATION.METEOR_TAG_LOAD));
         return;
       }
 
@@ -2551,7 +2558,7 @@ function App() {
       if (postsError) {
         setMeteorTagPosts([]);
         setMeteorTagLoading(false);
-        setMeteorTagError(postsError.message);
+        setMeteorTagError(getUserFacingError(postsError, ERROR_OPERATION.POST_LOAD));
         return;
       }
 
@@ -2572,7 +2579,7 @@ function App() {
         if (profileRowsError) {
           setMeteorTagPosts([]);
           setMeteorTagLoading(false);
-          setMeteorTagError(profileRowsError.message);
+          setMeteorTagError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
           return;
         }
 
@@ -2589,7 +2596,7 @@ function App() {
       }
 
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
-        console.warn("流星タグ観測の流星便読み込みに失敗しました。", assetsError);
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
       setMeteorTagPosts(hydratedPosts);
@@ -2633,7 +2640,7 @@ function App() {
 
       if (error) {
         setStarLettersLoading(false);
-        setStarLettersError(error.message);
+        setStarLettersError(getUserFacingError(error, ERROR_OPERATION.STAR_LETTER_LOAD));
         return;
       }
 
@@ -2708,7 +2715,7 @@ function App() {
       setOwnPostsLoading(false);
 
       if (error) {
-        setOwnPostsError(error.message);
+        setOwnPostsError(getUserFacingError(error, ERROR_OPERATION.POST_LOAD));
         return;
       }
 
@@ -2720,7 +2727,7 @@ function App() {
       }
 
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
-        console.warn("わたしの流星便の添付情報読み込みに失敗しました。", assetsError);
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
       setOwnPosts(hydratedPosts);
@@ -2764,7 +2771,7 @@ function App() {
 
       if (archiveError) {
         setArchivesLoading(false);
-        setArchivesError(archiveError.message);
+        setArchivesError(getUserFacingError(archiveError, ERROR_OPERATION.ARCHIVE_LOAD));
         return;
       }
 
@@ -2792,7 +2799,7 @@ function App() {
 
       if (postsError) {
         setArchivesLoading(false);
-        setArchivesError(postsError.message);
+        setArchivesError(getUserFacingError(postsError, ERROR_OPERATION.POST_LOAD));
         return;
       }
 
@@ -2812,7 +2819,7 @@ function App() {
 
         if (profileRowsError) {
           setArchivesLoading(false);
-          setArchivesError(profileRowsError.message);
+          setArchivesError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
           return;
         }
 
@@ -2839,7 +2846,7 @@ function App() {
       }
 
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
-        console.warn("Archiveの添付情報読み込みに失敗しました。", assetsError);
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
       setArchivedPosts(hydratedArchives);
@@ -2886,7 +2893,7 @@ function App() {
       setNotificationsLoading(false);
 
       if (error) {
-        setNotificationsError(error.message);
+        setNotificationsError(getUserFacingError(error, ERROR_OPERATION.NOTIFICATION_LOAD));
         return;
       }
 
@@ -2948,7 +2955,7 @@ function App() {
 
       if (error) {
         setPostsLoading(false);
-        setPostsError(error.message);
+        setPostsError(getUserFacingError(error, ERROR_OPERATION.POST_LOAD));
         return;
       }
 
@@ -2968,7 +2975,7 @@ function App() {
 
         if (profileRowsError) {
           setPostsLoading(false);
-          setPostsError(profileRowsError.message);
+          setPostsError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
           return;
         }
 
@@ -2989,7 +2996,7 @@ function App() {
       }
 
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
-        console.warn("公開流星便の添付情報読み込みに失敗しました。", assetsError);
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
       setSavedPosts(hydratedPosts);
@@ -3016,7 +3023,7 @@ function App() {
     setAuthLoading(false);
 
     if (error) {
-      setAuthError(error.message);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_UP));
       return;
     }
 
@@ -3042,7 +3049,7 @@ function App() {
     setAuthLoading(false);
 
     if (error) {
-      setAuthError(error.message);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_IN));
       return;
     }
 
@@ -3061,7 +3068,7 @@ function App() {
     setAuthLoading(false);
 
     if (error) {
-      setAuthError(error.message);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_OUT));
       return;
     }
 
@@ -3208,7 +3215,7 @@ function App() {
       setProfileMessage("この星影を選びました。保存するとプロフィールに反映されます。");
       clearAvatarCropDraft();
     } catch (cropError) {
-      setProfileError(cropError.message);
+      setProfileError(getUserFacingError(cropError, ERROR_OPERATION.PROFILE_SAVE));
       setAvatarCropPreparing(false);
     }
   }
@@ -3308,7 +3315,7 @@ function App() {
         } catch (cropError) {
           setAvatarUploading(false);
           setProfileSaving(false);
-          setProfileError(cropError.message);
+          setProfileError(getUserFacingError(cropError, ERROR_OPERATION.PROFILE_SAVE));
           return;
         }
       }
@@ -3324,7 +3331,7 @@ function App() {
 
       if (uploadError) {
         setProfileSaving(false);
-        setProfileError(`星影の更新に失敗しました。${uploadError.message}`);
+        setProfileError(getUserFacingError(uploadError, ERROR_OPERATION.STORAGE_UPLOAD));
         return;
       }
 
@@ -3368,7 +3375,11 @@ function App() {
     setProfileSaving(false);
 
     if (error) {
-      setProfileError(isUnownedProfileFrameError(error) ? "所持していないアイコンフレームは装着できません。" : error.message);
+      setProfileError(
+        isUnownedProfileFrameError(error)
+          ? "所持していないアイコンフレームは装着できません。"
+          : getUserFacingError(error, ERROR_OPERATION.PROFILE_SAVE),
+      );
       return;
     }
 
@@ -3428,9 +3439,7 @@ function App() {
         ...currentForm,
         [field]: profile?.[field] ?? true,
       }));
-      setProfileError(
-        `${label}設定は、Supabase SQL Editorでmigrationを実行した後に保存できます。既存のプロフィール表示、Archive、共鳴機能はそのまま使えます。`,
-      );
+      setProfileError(`${label}設定の保存に失敗しました。時間をおいてもう一度お試しください。`);
       return;
     }
 
@@ -3503,7 +3512,7 @@ function App() {
     setFeedbackSaving(false);
 
     if (error) {
-      setFeedbackError(error.message);
+      setFeedbackError(getUserFacingError(error, ERROR_OPERATION.FEEDBACK_SAVE));
       return;
     }
 
@@ -3576,7 +3585,7 @@ function App() {
         return generatedCoverDraft;
       });
     } catch (thumbnailError) {
-      console.warn("星映の表紙の自動生成に失敗しました。", thumbnailError);
+      logSafeError(ERROR_OPERATION.VIDEO_THUMBNAIL, thumbnailError);
     }
   }
 
@@ -3694,7 +3703,7 @@ function App() {
       setPostMessage("星映の表紙を選びました。");
       clearPostCoverCropDraft();
     } catch (cropError) {
-      setPostError(cropError.message || "星映の表紙の切り取りに失敗しました。");
+      setPostError(getUserFacingError(cropError, ERROR_OPERATION.VIDEO_THUMBNAIL));
       setPostCoverCropPreparing(false);
     }
   }
@@ -3713,7 +3722,7 @@ function App() {
       try {
         await postVideoTrimConversionRef.current?.cancel?.();
       } catch (cancelError) {
-        console.warn("星映の切り取りキャンセルに失敗しました。", cancelError);
+        logSafeError(ERROR_OPERATION.VIDEO_TRIM, cancelError);
       }
       return;
     }
@@ -3794,11 +3803,11 @@ function App() {
       const metadata = await loadVideoMetadataFromFile(trimmedFile);
 
       if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS + 0.05) {
-        throw new Error("切り取り後の星映が35秒を超えています。もう一度範囲を選んでください。");
+        throw createUserFacingError("切り取り後の星映が35秒を超えています。もう一度範囲を選んでください。");
       }
 
       if (trimmedFile.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
-        throw new Error("切り取った星映が100MBを超えています。もう少し短く切り取ってください。");
+        throw createUserFacingError("切り取った星映が100MBを超えています。もう少し短く切り取ってください。");
       }
 
       await applySelectedPostVideo(trimmedFile, {
@@ -3813,10 +3822,10 @@ function App() {
     } catch (trimError) {
       if (trimError?.name === "ConversionCanceledError") {
         setPostVideoTrimError("星映の切り取りをキャンセルしました。");
-      } else if (trimError?.message?.includes("100MB") || trimError?.message?.includes("35秒")) {
-        setPostVideoTrimError(trimError.message);
+      } else if (isSafeUserFacingError(trimError)) {
+        setPostVideoTrimError(getUserFacingError(trimError, ERROR_OPERATION.VIDEO_TRIM));
       } else {
-        console.warn("星映の切り取りに失敗しました。", trimError);
+        logSafeError(ERROR_OPERATION.VIDEO_TRIM, trimError);
         setPostVideoTrimError(METEOR_VIDEO_TRIM_ERROR_MESSAGE);
       }
       setPostVideoTrimProcessing(false);
@@ -3929,13 +3938,14 @@ function App() {
         originalName: file.name,
       });
     } catch (metadataError) {
-      const errorMessage = metadataError?.message ?? "";
+      const safeMetadataError = getUserFacingError(metadataError, ERROR_OPERATION.VIDEO_TRIM);
 
-      if (errorMessage.includes("再生時間")) {
+      if (isSafeUserFacingError(metadataError) && safeMetadataError.includes("再生時間")) {
         setPostError("星映の再生時間を確認できませんでした。別のファイルを選んでください。");
-      } else if (errorMessage.includes("再生確認")) {
+      } else if (isSafeUserFacingError(metadataError) && safeMetadataError.includes("再生確認")) {
         setPostError("この星映は端末で再生できない形式またはコーデックです。mp4 / mov / webmの別ファイルを選んでください。");
       } else {
+        logSafeError(ERROR_OPERATION.VIDEO_TRIM, metadataError);
         setPostError("星映の情報を確認できませんでした。別のファイルを選んでください。");
       }
     } finally {
@@ -4034,7 +4044,7 @@ function App() {
     const { error } = await supabase.storage.from(METEOR_MEDIA_BUCKET).remove(paths);
 
     if (error) {
-      console.warn("アップロード済み画像の後始末に失敗しました。", error);
+      logSafeError(ERROR_OPERATION.MEDIA_CLEANUP, error);
     }
   }
 
@@ -4048,7 +4058,7 @@ function App() {
     const { error } = await supabase.storage.from(METEOR_VIDEO_BUCKET).remove(paths);
 
     if (error) {
-      console.warn("アップロード済み動画の後始末に失敗しました。", error);
+      logSafeError(ERROR_OPERATION.MEDIA_CLEANUP, error);
     }
   }
 
@@ -4128,8 +4138,8 @@ function App() {
         });
 
         if (videoUploadError) {
-          console.warn("星映アップロードに失敗しました。", videoUploadError);
-          throw new Error("星映の送信に失敗しました。時間をおいてもう一度試してください。");
+          logSafeError(ERROR_OPERATION.STORAGE_UPLOAD, videoUploadError);
+          throw createUserFacingError("星映の送信に失敗しました。時間をおいてもう一度試してください。");
         }
 
         uploadedVideoPaths.push(videoStoragePath);
@@ -4147,8 +4157,8 @@ function App() {
           });
 
           if (thumbnailUploadError) {
-            console.warn("星映の表紙アップロードに失敗しました。", thumbnailUploadError);
-            throw new Error("星映の表紙の送信に失敗しました。時間をおいてもう一度試してください。");
+            logSafeError(ERROR_OPERATION.STORAGE_UPLOAD, thumbnailUploadError);
+            throw createUserFacingError("星映の表紙の送信に失敗しました。時間をおいてもう一度試してください。");
           }
 
           uploadedThumbnailPaths.push(thumbnailStoragePath);
@@ -4163,13 +4173,13 @@ function App() {
             });
 
             if (generatedThumbnailUploadError) {
-              console.warn("自動生成した星映の表紙のアップロードに失敗しました。", generatedThumbnailUploadError);
+              logSafeError(ERROR_OPERATION.STORAGE_UPLOAD, generatedThumbnailUploadError);
               thumbnailStoragePath = null;
             } else {
               uploadedThumbnailPaths.push(thumbnailStoragePath);
             }
           } catch (thumbnailError) {
-            console.warn("星映の表紙の自動生成に失敗しました。", thumbnailError);
+            logSafeError(ERROR_OPERATION.VIDEO_THUMBNAIL, thumbnailError);
             thumbnailStoragePath = null;
           }
         }
@@ -4195,8 +4205,8 @@ function App() {
           });
 
           if (uploadError) {
-            console.warn("星影アップロードに失敗しました。", uploadError);
-            throw new Error("星影の送信に失敗しました。時間をおいてもう一度試してください。");
+            logSafeError(ERROR_OPERATION.STORAGE_UPLOAD, uploadError);
+            throw createUserFacingError("星影の送信に失敗しました。時間をおいてもう一度試してください。");
           }
 
           uploadedImageMedia.push({
@@ -4223,8 +4233,8 @@ function App() {
         .single();
 
       if (error) {
-        console.warn("流星便の作成に失敗しました。", error);
-        throw new Error("流星便の保存に失敗しました。時間をおいてもう一度試してください。");
+        logSafeError(ERROR_OPERATION.POST_CREATE, error);
+        throw createUserFacingError("流星便の保存に失敗しました。時間をおいてもう一度試してください。");
       }
 
       createdPostId = data.id;
@@ -4242,8 +4252,8 @@ function App() {
         ]);
 
         if (mediaError) {
-          console.warn("星映メタデータ保存に失敗しました。", mediaError);
-          throw new Error("星映メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
+          logSafeError(ERROR_OPERATION.POST_MEDIA_SAVE, mediaError);
+          throw createUserFacingError("星映メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
         }
 
         media = await mapPostMediaRows(insertedMedia);
@@ -4260,8 +4270,8 @@ function App() {
         const { data: insertedMedia, error: mediaError } = await insertPostMediaRows(mediaRows);
 
         if (mediaError) {
-          console.warn("星影メタデータ保存に失敗しました。", mediaError);
-          throw new Error("星影メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
+          logSafeError(ERROR_OPERATION.POST_MEDIA_SAVE, mediaError);
+          throw createUserFacingError("星影メタデータの保存に失敗しました。時間をおいてもう一度試してください。");
         }
 
         media = await mapPostMediaRows(insertedMedia);
@@ -4275,10 +4285,10 @@ function App() {
         );
 
         if (meteorTagsError) {
-          console.warn("流星タグ保存に失敗しました。", meteorTagsError);
-          throw new Error(
+          logSafeError(ERROR_OPERATION.METEOR_TAG_SAVE, meteorTagsError);
+          throw createUserFacingError(
             isMissingMeteorTagsError(meteorTagsError)
-              ? "流星タグを使うには、Supabase SQL Editorで流星タグmigrationの実行が必要です。"
+              ? "流星タグ機能の準備がまだ完了していません。"
               : "流星タグの保存に失敗しました。時間をおいてもう一度試してください。",
           );
         }
@@ -4316,7 +4326,7 @@ function App() {
           .eq("uploader_id", session.user.id);
 
         if (postMediaCleanupError) {
-          console.warn("半端に作成された流星便メディアの削除に失敗しました。", postMediaCleanupError);
+          logSafeError(ERROR_OPERATION.MEDIA_CLEANUP, postMediaCleanupError);
         }
 
         const { error: softDeleteError } = await supabase
@@ -4326,11 +4336,11 @@ function App() {
           .eq("author_id", session.user.id);
 
         if (softDeleteError) {
-          console.warn("半端に作成された流星便の非表示化に失敗しました。", softDeleteError);
+          logSafeError(ERROR_OPERATION.MEDIA_CLEANUP, softDeleteError);
         }
       }
 
-      setPostError(error?.message || "流星便の放流に失敗しました。時間をおいてもう一度試してください。");
+      setPostError(getUserFacingError(error, ERROR_OPERATION.POST_CREATE));
     }
 
     setPostSaving(false);
@@ -4459,7 +4469,7 @@ function App() {
 
     if (error) {
       setPostUpdatingId(null);
-      setPostActionError(error.message);
+      setPostActionError(getUserFacingError(error, ERROR_OPERATION.POST_UPDATE));
       return;
     }
 
@@ -4473,7 +4483,7 @@ function App() {
       setPostUpdatingId(null);
       setPostActionError(
         isMissingMeteorTagsError(meteorTagsError)
-          ? "流星タグを使うには、Supabase SQL Editorで流星タグmigrationの実行が必要です。"
+          ? "流星タグ機能の準備がまだ完了していません。"
           : "流星タグの保存に失敗しました。時間をおいてもう一度試してください。",
       );
       return;
@@ -4530,11 +4540,11 @@ function App() {
 
     if (error) {
       if (isMissingDeletedAtError(error)) {
-        setPostActionError("流星便削除には、Supabase SQL Editorで soft delete migration の実行が必要です。");
+        setPostActionError("流星便削除機能の準備がまだ完了していません。");
         return;
       }
 
-      setPostActionError(error.message);
+      setPostActionError(getUserFacingError(error, ERROR_OPERATION.POST_DELETE));
       return;
     }
 
@@ -4590,7 +4600,7 @@ function App() {
     setResonanceSavingPostId(null);
 
     if (error) {
-      setResonanceError(error.message);
+      setResonanceError(getUserFacingError(error, ERROR_OPERATION.RESONANCE_SAVE));
       return;
     }
 
@@ -4683,7 +4693,7 @@ function App() {
       setArchiveSavingPostId(null);
 
       if (error) {
-        setArchivesError(error.message);
+        setArchivesError(getUserFacingError(error, ERROR_OPERATION.ARCHIVE_SAVE));
         return;
       }
 
@@ -4723,7 +4733,7 @@ function App() {
         return;
       }
 
-      setArchivesError(error.message);
+      setArchivesError(getUserFacingError(error, ERROR_OPERATION.ARCHIVE_SAVE));
       return;
     }
 
@@ -4760,7 +4770,7 @@ function App() {
     setNotificationUpdatingId(null);
 
     if (error) {
-      setNotificationsError(error.message);
+      setNotificationsError(getUserFacingError(error, ERROR_OPERATION.NOTIFICATION_SAVE));
       return;
     }
 
@@ -4873,7 +4883,7 @@ function App() {
     setStarLetterSavingPostId(null);
 
     if (error) {
-      setStarLettersError(error.message);
+      setStarLettersError(getUserFacingError(error, ERROR_OPERATION.STAR_LETTER_SAVE));
       return;
     }
 
@@ -4934,7 +4944,7 @@ function App() {
     setStarLetterUpdatingId(null);
 
     if (error) {
-      setStarLettersError(error.message);
+      setStarLettersError(getUserFacingError(error, ERROR_OPERATION.STAR_LETTER_SAVE));
       return;
     }
 
@@ -4985,7 +4995,7 @@ function App() {
     setStarLetterDeletingId(null);
 
     if (error) {
-      setStarLettersError(error.message);
+      setStarLettersError(getUserFacingError(error, ERROR_OPERATION.STAR_LETTER_SAVE));
       return;
     }
 
@@ -7982,7 +7992,7 @@ function ProfileEditor({ profile }) {
         )}
         {!profile.profileFramesAvailable ? (
           <p className="mt-3 rounded-2xl border border-comet/20 bg-comet/10 px-3 py-2 text-xs leading-5 text-comet">
-            アイコンフレームを使うには、Supabase SQL Editorでプロフィールアイコンフレームmigrationの実行が必要です。
+            アイコンフレーム機能は準備中です。通常のプロフィール編集はそのまま使えます。
           </p>
         ) : (
           <div className="mt-3 grid gap-2">
