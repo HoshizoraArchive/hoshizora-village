@@ -66,6 +66,34 @@ where n.nspname = 'app_private'
   and p.proname = 'ai_observation_current_request_fingerprint';
 
 select
+  'pgcrypto_digest_extensions_schema' as check_name,
+  case
+    when exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'extensions'
+        and p.proname = 'digest'
+        and oidvectortypes(p.proargtypes) = 'text, text'
+    )
+    then 0
+    else 1
+  end::bigint as anomaly_count;
+
+select
+  'current_fingerprint_uses_extensions_digest' as check_name,
+  case
+    when pg_get_functiondef(p.oid) like '%extensions.digest(v_payload, ''sha256'')%'
+      and pg_get_functiondef(p.oid) not like '%public.digest(v_payload%'
+    then 0
+    else 1
+  end::bigint as anomaly_count
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'app_private'
+  and p.proname = 'ai_observation_current_request_fingerprint';
+
+select
   'browser_execute_grants' as check_name,
   coalesce(r.rolname, 'PUBLIC') as grantee,
   n.nspname as schema_name,

@@ -33,6 +33,7 @@ fingerprintはJSとSQLで同じcanonical payloadからSHA-256を計算する。
 `media` は `inputDurationSeconds`, `inputKind`, `inputSizeBytes`。
 `mediaRows` は `sort_order`, `id` 昇順で、各行の `durationSeconds`, `id`, `mediaType`, `mimeType`, `sizeBytes`, `sortOrder`, `storagePath`, `thumbnailStoragePath`, `uploaderId` を含める。
 これによりGemini後のJS再検証とcompletion RPCの間で、本文、type、YouTube URL/ID、updated_at、個別media行、Storage path、thumbnail path、MIME、size、duration、sort order、uploaderが変わった場合は `post_changed` になる。
+Supabase本番ではpgcryptoの `digest(text, text)` が `extensions` schemaにあるため、DB側fingerprint計算は `extensions.digest(...)` を明示して呼び出す。
 
 ## 秘密情報と環境変数
 

@@ -806,7 +806,7 @@ begin
     '}'
   );
 
-  return encode(public.digest(v_payload, 'sha256'), 'hex');
+  return encode(extensions.digest(v_payload, 'sha256'), 'hex');
 end;
 $$;
 
