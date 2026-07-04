@@ -7,6 +7,7 @@ const migrationSql = readFileSync("supabase/migrations/20260703_add_ai_observati
 const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
+const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
 const appJsx = readFileSync("src/App.jsx", "utf8");
 
 const requiredTokens = [
@@ -114,6 +115,36 @@ test("AI observation MVP current fingerprint helper locks and hashes current pos
 
   assert.equal(observationMvpMigrationSql.includes("v_current_request_fingerprint is null"), true);
   assert.equal(schemaSql.includes("v_current_request_fingerprint is null"), true);
+});
+
+test("AI observation MVP current fingerprint helper uses Supabase pgcrypto digest from extensions schema", () => {
+  const expectedDigestCall = "extensions.digest(v_payload, 'sha256')";
+  const forbiddenDigestCall = "public.digest(v_payload, 'sha256')";
+
+  assert.equal(observationMvpMigrationSql.includes(expectedDigestCall), true, "MVP migration should call extensions.digest");
+  assert.equal(schemaSql.includes(expectedDigestCall), true, "schema.sql should call extensions.digest");
+  assert.equal(observationMvpMigrationSql.includes(forbiddenDigestCall), false, "MVP migration should not assume public.digest");
+  assert.equal(schemaSql.includes(forbiddenDigestCall), false, "schema.sql should not assume public.digest");
+  assert.equal(
+    observationMvpVerificationSql.includes("pgcrypto_digest_extensions_schema"),
+    true,
+    "verification SQL should check digest in extensions schema",
+  );
+  assert.equal(
+    observationMvpVerificationSql.includes("n.nspname = 'extensions'"),
+    true,
+    "verification SQL should look for extensions.digest",
+  );
+  assert.equal(
+    observationMvpVerificationSql.includes("oidvectortypes(p.proargtypes) = 'text, text'"),
+    true,
+    "verification SQL should verify extensions.digest(text, text)",
+  );
+  assert.equal(
+    observationMvpVerificationSql.includes("public.digest(v_payload"),
+    true,
+    "verification SQL should explicitly reject a public.digest assumption",
+  );
 });
 
 test("AI observation MVP private fingerprint helpers are not executable by browser roles", () => {
