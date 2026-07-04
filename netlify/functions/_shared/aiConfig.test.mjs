@@ -10,6 +10,9 @@ function enabledEnv(overrides = {}) {
     SUPABASE_URL: "https://example.supabase.co",
     SUPABASE_SERVICE_ROLE_KEY: "server-only-key",
     GEMINI_API_KEY: "server-only-gemini-key",
+    AI_OBSERVATION_MODEL: "gemini-3.5-flash",
+    AI_HOSHIZORA_CHIA_PROFILE_ID: VALID_UUID,
+    AI_WORKER_SHARED_SECRET: "s".repeat(32),
     AI_OPERATOR_USER_IDS: VALID_UUID,
     AI_DAILY_REQUEST_LIMIT: "5",
     AI_MONTHLY_REQUEST_LIMIT: "50",
@@ -34,10 +37,35 @@ test("AI observation config accepts enabled server-only settings", () => {
   const config = readAiObservationConfig(enabledEnv());
 
   assert.equal(config.enabled, true);
+  assert.equal(config.model, "gemini-3.5-flash");
+  assert.equal(config.hoshizoraChiaProfileId, VALID_UUID);
+  assert.equal(config.workerSharedSecret, "s".repeat(32));
+  assert.equal(config.geminiApiKey, "server-only-gemini-key");
   assert.equal(config.geminiApiKeyPresent, true);
   assert.equal(config.dailyRequestLimit, 5);
   assert.equal(config.maxRetries, 2);
   assert.equal(config.operatorUserIds.has(VALID_UUID), true);
+});
+
+test("AI observation config rejects unsupported models", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_OBSERVATION_MODEL: "gemini-3.5-pro" })),
+    /invalid_env:AI_OBSERVATION_MODEL/,
+  );
+});
+
+test("AI observation config rejects invalid Chia profile IDs", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_HOSHIZORA_CHIA_PROFILE_ID: "not-a-uuid" })),
+    /invalid_env:AI_HOSHIZORA_CHIA_PROFILE_ID/,
+  );
+});
+
+test("AI observation config rejects short worker secrets", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_WORKER_SHARED_SECRET: "short" })),
+    /invalid_env:AI_WORKER_SHARED_SECRET/,
+  );
 });
 
 test("AI observation config rejects invalid operator UUIDs", () => {

@@ -271,6 +271,7 @@ export function getStorageRequirements(post, mediaRows) {
       storagePath: row.storage_path,
       mimeType: row.mime_type,
       sizeBytes: Number(row.size_bytes),
+      durationSeconds: Number(row.duration_seconds),
     }));
   }
 

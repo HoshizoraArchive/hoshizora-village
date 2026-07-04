@@ -61,12 +61,22 @@ export function isRetriableProviderFailure(status) {
 
 export async function withTimeout(task, timeoutMs) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timeout;
 
   try {
-    return await task(controller.signal);
+    return await Promise.race([
+      task(controller.signal),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(Object.assign(new Error("AI operation timed out"), { name: "AbortError", status: 408 }));
+        }, timeoutMs);
+      }),
+    ]);
   } finally {
-    clearTimeout(timeout);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -86,4 +96,41 @@ export async function retryTransient(task, { maxRetries, timeoutMs, shouldRetry 
   }
 
   throw lastError;
+}
+
+const TOKEN_PRICING_PER_MILLION_MICRO_USD = Object.freeze({
+  "gemini-3.5-flash": {
+    input: 1_500_000,
+    output: 9_000_000,
+  },
+});
+
+function assertSafeNonNegativeInteger(value, name) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`invalid_usage:${name}`);
+  }
+}
+
+function ceilDiv(numerator, denominator) {
+  return Math.floor((numerator + denominator - 1) / denominator);
+}
+
+export function estimateGeminiCostMicroUsd({ model, inputTokens, outputTokens }) {
+  const pricing = TOKEN_PRICING_PER_MILLION_MICRO_USD[model];
+
+  if (!pricing) {
+    throw new Error("unsupported_model_pricing");
+  }
+
+  assertSafeNonNegativeInteger(inputTokens, "inputTokens");
+  assertSafeNonNegativeInteger(outputTokens, "outputTokens");
+
+  const inputNumerator = inputTokens * pricing.input;
+  const outputNumerator = outputTokens * pricing.output;
+
+  if (!Number.isSafeInteger(inputNumerator) || !Number.isSafeInteger(outputNumerator)) {
+    throw new Error("usage_cost_overflow");
+  }
+
+  return ceilDiv(inputNumerator, 1_000_000) + ceilDiv(outputNumerator, 1_000_000);
 }

@@ -4,7 +4,10 @@ import { buildReservationParams } from "./aiLimits.mjs";
 
 const AI_RESIDENT_KEY = "hoshizora_chia";
 const AI_PROVIDER = "gemini";
-const AI_MODEL_PLACEHOLDER = "gemini-observation-mvp-disabled";
+
+function nullableNumber(value) {
+  return value === null || value === undefined ? null : Number(value);
+}
 
 function stableJson(value) {
   if (Array.isArray(value)) {
@@ -21,17 +24,47 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
-export function createRequestFingerprint({ post, mediaSummary }) {
+export function normalizeMediaRowsForFingerprint(mediaRows = []) {
+  return [...mediaRows]
+    .sort((left, right) => {
+      const sortDelta = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0);
+
+      if (sortDelta !== 0) {
+        return sortDelta;
+      }
+
+      return String(left.id ?? "").localeCompare(String(right.id ?? ""));
+    })
+    .map((row) => ({
+      durationSeconds: nullableNumber(row.duration_seconds),
+      id: row.id ?? null,
+      mediaType: row.media_type ?? null,
+      mimeType: row.mime_type ?? null,
+      sizeBytes: nullableNumber(row.size_bytes),
+      sortOrder: nullableNumber(row.sort_order),
+      storagePath: row.storage_path ?? null,
+      thumbnailStoragePath: row.thumbnail_storage_path ?? null,
+      uploaderId: row.uploader_id ?? null,
+    }));
+}
+
+export function buildRequestFingerprintPayload({ post, mediaRows = [], mediaSummary }) {
+  return {
+    aiResidentKey: AI_RESIDENT_KEY,
+    body: post.body ?? "",
+    media: mediaSummary,
+    mediaRows: normalizeMediaRowsForFingerprint(mediaRows),
+    postId: post.id,
+    postType: post.type,
+    updatedAt: post.updated_at ?? null,
+    youtubeUrl: post.youtube_url ?? null,
+    youtubeVideoId: post.youtube_video_id ?? null,
+  };
+}
+
+export function createRequestFingerprint({ post, mediaRows = [], mediaSummary }) {
   const hash = createHash("sha256");
-  hash.update(
-    stableJson({
-      aiResidentKey: AI_RESIDENT_KEY,
-      postId: post.id,
-      postType: post.type,
-      updatedAt: post.updated_at ?? null,
-      media: mediaSummary,
-    }),
-  );
+  hash.update(stableJson(buildRequestFingerprintPayload({ post, mediaRows, mediaSummary })));
 
   return hash.digest("hex");
 }
@@ -59,16 +92,16 @@ function mapOutcomeToError(outcome) {
   return aiHttpError(503, AI_ERROR.INTERNAL);
 }
 
-export async function reserveAiObservationJob({ supabase, operatorUserId, payload, post, mediaSummary, config }) {
+export async function reserveAiObservationJob({ supabase, operatorUserId, payload, post, mediaRows, mediaSummary, config }) {
   const reservation = buildReservationParams({ config, mediaSummary });
-  const requestFingerprint = createRequestFingerprint({ post, mediaSummary });
+  const requestFingerprint = createRequestFingerprint({ post, mediaRows, mediaSummary });
 
   const { data, error } = await supabase.rpc("reserve_ai_observation_job", {
     p_post_id: payload.postId,
     p_requested_by: operatorUserId,
     p_ai_resident_key: AI_RESIDENT_KEY,
     p_provider: AI_PROVIDER,
-    p_model: AI_MODEL_PLACEHOLDER,
+    p_model: config.model,
     p_idempotency_key: payload.idempotencyKey,
     p_request_fingerprint: requestFingerprint,
     p_input_kind: reservation.inputKind,
@@ -100,4 +133,4 @@ export async function reserveAiObservationJob({ supabase, operatorUserId, payloa
   };
 }
 
-export { AI_RESIDENT_KEY, AI_PROVIDER, AI_MODEL_PLACEHOLDER };
+export { AI_RESIDENT_KEY, AI_PROVIDER };

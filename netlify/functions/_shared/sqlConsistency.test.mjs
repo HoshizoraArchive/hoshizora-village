@@ -4,7 +4,10 @@ import test from "node:test";
 
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const migrationSql = readFileSync("supabase/migrations/20260703_add_ai_observation_security_foundation.sql", "utf8");
+const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
+const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
+const appJsx = readFileSync("src/App.jsx", "utf8");
 
 const requiredTokens = [
   "public.ai_observation_job_status",
@@ -55,6 +58,145 @@ test("AI security migration and schema.sql contain the same critical DB elements
   }
 });
 
+test("AI observation MVP migration and schema.sql contain worker state RPCs with locked execution", () => {
+  const tokens = [
+    "public.claim_ai_observation_job",
+    "public.start_ai_observation_attempt",
+    "public.complete_ai_observation_job",
+    "public.fail_ai_observation_job",
+    "public.cancel_ai_observation_job",
+    "for update",
+    "p_expected_request_fingerprint",
+    "app_private.ai_observation_current_request_fingerprint(v_job.post_id)",
+    "v_current_request_fingerprint <> v_job.request_fingerprint",
+    "v_current_request_fingerprint <> p_expected_request_fingerprint",
+    "p_model <> 'gemini-3.5-flash'",
+    "to service_role",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(observationMvpMigrationSql.includes(token), true, `MVP migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
+  }
+});
+
+test("AI observation MVP current fingerprint helper locks and hashes current post and media rows", () => {
+  const tokens = [
+    "app_private.ai_observation_current_request_fingerprint",
+    "from public.posts p",
+    "for update",
+    "from public.post_media pm",
+    "order by pm.sort_order, pm.id",
+    "for share",
+    '"aiResidentKey"',
+    '"body"',
+    '"media"',
+    '"mediaRows"',
+    '"postId"',
+    '"postType"',
+    '"updatedAt"',
+    '"youtubeUrl"',
+    '"youtubeVideoId"',
+    '"durationSeconds"',
+    '"mediaType"',
+    '"mimeType"',
+    '"sizeBytes"',
+    '"sortOrder"',
+    '"storagePath"',
+    '"thumbnailStoragePath"',
+    '"uploaderId"',
+  ];
+
+  for (const token of tokens) {
+    assert.equal(observationMvpMigrationSql.includes(token), true, `MVP migration missing current fingerprint token: ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing current fingerprint token: ${token}`);
+  }
+
+  assert.equal(observationMvpMigrationSql.includes("v_current_request_fingerprint is null"), true);
+  assert.equal(schemaSql.includes("v_current_request_fingerprint is null"), true);
+});
+
+test("AI observation MVP private fingerprint helpers are not executable by browser roles", () => {
+  const helperNames = [
+    "ai_observation_json_text",
+    "ai_observation_json_timestamptz",
+    "ai_observation_json_number",
+    "ai_observation_current_request_fingerprint",
+  ];
+
+  for (const helperName of helperNames) {
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+app_private\\.${helperName}`, "i").test(observationMvpMigrationSql),
+      true,
+      `MVP migration missing browser-role revoke for app_private.${helperName}`,
+    );
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+app_private\\.${helperName}`, "i").test(schemaSql),
+      true,
+      `schema.sql missing browser-role revoke for app_private.${helperName}`,
+    );
+  }
+});
+
+test("AI observation MVP JS and SQL fingerprint canonical fields stay aligned", () => {
+  const jsTokens = [
+    "aiResidentKey",
+    "body",
+    "mediaRows",
+    "postId",
+    "postType",
+    "updatedAt",
+    "youtubeUrl",
+    "youtubeVideoId",
+    "durationSeconds",
+    "mediaType",
+    "mimeType",
+    "sizeBytes",
+    "sortOrder",
+    "storagePath",
+    "thumbnailStoragePath",
+    "uploaderId",
+  ];
+  const aiJobReservation = readFileSync("netlify/functions/_shared/aiJobReservation.mjs", "utf8");
+
+  for (const token of jsTokens) {
+    assert.equal(aiJobReservation.includes(token), true, `JS fingerprint missing ${token}`);
+    assert.equal(observationMvpMigrationSql.includes(`"${token}"`) || observationMvpMigrationSql.includes(token), true, `SQL fingerprint missing ${token}`);
+  }
+});
+
+test("AI observation MVP completion RPC old overload is removed and new signature is granted", () => {
+  const oldSignature = "uuid, uuid, jsonb, text, boolean, text, integer, integer, integer, bigint";
+  const newSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint";
+
+  assert.equal(observationMvpMigrationSql.includes(`drop function if exists public.complete_ai_observation_job(\n  ${oldSignature}`), true);
+  assert.equal(observationMvpMigrationSql.includes(newSignature), true);
+  assert.equal(schemaSql.includes(newSignature), true);
+});
+
+test("AI observation MVP RPCs are not executable by browser roles", () => {
+  const rpcNames = [
+    "claim_ai_observation_job",
+    "start_ai_observation_attempt",
+    "complete_ai_observation_job",
+    "fail_ai_observation_job",
+    "cancel_ai_observation_job",
+  ];
+
+  for (const rpcName of rpcNames) {
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${rpcName}`, "i").test(observationMvpMigrationSql),
+      true,
+      `MVP migration missing browser-role revoke for ${rpcName}`,
+    );
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${rpcName}`, "i").test(schemaSql),
+      true,
+      `schema.sql missing browser-role revoke for ${rpcName}`,
+    );
+  }
+});
+
 test("post_media Storage path checks do not depend on app_private helper functions", () => {
   assert.equal(migrationSql.includes(forbiddenStorageHelperToken), false, "migration still references private Storage path helper");
   assert.equal(schemaSql.includes(forbiddenStorageHelperToken), false, "schema.sql still references private Storage path helper");
@@ -99,4 +241,24 @@ test("preflight SQL does not depend on objects created by the AI security migrat
   for (const token of migrationOnlyTokens) {
     assert.equal(preflightSql.includes(token), false, `preflight SQL unexpectedly references ${token}`);
   }
+});
+
+test("AI observation MVP preflight treats missing chia profile as an anomaly", () => {
+  assert.equal(observationMvpPreflightSql.includes("when observed_count = 0 then 1"), true);
+  assert.equal(observationMvpPreflightSql.includes("left join auth.users"), true);
+  assert.equal(observationMvpPreflightSql.includes("auth_user_count"), true);
+});
+
+test("AI observation frontend polling has timeout, fatal status stop, and no setInterval loop", () => {
+  assert.equal(appJsx.includes("AI_OBSERVATION_STATUS_MAX_MS"), true);
+  assert.equal(appJsx.includes("AI_OBSERVATION_STATUS_MAX_ERRORS"), true);
+  assert.equal(appJsx.includes("isAiObservationFatalStatus"), true);
+  assert.equal(appJsx.includes("window.setTimeout"), true);
+  assert.equal(appJsx.includes("window.setInterval"), false);
+  assert.equal(appJsx.includes("aiObservationPollingAccessTokenRef"), true);
+  assert.equal(appJsx.includes("previousAccessToken && previousAccessToken !== nextAccessToken"), true);
+  assert.equal(appJsx.includes("aiObservationPollingAccessTokenRef.current !== accessToken"), true);
+  assert.equal(appJsx.includes("status === \"failed\""), true);
+  assert.equal(appJsx.includes("status === \"succeeded\""), true);
+  assert.equal(appJsx.includes("status === \"status_unknown\""), true);
 });

@@ -1,11 +1,11 @@
 # AI住人セキュリティ基盤
 
-この文書は「星空ちあ観測MVP」の前段として追加した、AI観測ジョブ予約基盤の設計を記録する。
-このPRではGemini APIを呼び出さず、`public.observations` への観測結果保存や星文自動投稿も行わない。
+この文書はAI観測ジョブ予約基盤と、星空ちあ観測MVPで追加した実観測処理のセキュリティ設計を記録する。
+詳細なMVP運用手順は `docs/ai-observation-mvp.md` を参照する。
 
 ## 処理フロー
 
-1. クライアントは将来、ログイン済みoperatorのSupabase access tokenを付けて `POST /api/ai-observation-request` を呼ぶ。
+1. クライアントはログイン済みoperatorのSupabase access tokenを付けて `GET /api/ai-observation-request` で実行可否を確認し、`POST /api/ai-observation-request` を呼ぶ。
 2. Netlify Functionは `AI_OBSERVATION_ENABLED=true` のときだけ処理する。未設定または別値なら503でfail closedする。
 3. リクエストJSONは `{ "postId": "UUID", "idempotencyKey": "32〜128文字" }` のみ許可する。
 4. Functionは `SUPABASE_SERVICE_ROLE_KEY` を使い、Supabase Auth tokenをサーバー側で検証する。
@@ -14,14 +14,16 @@
 7. 画像・動画ではStorage pathの先頭フォルダが投稿者UUIDと一致することをFunctionとDB制約の両方で確認する。
 8. 画像・動画ではStorage APIで対象オブジェクトのメタデータも取得し、DB上のMIME・サイズと一致することを確認する。
 9. Functionは `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。
-10. 成功時は `queued` の `public.ai_observation_jobs` 行だけを作成し、202を返す。
+10. 成功時は `queued` の `public.ai_observation_jobs` 行を作成し、`/api/ai-observation-worker` Background Functionへ `jobId` だけをdispatchする。
+11. workerはservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。
+12. 検証済み出力だけを `public.complete_ai_observation_job(...)` へ渡す。completion RPCはtransaction内で現在の `posts` / `post_media` からfingerprintを再計算し、job保存値とworker入力値の両方に一致する場合だけ `public.observations` 保存、必要時の星文insert、job成功更新を同一transactionで確定する。
 
 ## 信頼境界
 
 - ブラウザ: `postId` と `idempotencyKey` だけを送れる。AI住人、プロンプト、投稿者ID、モデル名、星文本文は送れない。
 - Netlify Function: service_role key、Gemini API key、operator UUID、利用上限を読む唯一の境界。
 - Supabase DB: ジョブ状態、二重実行防止、利用上限をtransaction内で確定する。
-- Gemini: 今回は未呼び出し。次PRでも秘密情報や非公開データは渡さない。
+- Gemini: 公開投稿の観測対象データだけを渡す。秘密情報、service_role key、operator UUID、非公開データは渡さない。Google Search、URL Context、Code Execution、Function Callingは使わない。
 
 ## 想定する攻撃
 
@@ -42,6 +44,9 @@ Netlify Functionsだけが以下を参照する。
 - `GEMINI_API_KEY`
 - `AI_OPERATOR_USER_IDS`
 - `AI_OBSERVATION_ENABLED`
+- `AI_OBSERVATION_MODEL`
+- `AI_HOSHIZORA_CHIA_PROFILE_ID`
+- `AI_WORKER_SHARED_SECRET`
 - `AI_DAILY_REQUEST_LIMIT`
 - `AI_MONTHLY_REQUEST_LIMIT`
 - `AI_DAILY_COST_LIMIT_MICRO_USD`
@@ -64,7 +69,7 @@ MVPでは `AI_OPERATOR_USER_IDS` をカンマ区切りAuth UUIDとして扱う�
 `public.ai_observation_jobs.status` はPostgreSQL enumで管理する。
 
 - `queued`: 予約済み。今回のFunctionが作成する唯一の状態。
-- `processing`: 将来の観測workerが処理開始時に遷移する。
+- `processing`: 観測workerが処理開始時にclaimして遷移する。
 - `succeeded`: 観測結果と星文処理が完了した状態。
 - `failed`: 観測失敗。
 - `cancelled`: 明示的に中止された状態。
@@ -97,7 +102,7 @@ DB側で以下を保証する。
 `succeeded` は実料金があれば実料金、なければ予約料金を数える。
 `failed` は `attempt_count > 0` の場合、実料金または安全側の予約料金を数える。
 provider呼び出し前に失敗したジョブは `attempt_count = 0` で区別する。
-本PRでは実際のGemini料金計算は行わず、`AI_RESERVED_COST_MICRO_USD` を予約単価として使う。
+星空ちあ観測MVPでは、Interactions APIの `usage` とGemini 3.5 Flash Standardのpricing snapshotから `actual_cost_micro_usd` を推定する。usageが欠損または矛盾する場合は成功扱いしない。
 具体的な予算値はリポジトリにハードコードしない。
 環境変数の数値は `Number.isSafeInteger` と範囲上限を検証し、巨大値やPostgreSQL integer / bigintへ安全に渡せない値は設定不備として503でfail closedする。
 `AI_OBSERVATION_MAX_RETRIES` は0〜9のみ許可し、保存される `max_attempts` は1〜10に収める。
@@ -115,8 +120,8 @@ Functionはクライアント入力ではなくDBの `posts` / `post_media` を�
 - YouTube: 許可hostだけをURL parseし、video IDを再検証する。任意URL fetchはしない。
 - 音声: 現schemaではserver-verifiableなMIME metadataが不足しているため、この基盤ではfail closedにする。
 
-ファイルシグネチャ検証と動画/音声実体の再生時間検証は、Gemini実呼び出しPRで実行環境を確認して追加する。
-現時点で実体検証済みとして扱わない。
+画像・動画はdownload後にファイルシグネチャを確認する。動画は既存依存の `mediabunny` をNode環境で利用し、実durationが有限・0秒超・35秒以内で、DBの `duration_seconds` と許容差内で一致することを確認する。
+音声単体はserver-verifiableなStorage metadataが不足しているため、引き続きfail closedにする。
 
 ## AI出力Schema検証
 
@@ -153,23 +158,23 @@ Schema不正時は公開処理へ渡さない。
 外部レスポンスは短い安全なエラーコード、日本語メッセージ、request IDのみを返す。
 DBテーブル名、RLS policy名、SQL、stack trace、Supabase生エラー、secret、Storage pathは返さない。
 
-## 次の観測MVPで使う方法
+## 星空ちあ観測MVP
 
-次PRでは以下を追加する。
-
-1. `queued` ジョブを `processing` に遷移する。
-2. Geminiへ必要な公開作品データだけを渡す。
-3. 固定Schemaで出力を再検証する。
-4. `public.observations` へ結果を保存する。
-5. ちあ名義の星文を一度だけ作成する。
-6. 使用量と料金をジョブへ確定記録する。
-7. `succeeded` または `failed` に遷移する。
+MVPでは運営ユーザーだけが手動で公開流星便1件を観測できる。
+対応形式は text / image / video / YouTube。audio単体はserver-verifiableなStorage metadataがないためfail closedのままにする。
+workerは `claim_ai_observation_job` で `queued -> processing` をclaimし、Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
+Interactions APIへ生成リクエストを送信した後のtimeout、接続切断、status不明、usage欠損、Schema不正は、provider側の処理・課金停止を保証できないため同じjob内で自動再送しない。SDK内部retryも `retries: { strategy: "none" }` で無効化し、`timeout_ms` とAbortSignalはprovider処理停止保証ではなく応答待ち上限として扱う。`AI_OBSERVATION_MAX_RETRIES` は互換設定として残すが、MVPでは生成処理のblind retryには使わない。
+Gemini出力は固定JSON Schemaとローカルvalidatorで再検証し、AI生レスポンスはDBにもログにも保存しない。
+星文を残す場合は、service_roleから `AI_HOSHIZORA_CHIA_PROFILE_ID` の `profiles.username = 'chia_hoshizora'` をDB側でも確認し、ちあ名義の `star_letters` を作成する。星空ちあのパスワードログインは使用しない。
+使用量が取得できない場合は成功扱いせず、料金はGemini 3.5 Flash Standardのpricing snapshotからmicro USD単位で推定する。DBの `output_tokens` には `total_output_tokens + total_thought_tokens` のbillable outputを保存し、thinking tokenを出力料金対象に含める。
 
 ## 本番適用前の手動作業
 
 1. `docs/ai-resident-security-preflight.sql` を読み取り専用で実行する。
 2. Storage path違反件数がすべて0件であることを確認する。1件以上ある場合は、migration適用前に対象データを確認する。
-3. `supabase/migrations/20260703_add_ai_observation_security_foundation.sql` をSupabase SQL Editorで確認後に適用する。
-4. `docs/ai-resident-security-verification.sql` を読み取り専用で実行し、RLS、GRANT、制約、index、RPC権限を確認する。
-5. Netlify環境変数は、観測MVP実装時まで未設定または機能OFFのまま維持する。
-6. 明示的に有効化するまで `AI_OBSERVATION_ENABLED` は空または未設定にする。
+3. `supabase/migrations/20260703_add_ai_observation_security_foundation.sql` が未適用なら適用する。
+4. `docs/ai-observation-mvp-preflight.sql` を読み取り専用で実行する。
+5. `supabase/migrations/20260704_add_chia_observation_mvp.sql` をSupabase SQL Editorで確認後に適用する。
+6. `docs/ai-observation-mvp-verification.sql` を読み取り専用で実行し、RPC、RLS、GRANT、制約、job状態を確認する。
+7. Netlify環境変数は、本番で観測を開始する直前まで未設定または機能OFFのまま維持する。
+8. 明示的に有効化するまで `AI_OBSERVATION_ENABLED` は空または未設定にする。

@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   buildReservationParams,
   canStartProviderAttempt,
+  estimateGeminiCostMicroUsd,
   getBillableCostMicroUsd,
   getUtcPeriodStarts,
   isRetriableProviderFailure,
+  withTimeout,
 } from "./aiLimits.mjs";
 
 test("UTC period starts are fixed to UTC day and month boundaries", () => {
@@ -75,4 +77,44 @@ test("provider attempts are bounded by attempt_count and max_attempts on one job
   assert.equal(canStartProviderAttempt({ status: "processing", attempt_count: 0, max_attempts: 1 }), true);
   assert.equal(canStartProviderAttempt({ status: "processing", attempt_count: 1, max_attempts: 1 }), false);
   assert.equal(canStartProviderAttempt({ status: "failed", attempt_count: 0, max_attempts: 1 }), false);
+});
+
+test("Gemini 3.5 Flash pricing uses input/output token rates with ceiling", () => {
+  assert.equal(estimateGeminiCostMicroUsd({
+    model: "gemini-3.5-flash",
+    inputTokens: 1,
+    outputTokens: 1,
+  }), 11);
+  assert.equal(estimateGeminiCostMicroUsd({
+    model: "gemini-3.5-flash",
+    inputTokens: 1_000_000,
+    outputTokens: 1_000_000,
+  }), 10_500_000);
+  assert.equal(estimateGeminiCostMicroUsd({
+    model: "gemini-3.5-flash",
+    inputTokens: 533,
+    outputTokens: 257,
+  }), 3113);
+});
+
+test("Gemini cost estimation rejects missing or overflowing usage", () => {
+  assert.throws(() => estimateGeminiCostMicroUsd({
+    model: "gemini-3.5-flash",
+    inputTokens: Number.MAX_SAFE_INTEGER,
+    outputTokens: 1,
+  }), /usage_cost_overflow/);
+  assert.throws(() => estimateGeminiCostMicroUsd({
+    model: "gemini-3.5-flash",
+    inputTokens: -1,
+    outputTokens: 0,
+  }), /invalid_usage/);
+});
+
+test("withTimeout rejects tasks that do not observe AbortSignal", async () => {
+  await assert.rejects(
+    () => withTimeout(() => new Promise((resolve) => {
+      setTimeout(resolve, 30);
+    }), 1),
+    /timed out/,
+  );
 });
