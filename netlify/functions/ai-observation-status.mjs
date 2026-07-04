@@ -8,10 +8,23 @@ import {
   jsonResponse,
   logAiEvent,
 } from "./_shared/aiErrors.mjs";
+import { getClientIp, assertRateLimit, readAiRateLimitConfig } from "./_shared/aiRateLimit.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 
 function getRequestId(context) {
   return context?.requestId ?? crypto.randomUUID();
+}
+
+function toSafeError(error) {
+  if (error instanceof AiHttpError) {
+    return error;
+  }
+
+  if (error instanceof Error && error.message.startsWith("invalid_env:")) {
+    return aiHttpError(503, AI_ERROR.CONFIGURATION_ERROR);
+  }
+
+  return aiHttpError(503, AI_ERROR.INTERNAL);
 }
 
 function readJobId(request) {
@@ -46,16 +59,31 @@ function readConfigOrThrow() {
 export default async function handler(request, context) {
   const requestId = getRequestId(context);
   const startedAt = Date.now();
+  const clientIp = getClientIp(request, context);
 
   try {
+    const rateLimits = readAiRateLimitConfig();
+
     if (request.method !== "GET") {
       throw aiHttpError(405, AI_ERROR.METHOD_NOT_ALLOWED);
     }
 
+    assertRateLimit({
+      scope: "ai-status-ip",
+      key: clientIp,
+      limit: rateLimits.statusIpLimit,
+      windowSeconds: rateLimits.windowSeconds,
+    });
     const jobId = readJobId(request);
     const config = readConfigOrThrow();
     const supabase = createSupabaseAdminClient(config);
     const operator = await requireAiOperator({ request, supabase, config });
+    assertRateLimit({
+      scope: "ai-status-operator",
+      key: operator.id,
+      limit: config.rateLimits.operatorStatusLimit,
+      windowSeconds: config.rateLimits.windowSeconds,
+    });
     const { data, error } = await supabase
       .from("ai_observation_jobs")
       .select("id, status, public_error_code, observation_id, star_letter_id, created_at, started_at, completed_at, requested_by")
@@ -92,7 +120,7 @@ export default async function handler(request, context) {
       requestId,
     });
   } catch (error) {
-    const safeError = error instanceof AiHttpError ? error : aiHttpError(503, AI_ERROR.INTERNAL);
+    const safeError = toSafeError(error);
 
     logAiEvent(safeError.status >= 500 ? "error" : "warn", "ai_observation_status_failed", {
       requestId,

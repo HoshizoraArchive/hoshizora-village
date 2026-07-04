@@ -8,6 +8,7 @@ import {
   startAiObservationAttempt,
 } from "./aiJobState.mjs";
 import { loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
+import { assertGlobalProcessingCapacity } from "./aiRateLimit.mjs";
 
 const OBSERVATION_SUMMARY_MAX_LENGTH = 1200;
 
@@ -109,6 +110,10 @@ export async function runAiObservationJob({
   let providerUsage = null;
 
   try {
+    await assertGlobalProcessingCapacity({
+      supabase,
+      limit: config.rateLimits?.globalProcessingLimit ?? 2,
+    });
     await loadChiaProfile({ supabase, chiaProfileId: config.hoshizoraChiaProfileId });
     const { post, mediaRows, mediaSummary, storageRequirements } = await validateCurrentPostInput({
       supabase,

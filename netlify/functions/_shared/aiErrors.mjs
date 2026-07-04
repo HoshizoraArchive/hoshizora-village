@@ -1,9 +1,10 @@
 export class AiHttpError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, options = {}) {
     super(message);
     this.name = "AiHttpError";
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
@@ -33,16 +34,17 @@ export const AI_ERROR = Object.freeze({
   INTERNAL: ["AI_INTERNAL_ERROR", "AI観測の準備に失敗しました。時間をおいてもう一度お試しください。"],
 });
 
-export function aiHttpError(status, errorTuple) {
-  return new AiHttpError(status, errorTuple[0], errorTuple[1]);
+export function aiHttpError(status, errorTuple, options = {}) {
+  return new AiHttpError(status, errorTuple[0], errorTuple[1], options);
 }
 
-export function jsonResponse(status, payload) {
+export function jsonResponse(status, payload, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
+      ...extraHeaders,
     },
   });
 }
@@ -52,13 +54,19 @@ export function errorResponse(error, requestId) {
   const code = typeof error?.code === "string" ? error.code : AI_ERROR.INTERNAL[0];
   const message = typeof error?.message === "string" ? error.message : AI_ERROR.INTERNAL[1];
 
+  const headers = {};
+
+  if (status === 429 && Number.isInteger(error?.retryAfterSeconds) && error.retryAfterSeconds > 0) {
+    headers["Retry-After"] = String(error.retryAfterSeconds);
+  }
+
   return jsonResponse(status, {
     error: {
       code,
       message,
       requestId,
     },
-  });
+  }, headers);
 }
 
 function safeCode(value) {
