@@ -5,6 +5,7 @@ const MAX_TIMEOUT_MS = 300000;
 const MAX_SECONDS_BETWEEN_REQUESTS = 86400;
 const SUPPORTED_AI_OBSERVATION_MODEL = "gemini-3.5-flash";
 const MIN_WORKER_SHARED_SECRET_LENGTH = 32;
+const DEFAULT_WORKER_DISPATCH_TTL_SECONDS = 60;
 
 function defaultEnvSource() {
   return globalThis.Netlify?.env ?? process.env;
@@ -20,6 +21,26 @@ export function readEnv(name, env = defaultEnvSource()) {
 
 function parseRequiredInteger(name, env, { min, max }) {
   const rawValue = readEnv(name, env).trim();
+
+  if (!/^(0|[1-9][0-9]*)$/.test(rawValue)) {
+    throw new Error(`invalid_env:${name}`);
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(`invalid_env:${name}`);
+  }
+
+  return value;
+}
+
+function parseOptionalInteger(name, env, fallback, { min, max }) {
+  const rawValue = readEnv(name, env).trim();
+
+  if (!rawValue) {
+    return fallback;
+  }
 
   if (!/^(0|[1-9][0-9]*)$/.test(rawValue)) {
     throw new Error(`invalid_env:${name}`);
@@ -96,6 +117,10 @@ export function readAiObservationConfig(env = defaultEnvSource()) {
     model,
     hoshizoraChiaProfileId,
     workerSharedSecret,
+    workerDispatchTtlSeconds: parseOptionalInteger("AI_WORKER_DISPATCH_TTL_SECONDS", env, DEFAULT_WORKER_DISPATCH_TTL_SECONDS, {
+      min: 1,
+      max: 300,
+    }),
     operatorUserIds: parseOperatorUserIds(env),
     dailyRequestLimit: parseRequiredInteger("AI_DAILY_REQUEST_LIMIT", env, {
       min: 1,
@@ -129,6 +154,40 @@ export function readAiObservationConfig(env = defaultEnvSource()) {
       min: 1,
       max: Number.MAX_SAFE_INTEGER,
     }),
+    rateLimits: {
+      windowSeconds: parseOptionalInteger("AI_RATE_LIMIT_WINDOW_SECONDS", env, 60, {
+        min: 1,
+        max: 3600,
+      }),
+      requestGetIpLimit: parseOptionalInteger("AI_RATE_LIMIT_REQUEST_GET_IP", env, 60, {
+        min: 1,
+        max: 1000000,
+      }),
+      requestPostIpLimit: parseOptionalInteger("AI_RATE_LIMIT_REQUEST_POST_IP", env, 8, {
+        min: 1,
+        max: 1000000,
+      }),
+      statusIpLimit: parseOptionalInteger("AI_RATE_LIMIT_STATUS_IP", env, 120, {
+        min: 1,
+        max: 1000000,
+      }),
+      workerIpLimit: parseOptionalInteger("AI_RATE_LIMIT_WORKER_IP", env, 30, {
+        min: 1,
+        max: 1000000,
+      }),
+      operatorPostLimit: parseOptionalInteger("AI_RATE_LIMIT_OPERATOR_POST", env, 4, {
+        min: 1,
+        max: 1000000,
+      }),
+      operatorStatusLimit: parseOptionalInteger("AI_RATE_LIMIT_OPERATOR_STATUS", env, 120, {
+        min: 1,
+        max: 1000000,
+      }),
+      globalProcessingLimit: parseOptionalInteger("AI_GLOBAL_PROCESSING_LIMIT", env, 2, {
+        min: 1,
+        max: 100,
+      }),
+    },
   };
 }
 

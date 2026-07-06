@@ -11,7 +11,14 @@ import {
 import { reserveAiObservationJob } from "./_shared/aiJobReservation.mjs";
 import { cancelAiObservationJob } from "./_shared/aiJobState.mjs";
 import { validateCurrentPostInput } from "./_shared/aiObservationData.mjs";
+import {
+  getClientIp,
+  assertGlobalProcessingCapacity,
+  assertRateLimit,
+  readAiRateLimitConfig,
+} from "./_shared/aiRateLimit.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
+import { signWorkerDispatch } from "./_shared/aiWorkerDispatch.mjs";
 import {
   assertJsonRequest,
   readStrictJsonBody,
@@ -20,6 +27,18 @@ import {
 
 function getRequestId(context) {
   return context?.requestId ?? crypto.randomUUID();
+}
+
+function toSafeError(error) {
+  if (error instanceof AiHttpError) {
+    return error;
+  }
+
+  if (error instanceof Error && error.message.startsWith("invalid_env:")) {
+    return aiHttpError(503, AI_ERROR.CONFIGURATION_ERROR);
+  }
+
+  return aiHttpError(503, AI_ERROR.INTERNAL);
 }
 
 async function readConfigOrThrow() {
@@ -42,16 +61,23 @@ async function readConfigOrThrow() {
 
 async function dispatchWorker({ request, config, jobId }) {
   const workerUrl = new URL("/api/ai-observation-worker", request.url);
+  const dispatchPayload = signWorkerDispatch({
+    jobId,
+    secret: config.workerSharedSecret,
+  });
   const response = await fetch(workerUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-ai-worker-secret": config.workerSharedSecret,
     },
-    body: JSON.stringify({ jobId }),
+    body: JSON.stringify(dispatchPayload),
   });
 
   if (!response.ok) {
+    if (response.status === 429) {
+      throw aiHttpError(429, AI_ERROR.RATE_LIMITED);
+    }
+
     throw aiHttpError(503, AI_ERROR.WORKER_DISPATCH_FAILED);
   }
 }
@@ -59,7 +85,14 @@ async function dispatchWorker({ request, config, jobId }) {
 async function handleGet(request, requestId, startedAt) {
   const config = await readConfigOrThrow();
   const supabase = createSupabaseAdminClient(config);
-  await requireAiOperator({ request, supabase, config });
+  const operator = await requireAiOperator({ request, supabase, config });
+
+  assertRateLimit({
+    scope: "ai-request-get-operator",
+    key: operator.id,
+    limit: config.rateLimits.operatorStatusLimit,
+    windowSeconds: config.rateLimits.windowSeconds,
+  });
 
   logAiEvent("info", "ai_observation_operator_allowed", {
     requestId,
@@ -82,7 +115,18 @@ async function handlePost(request, requestId, startedAt) {
   const config = await readConfigOrThrow();
   const supabase = createSupabaseAdminClient(config);
   const operator = await requireAiOperator({ request, supabase, config });
+  assertRateLimit({
+    scope: "ai-request-post-operator",
+    key: operator.id,
+    limit: config.rateLimits.operatorPostLimit,
+    windowSeconds: config.rateLimits.windowSeconds,
+  });
   const { post, mediaRows, mediaSummary } = await validateCurrentPostInput({ supabase, postId: payload.postId });
+  await assertGlobalProcessingCapacity({
+    supabase,
+    limit: config.rateLimits.globalProcessingLimit,
+    reservedSlots: 1,
+  });
   const job = await reserveAiObservationJob({
     supabase,
     operatorUserId: operator.id,
@@ -123,9 +167,18 @@ async function handlePost(request, requestId, startedAt) {
 export default async function handler(request, context) {
   const requestId = getRequestId(context);
   const startedAt = Date.now();
+  const clientIp = getClientIp(request, context);
 
   try {
+    const rateLimits = readAiRateLimitConfig();
+
     if (request.method === "GET") {
+      assertRateLimit({
+        scope: "ai-request-get-ip",
+        key: clientIp,
+        limit: rateLimits.requestGetIpLimit,
+        windowSeconds: rateLimits.windowSeconds,
+      });
       return await handleGet(request, requestId, startedAt);
     }
 
@@ -133,9 +186,15 @@ export default async function handler(request, context) {
       throw aiHttpError(405, AI_ERROR.METHOD_NOT_ALLOWED);
     }
 
+    assertRateLimit({
+      scope: "ai-request-post-ip",
+      key: clientIp,
+      limit: rateLimits.requestPostIpLimit,
+      windowSeconds: rateLimits.windowSeconds,
+    });
     return await handlePost(request, requestId, startedAt);
   } catch (error) {
-    const safeError = error instanceof AiHttpError ? error : aiHttpError(503, AI_ERROR.INTERNAL);
+    const safeError = toSafeError(error);
 
     logAiEvent(safeError.status >= 500 ? "error" : "warn", "ai_observation_request_failed", {
       requestId,

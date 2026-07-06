@@ -2,12 +2,14 @@ import { AI_ERROR, AiHttpError, aiHttpError, logAiEvent } from "./aiErrors.mjs";
 import { runGeminiObservation } from "./aiGemini.mjs";
 import { createRequestFingerprint } from "./aiJobReservation.mjs";
 import {
+  cancelAiObservationJob,
   claimAiObservationJob,
   completeAiObservationJob,
   failAiObservationJob,
   startAiObservationAttempt,
 } from "./aiJobState.mjs";
 import { loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
+import { assertGlobalProcessingCapacity } from "./aiRateLimit.mjs";
 
 const OBSERVATION_SUMMARY_MAX_LENGTH = 1200;
 
@@ -89,6 +91,33 @@ export async function runAiObservationJob({
   runProvider = runGeminiObservation,
 }) {
   const startedAt = Date.now();
+  try {
+    await assertGlobalProcessingCapacity({
+      supabase,
+      limit: config.rateLimits?.globalProcessingLimit ?? 2,
+      reservedSlots: 1,
+    });
+  } catch (error) {
+    if (error instanceof AiHttpError && error.status === 429) {
+      await cancelAiObservationJob({
+        supabase,
+        jobId,
+        publicErrorCode: AI_ERROR.RATE_LIMITED[0],
+      });
+
+      logAiEvent("warn", "ai_observation_worker_capacity_limited", {
+        requestId,
+        jobId,
+        operation: "ai_observation_worker_capacity",
+        status: 429,
+        code: error.code,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+
+    throw error;
+  }
+
   const claim = await claimAiObservationJob({ supabase, jobId });
 
   if (claim?.outcome !== "claimed") {

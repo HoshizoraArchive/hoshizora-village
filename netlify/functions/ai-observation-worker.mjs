@@ -1,5 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
-import { readAiObservationConfig, UUID_PATTERN } from "./_shared/aiConfig.mjs";
+import { readAiObservationConfig } from "./_shared/aiConfig.mjs";
 import {
   AI_ERROR,
   AiHttpError,
@@ -10,49 +9,45 @@ import {
 } from "./_shared/aiErrors.mjs";
 import { createGeminiClient } from "./_shared/aiGemini.mjs";
 import { runAiObservationJob } from "./_shared/aiObservationWorker.mjs";
+import { getClientIp, assertRateLimit, readAiRateLimitConfig } from "./_shared/aiRateLimit.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 import { assertJsonRequest, readStrictJsonBody } from "./_shared/aiValidation.mjs";
+import { verifyWorkerDispatchPayload } from "./_shared/aiWorkerDispatch.mjs";
 
 function getRequestId(context) {
   return context?.requestId ?? crypto.randomUUID();
 }
 
-function isValidWorkerSecret(receivedSecret, expectedSecret) {
-  if (typeof receivedSecret !== "string" || typeof expectedSecret !== "string") {
-    return false;
+function toSafeError(error) {
+  if (error instanceof AiHttpError) {
+    return error;
   }
 
-  const received = Buffer.from(receivedSecret);
-  const expected = Buffer.from(expectedSecret);
-
-  return received.length === expected.length && timingSafeEqual(received, expected);
-}
-
-function validateWorkerPayload(payload) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw aiHttpError(400, AI_ERROR.BAD_REQUEST);
+  if (error instanceof Error && error.message.startsWith("invalid_env:")) {
+    return aiHttpError(503, AI_ERROR.CONFIGURATION_ERROR);
   }
 
-  const keys = Object.keys(payload);
-
-  if (keys.length !== 1 || keys[0] !== "jobId" || typeof payload.jobId !== "string" || !UUID_PATTERN.test(payload.jobId)) {
-    throw aiHttpError(400, AI_ERROR.BAD_REQUEST);
-  }
-
-  return {
-    jobId: payload.jobId.toLowerCase(),
-  };
+  return aiHttpError(503, AI_ERROR.INTERNAL);
 }
 
 export default async function handler(request, context) {
   const requestId = getRequestId(context);
   const startedAt = Date.now();
+  const clientIp = getClientIp(request, context);
 
   try {
+    const rateLimits = readAiRateLimitConfig();
+
     if (request.method !== "POST") {
       throw aiHttpError(405, AI_ERROR.METHOD_NOT_ALLOWED);
     }
 
+    assertRateLimit({
+      scope: "ai-worker-ip",
+      key: clientIp,
+      limit: rateLimits.workerIpLimit,
+      windowSeconds: rateLimits.windowSeconds,
+    });
     assertJsonRequest(request);
     let config;
 
@@ -66,13 +61,10 @@ export default async function handler(request, context) {
       throw aiHttpError(503, AI_ERROR.DISABLED);
     }
 
-    const receivedSecret = request.headers.get("x-ai-worker-secret") ?? "";
-
-    if (!isValidWorkerSecret(receivedSecret, config.workerSharedSecret)) {
-      throw aiHttpError(403, AI_ERROR.FORBIDDEN);
-    }
-
-    const payload = validateWorkerPayload(await readStrictJsonBody(request));
+    const payload = verifyWorkerDispatchPayload(await readStrictJsonBody(request), {
+      secret: config.workerSharedSecret,
+      ttlSeconds: config.workerDispatchTtlSeconds,
+    });
     const supabase = createSupabaseAdminClient(config);
     const geminiClient = createGeminiClient(config);
     const result = await runAiObservationJob({
@@ -97,7 +89,7 @@ export default async function handler(request, context) {
       requestId,
     });
   } catch (error) {
-    const safeError = error instanceof AiHttpError ? error : aiHttpError(503, AI_ERROR.INTERNAL);
+    const safeError = toSafeError(error);
 
     logAiEvent(safeError.status >= 500 ? "error" : "warn", "ai_observation_worker_request_failed", {
       requestId,

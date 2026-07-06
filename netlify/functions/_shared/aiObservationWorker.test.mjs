@@ -79,6 +79,9 @@ function config() {
     hoshizoraChiaProfileId: CHIA_ID,
     model: "gemini-3.5-flash",
     observationTimeoutMs: 30000,
+    rateLimits: {
+      globalProcessingLimit: 2,
+    },
   };
 }
 
@@ -102,10 +105,12 @@ function createMockSupabase({
   claimOutcome = "claimed",
   completeOutcome = "completed",
   failOutcome = "failed",
+  processingCount = 1,
   posts,
 } = {}) {
   const calls = {
     rpc: [],
+    cancelArgs: null,
     failArgs: null,
     completeArgs: null,
     attempts: 0,
@@ -161,6 +166,18 @@ function createMockSupabase({
           });
         }
 
+        if (name === "cancel_ai_observation_job") {
+          calls.cancelArgs = args;
+          return Promise.resolve({
+            data: [{
+              outcome: "cancelled",
+              job_id: args.p_job_id,
+              job_status: "cancelled",
+            }],
+            error: null,
+          });
+        }
+
         if (name === "complete_ai_observation_job") {
           calls.completeArgs = args;
           calls.completeCalls += 1;
@@ -200,6 +217,10 @@ function createMockSupabase({
             return query;
           },
           eq() {
+            if (table === "ai_observation_jobs") {
+              return Promise.resolve({ count: processingCount, error: null });
+            }
+
             return query;
           },
           maybeSingle() {
@@ -280,6 +301,58 @@ test("post fingerprint mismatch fails before provider attempt", async () => {
   assert.equal(result.outcome, "failed");
   assert.equal(calls.attempts, 0);
   assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.POST_CHANGED[0]);
+});
+
+test("global processing limit cancels queued job before provider attempt", async () => {
+  const { supabase, calls } = createMockSupabase({ processingCount: 3 });
+  let providerCalls = 0;
+  await assert.rejects(
+    () => runAiObservationJob({
+      jobId: "77777777-7777-4777-8777-777777777777",
+      requestId: "request",
+      supabase,
+      config: config(),
+      geminiClient: {},
+      runProvider: async () => {
+        providerCalls += 1;
+        return { output: output(), usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 } };
+      },
+    }),
+    (error) => error.status === 429 && error.code === AI_ERROR.RATE_LIMITED[0],
+  );
+
+  assert.equal(providerCalls, 0);
+  assert.equal(calls.attempts, 0);
+  assert.equal(calls.failArgs, null);
+  assert.deepEqual(calls.cancelArgs, {
+    p_job_id: "77777777-7777-4777-8777-777777777777",
+    p_public_error_code: AI_ERROR.RATE_LIMITED[0],
+  });
+  assert.deepEqual(calls.rpc.map((call) => call.name), ["cancel_ai_observation_job"]);
+});
+
+test("global processing capacity allows the last available processing slot", async () => {
+  const { supabase, calls } = createMockSupabase({ processingCount: 1 });
+  let providerCalls = 0;
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    runProvider: async () => {
+      providerCalls += 1;
+      return {
+        output: output(),
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "completed");
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.attempts, 1);
+  assert.equal(calls.cancelArgs, null);
 });
 
 test("provider failure after attempt is not blindly retried", async () => {

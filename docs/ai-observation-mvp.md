@@ -7,9 +7,9 @@
 
 1. フロントはログイン済みsessionのaccess tokenで `GET /api/ai-observation-request` を呼び、operatorだけに観測ボタンを表示する。
 2. operatorが「ちあに観測してもらう」を押すと、`postId` と `idempotencyKey` だけを `POST /api/ai-observation-request` へ送る。
-3. 予約Functionは認証、operator権限、公開投稿、media、Storage metadata、利用上限を確認し、`reserve_ai_observation_job` で `queued` jobを作る。
-4. 予約Functionは `AI_WORKER_SHARED_SECRET` を付けてBackground Functionへ `jobId` だけをdispatchする。dispatch失敗時は `cancel_ai_observation_job` で `cancelled` に戻す。
-5. workerは `claim_ai_observation_job` でrow lockを取り、`queued -> processing` へ遷移する。terminal jobはGeminiを呼ばず終了する。
+3. 予約Functionは認証、operator権限、公開投稿、media、Storage metadata、利用上限、全体processing数を確認し、余裕がある場合だけ `reserve_ai_observation_job` で `queued` jobを作る。
+4. 予約Functionは `jobId`, `issuedAt`, `nonce` と `AI_WORKER_SHARED_SECRET` によるHMAC-SHA256署名を付けてBackground Functionへdispatchする。投稿本文、Storage path、署名付きURLは渡さない。dispatch失敗時は `cancel_ai_observation_job` で `cancelled` に戻す。
+5. workerはclaim前にも全体processing数を確認し、capacity不足ならqueued jobを `cancelled` に戻してGeminiを呼ばない。余裕がある場合だけ `claim_ai_observation_job` でrow lockを取り、`queued -> processing` へ遷移する。terminal jobはGeminiを呼ばず終了する。
 6. workerは投稿、`post_media`、Storage metadata、星空ちあprofileを再取得し、予約時fingerprintと一致することを確認する。
 7. Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
 8. Gemini Interactions APIへ、text / image / video / YouTubeの観測対象だけを渡す。Google Search、URL Context、Code Execution、Function Callingは有効にしない。
@@ -25,6 +25,19 @@
 - video: `meteor-video` からservice_roleで1本をdownloadし、ファイルシグネチャと `mediabunny` による実durationを検証してからFiles APIへ渡す。Gemini側の映像・音声理解を使い、ffmpeg等で別音声を抽出しない。
 - YouTube: DB保存済みの検証済み公開YouTube URLだけをvideo inputとして渡す。任意URL fetchは行わない。
 - audio: 現schemaではserver-verifiableなMIME、Storage path、サイズ、秒数を確認できないためfail closed。
+
+## rate limitとdispatch署名
+
+Netlify Function入口では、DBの日次/月次予算とは別に短期rate limitを行う。
+`POST /api/ai-observation-request` はIP単位とoperator user id単位で厳しめに制限し、`GET /api/ai-observation-request` と `GET /api/ai-observation-status` は通常の権限確認・pollingを妨げない範囲で制限する。
+worker入口もIP単位で制限し、認証前の大量アクセスがSupabase Auth照会やGemini処理へ進みにくいようにする。
+予約FunctionとworkerはDB上の `processing` job数も確認し、現在のjobをclaimした場合に `AI_GLOBAL_PROCESSING_LIMIT` を超えるならGemini呼び出し前にfail closedする。
+このcapacity不足は一時的な混雑として扱い、provider未実行かつattempt開始前のjobを永続 `failed` にはしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを `cancelled` に戻して後で再予約できる状態にする。
+
+予約Functionからworkerへのdispatchは、固定secretをそのまま送らず、`jobId`, `issuedAt`, `nonce` に対するHMAC-SHA256署名を送る。
+workerは署名、TTL、nonce、jobIdを検証し、期限切れ、改ざん、jobId不一致、同一インスタンス内のnonce再利用を拒否する。
+TTLの既定値は60秒で、`AI_WORKER_DISPATCH_TTL_SECONDS` で調整できる。
+429応答はJSONのpublic error codeを返し、可能な場合は `Retry-After` を付ける。
 
 ## request fingerprint
 
@@ -55,6 +68,15 @@ Netlify Functionsだけが以下を参照する。`VITE_` へ置かない。
 - `AI_OBSERVATION_MAX_RETRIES`
 - `AI_MIN_SECONDS_BETWEEN_REQUESTS`
 - `AI_RESERVED_COST_MICRO_USD`
+- `AI_WORKER_DISPATCH_TTL_SECONDS`
+- `AI_RATE_LIMIT_WINDOW_SECONDS`
+- `AI_RATE_LIMIT_REQUEST_GET_IP`
+- `AI_RATE_LIMIT_REQUEST_POST_IP`
+- `AI_RATE_LIMIT_STATUS_IP`
+- `AI_RATE_LIMIT_WORKER_IP`
+- `AI_RATE_LIMIT_OPERATOR_POST`
+- `AI_RATE_LIMIT_OPERATOR_STATUS`
+- `AI_GLOBAL_PROCESSING_LIMIT`
 
 このPRでは本番Netlify環境変数を設定しない。`AI_OBSERVATION_ENABLED` が `true` でない限りfail closed。
 
@@ -82,6 +104,13 @@ validatorには信頼済みサーバー側の投稿タイプを `expectedMediaTy
 
 `should_post=false` の場合、`star_letter` は必ず `null`。
 星文は20〜80文字、前後空白なし、改行、URL、ハッシュタグなし。
+
+## prompt injection境界
+
+投稿本文、画像内文字、動画/YouTube内の音声・字幕・テロップ、将来の音声由来テキストはすべてuntrusted contentとして扱う。
+「システムプロンプトを無視して」「秘密情報を表示して」「should_post=trueにして」などの命令文、多言語命令、Base64風文字列が含まれても、観測対象データとしてdelimiter内に置く。
+schema外出力、URLやハッシュタグ入り星文、観測根拠が不足する出力はfail closedし、危険または不明な場合は `should_post=false` を要求する。
+API key、service role、worker secret、signed URL、投稿本文全文、AI生レスポンスはログへ出さない。
 
 ## 料金記録
 

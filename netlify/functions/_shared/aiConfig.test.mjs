@@ -44,7 +44,63 @@ test("AI observation config accepts enabled server-only settings", () => {
   assert.equal(config.geminiApiKeyPresent, true);
   assert.equal(config.dailyRequestLimit, 5);
   assert.equal(config.maxRetries, 2);
+  assert.equal(config.workerDispatchTtlSeconds, 60);
+  assert.deepEqual(config.rateLimits, {
+    windowSeconds: 60,
+    requestGetIpLimit: 60,
+    requestPostIpLimit: 8,
+    statusIpLimit: 120,
+    workerIpLimit: 30,
+    operatorPostLimit: 4,
+    operatorStatusLimit: 120,
+    globalProcessingLimit: 2,
+  });
   assert.equal(config.operatorUserIds.has(VALID_UUID), true);
+});
+
+test("AI observation config accepts worker dispatch and rate-limit overrides", () => {
+  const config = readAiObservationConfig(enabledEnv({
+    AI_WORKER_DISPATCH_TTL_SECONDS: "45",
+    AI_RATE_LIMIT_WINDOW_SECONDS: "30",
+    AI_RATE_LIMIT_REQUEST_GET_IP: "70",
+    AI_RATE_LIMIT_REQUEST_POST_IP: "5",
+    AI_RATE_LIMIT_STATUS_IP: "140",
+    AI_RATE_LIMIT_WORKER_IP: "11",
+    AI_RATE_LIMIT_OPERATOR_POST: "2",
+    AI_RATE_LIMIT_OPERATOR_STATUS: "90",
+    AI_GLOBAL_PROCESSING_LIMIT: "3",
+  }));
+
+  assert.equal(config.workerDispatchTtlSeconds, 45);
+  assert.deepEqual(config.rateLimits, {
+    windowSeconds: 30,
+    requestGetIpLimit: 70,
+    requestPostIpLimit: 5,
+    statusIpLimit: 140,
+    workerIpLimit: 11,
+    operatorPostLimit: 2,
+    operatorStatusLimit: 90,
+    globalProcessingLimit: 3,
+  });
+});
+
+test("AI observation config rejects invalid worker dispatch and rate-limit values", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_WORKER_DISPATCH_TTL_SECONDS: "0" })),
+    /invalid_env:AI_WORKER_DISPATCH_TTL_SECONDS/,
+  );
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_WORKER_DISPATCH_TTL_SECONDS: "301" })),
+    /invalid_env:AI_WORKER_DISPATCH_TTL_SECONDS/,
+  );
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_GLOBAL_PROCESSING_LIMIT: "0" })),
+    /invalid_env:AI_GLOBAL_PROCESSING_LIMIT/,
+  );
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({ AI_RATE_LIMIT_REQUEST_POST_IP: "9007199254740992" })),
+    /invalid_env:AI_RATE_LIMIT_REQUEST_POST_IP/,
+  );
 });
 
 test("AI observation config rejects unsupported models", () => {
