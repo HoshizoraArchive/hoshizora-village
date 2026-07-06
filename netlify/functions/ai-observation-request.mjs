@@ -11,7 +11,12 @@ import {
 import { reserveAiObservationJob } from "./_shared/aiJobReservation.mjs";
 import { cancelAiObservationJob } from "./_shared/aiJobState.mjs";
 import { validateCurrentPostInput } from "./_shared/aiObservationData.mjs";
-import { getClientIp, assertRateLimit, readAiRateLimitConfig } from "./_shared/aiRateLimit.mjs";
+import {
+  getClientIp,
+  assertGlobalProcessingCapacity,
+  assertRateLimit,
+  readAiRateLimitConfig,
+} from "./_shared/aiRateLimit.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 import { signWorkerDispatch } from "./_shared/aiWorkerDispatch.mjs";
 import {
@@ -69,6 +74,10 @@ async function dispatchWorker({ request, config, jobId }) {
   });
 
   if (!response.ok) {
+    if (response.status === 429) {
+      throw aiHttpError(429, AI_ERROR.RATE_LIMITED);
+    }
+
     throw aiHttpError(503, AI_ERROR.WORKER_DISPATCH_FAILED);
   }
 }
@@ -113,6 +122,11 @@ async function handlePost(request, requestId, startedAt) {
     windowSeconds: config.rateLimits.windowSeconds,
   });
   const { post, mediaRows, mediaSummary } = await validateCurrentPostInput({ supabase, postId: payload.postId });
+  await assertGlobalProcessingCapacity({
+    supabase,
+    limit: config.rateLimits.globalProcessingLimit,
+    reservedSlots: 1,
+  });
   const job = await reserveAiObservationJob({
     supabase,
     operatorUserId: operator.id,

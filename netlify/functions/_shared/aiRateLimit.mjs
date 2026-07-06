@@ -14,6 +14,7 @@ const DEFAULT_LIMITS = Object.freeze({
 
 const RATE_LIMIT_MAX = 1000000;
 const WINDOW_MAX_SECONDS = 3600;
+const RATE_LIMIT_STORE_MAX_ENTRIES = 5000;
 const store = globalThis.__hoshizoraAiRateLimitStore ?? new Map();
 globalThis.__hoshizoraAiRateLimitStore = store;
 
@@ -90,7 +91,47 @@ export function getClientIp(request, context) {
   );
 }
 
-export function checkRateLimit({ key, limit, windowSeconds, now = Date.now(), rateLimitStore = store }) {
+export function pruneRateLimitStore({
+  rateLimitStore = store,
+  now = Date.now(),
+  maxEntries = RATE_LIMIT_STORE_MAX_ENTRIES,
+  preserveKey,
+} = {}) {
+  for (const [entryKey, value] of rateLimitStore.entries()) {
+    if (!value || value.resetAt <= now) {
+      rateLimitStore.delete(entryKey);
+    }
+  }
+
+  if (rateLimitStore.size <= maxEntries) {
+    return rateLimitStore.size;
+  }
+
+  const entriesByExpiry = [...rateLimitStore.entries()]
+    .filter(([entryKey]) => entryKey !== preserveKey)
+    .sort((left, right) => Number(left[1]?.resetAt ?? 0) - Number(right[1]?.resetAt ?? 0));
+
+  for (const [entryKey] of entriesByExpiry) {
+    if (rateLimitStore.size <= maxEntries) {
+      break;
+    }
+
+    rateLimitStore.delete(entryKey);
+  }
+
+  return rateLimitStore.size;
+}
+
+export function checkRateLimit({
+  key,
+  limit,
+  windowSeconds,
+  now = Date.now(),
+  rateLimitStore = store,
+  maxEntries = RATE_LIMIT_STORE_MAX_ENTRIES,
+}) {
+  pruneRateLimitStore({ rateLimitStore, now, maxEntries, preserveKey: key });
+
   const windowMs = windowSeconds * 1000;
   const current = rateLimitStore.get(key);
 
@@ -99,6 +140,7 @@ export function checkRateLimit({ key, limit, windowSeconds, now = Date.now(), ra
       count: 1,
       resetAt: now + windowMs,
     });
+    pruneRateLimitStore({ rateLimitStore, now, maxEntries, preserveKey: key });
     return { ok: true, remaining: limit - 1, retryAfterSeconds: 0 };
   }
 
@@ -111,6 +153,7 @@ export function checkRateLimit({ key, limit, windowSeconds, now = Date.now(), ra
   }
 
   current.count += 1;
+  pruneRateLimitStore({ rateLimitStore, now, maxEntries, preserveKey: key });
   return {
     ok: true,
     remaining: limit - current.count,
@@ -118,13 +161,14 @@ export function checkRateLimit({ key, limit, windowSeconds, now = Date.now(), ra
   };
 }
 
-export function assertRateLimit({ scope, key, limit, windowSeconds, now, rateLimitStore }) {
+export function assertRateLimit({ scope, key, limit, windowSeconds, now, rateLimitStore, maxEntries }) {
   const result = checkRateLimit({
     key: `${scope}:${key}`,
     limit,
     windowSeconds,
     now,
     rateLimitStore,
+    maxEntries,
   });
 
   if (!result.ok) {
@@ -136,7 +180,7 @@ export function assertRateLimit({ scope, key, limit, windowSeconds, now, rateLim
   return result;
 }
 
-export async function assertGlobalProcessingCapacity({ supabase, limit }) {
+export async function assertGlobalProcessingCapacity({ supabase, limit, reservedSlots = 0 }) {
   const { count, error } = await supabase
     .from("ai_observation_jobs")
     .select("id", { count: "exact", head: true })
@@ -146,7 +190,7 @@ export async function assertGlobalProcessingCapacity({ supabase, limit }) {
     throw aiHttpError(503, AI_ERROR.INTERNAL);
   }
 
-  if (count > limit) {
+  if (count + reservedSlots > limit) {
     throw aiHttpError(429, AI_ERROR.RATE_LIMITED, {
       retryAfterSeconds: 60,
     });
@@ -158,4 +202,3 @@ export async function assertGlobalProcessingCapacity({ supabase, limit }) {
 export function resetRateLimitStore(rateLimitStore = store) {
   rateLimitStore.clear();
 }
-

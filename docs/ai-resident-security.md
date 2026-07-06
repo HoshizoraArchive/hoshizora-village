@@ -6,6 +6,7 @@
 Issue #56対応として、本番ON前にFunction入口rate limit、worker dispatch署名、prompt injection境界テストを追加する。
 POST予約はIP単位とoperator user id単位で厳しめに制限し、GET権限確認とstatus pollingは通常利用を妨げない範囲で制限する。
 worker入口もIP単位で制限し、DB上の全体processing数が `AI_GLOBAL_PROCESSING_LIMIT` を超える場合はGemini呼び出し前にfail closedする。
+capacity不足は一時的な混雑として扱い、provider未実行・attempt開始前のjobを永続 `failed` にしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを `cancelled` に戻して後で再予約できる状態にする。
 これらはDBの日次/月次回数・料金上限とは別の、間接乱打と過剰pollingを抑えるための入口制御である。
 
 ## 処理フロー
@@ -18,9 +19,9 @@ worker入口もIP単位で制限し、DB上の全体processing数が `AI_GLOBAL_
 6. FunctionはDBから対象流星便と `post_media` を取得し、公開・未削除・対応メディア条件をサーバー側で確認する。
 7. 画像・動画ではStorage pathの先頭フォルダが投稿者UUIDと一致することをFunctionとDB制約の両方で確認する。
 8. 画像・動画ではStorage APIで対象オブジェクトのメタデータも取得し、DB上のMIME・サイズと一致することを確認する。
-9. Functionは `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。
+9. Functionは全体processing数を確認した上で `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。
 10. 成功時は `queued` の `public.ai_observation_jobs` 行を作成し、`/api/ai-observation-worker` Background Functionへ `jobId`, `issuedAt`, `nonce`, HMAC-SHA256署名だけをdispatchする。
-11. workerはservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。
+11. workerはclaim前に全体processing数を再確認し、capacity不足ならqueued jobを `cancelled` に戻してGeminiを呼ばない。余裕がある場合だけservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。
 12. 検証済み出力だけを `public.complete_ai_observation_job(...)` へ渡す。completion RPCはtransaction内で現在の `posts` / `post_media` からfingerprintを再計算し、job保存値とworker入力値の両方に一致する場合だけ `public.observations` 保存、必要時の星文insert、job成功更新を同一transactionで確定する。
 
 ## 信頼境界
@@ -180,7 +181,7 @@ MVPでは運営ユーザーだけが手動で公開流星便1件を観測でき�
 対応形式は text / image / video / YouTube。audio単体はserver-verifiableなStorage metadataがないためfail closedのままにする。
 予約Functionからworkerへ渡す値はjobId、issuedAt、nonce、HMAC-SHA256署名だけで、投稿本文、Storage path、署名付きURL、プロンプト、星空ちあprofile idは渡さない。
 workerは署名、TTL、nonce、jobIdを検証し、古いdispatch、改ざん、jobId不一致、同一インスタンス内のnonce再利用を拒否する。
-workerは `claim_ai_observation_job` で `queued -> processing` をclaimし、Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
+workerはcapacity確認後に `claim_ai_observation_job` で `queued -> processing` をclaimし、Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
 Interactions APIへ生成リクエストを送信した後のtimeout、接続切断、status不明、usage欠損、Schema不正は、provider側の処理・課金停止を保証できないため同じjob内で自動再送しない。SDK内部retryも `retries: { strategy: "none" }` で無効化し、`timeout_ms` とAbortSignalはprovider処理停止保証ではなく応答待ち上限として扱う。`AI_OBSERVATION_MAX_RETRIES` は互換設定として残すが、MVPでは生成処理のblind retryには使わない。
 Gemini出力は固定JSON Schemaとローカルvalidatorで再検証し、AI生レスポンスはDBにもログにも保存しない。
 星文を残す場合は、service_roleから `AI_HOSHIZORA_CHIA_PROFILE_ID` の `profiles.username = 'chia_hoshizora'` をDB側でも確認し、ちあ名義の `star_letters` を作成する。星空ちあのパスワードログインは使用しない。

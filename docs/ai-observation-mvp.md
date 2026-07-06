@@ -7,9 +7,9 @@
 
 1. フロントはログイン済みsessionのaccess tokenで `GET /api/ai-observation-request` を呼び、operatorだけに観測ボタンを表示する。
 2. operatorが「ちあに観測してもらう」を押すと、`postId` と `idempotencyKey` だけを `POST /api/ai-observation-request` へ送る。
-3. 予約Functionは認証、operator権限、公開投稿、media、Storage metadata、利用上限を確認し、`reserve_ai_observation_job` で `queued` jobを作る。
+3. 予約Functionは認証、operator権限、公開投稿、media、Storage metadata、利用上限、全体processing数を確認し、余裕がある場合だけ `reserve_ai_observation_job` で `queued` jobを作る。
 4. 予約Functionは `jobId`, `issuedAt`, `nonce` と `AI_WORKER_SHARED_SECRET` によるHMAC-SHA256署名を付けてBackground Functionへdispatchする。投稿本文、Storage path、署名付きURLは渡さない。dispatch失敗時は `cancel_ai_observation_job` で `cancelled` に戻す。
-5. workerは `claim_ai_observation_job` でrow lockを取り、`queued -> processing` へ遷移する。terminal jobはGeminiを呼ばず終了する。
+5. workerはclaim前にも全体processing数を確認し、capacity不足ならqueued jobを `cancelled` に戻してGeminiを呼ばない。余裕がある場合だけ `claim_ai_observation_job` でrow lockを取り、`queued -> processing` へ遷移する。terminal jobはGeminiを呼ばず終了する。
 6. workerは投稿、`post_media`、Storage metadata、星空ちあprofileを再取得し、予約時fingerprintと一致することを確認する。
 7. Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
 8. Gemini Interactions APIへ、text / image / video / YouTubeの観測対象だけを渡す。Google Search、URL Context、Code Execution、Function Callingは有効にしない。
@@ -31,7 +31,8 @@
 Netlify Function入口では、DBの日次/月次予算とは別に短期rate limitを行う。
 `POST /api/ai-observation-request` はIP単位とoperator user id単位で厳しめに制限し、`GET /api/ai-observation-request` と `GET /api/ai-observation-status` は通常の権限確認・pollingを妨げない範囲で制限する。
 worker入口もIP単位で制限し、認証前の大量アクセスがSupabase Auth照会やGemini処理へ進みにくいようにする。
-workerはDB上の `processing` job数も確認し、`AI_GLOBAL_PROCESSING_LIMIT` を超える場合はGemini呼び出し前にfail closedする。
+予約FunctionとworkerはDB上の `processing` job数も確認し、現在のjobをclaimした場合に `AI_GLOBAL_PROCESSING_LIMIT` を超えるならGemini呼び出し前にfail closedする。
+このcapacity不足は一時的な混雑として扱い、provider未実行かつattempt開始前のjobを永続 `failed` にはしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを `cancelled` に戻して後で再予約できる状態にする。
 
 予約Functionからworkerへのdispatchは、固定secretをそのまま送らず、`jobId`, `issuedAt`, `nonce` に対するHMAC-SHA256署名を送る。
 workerは署名、TTL、nonce、jobIdを検証し、期限切れ、改ざん、jobId不一致、同一インスタンス内のnonce再利用を拒否する。

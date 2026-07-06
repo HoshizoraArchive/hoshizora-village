@@ -6,6 +6,7 @@ import {
   assertRateLimit,
   checkRateLimit,
   getClientIp,
+  pruneRateLimitStore,
   readAiRateLimitConfig,
 } from "./aiRateLimit.mjs";
 
@@ -85,6 +86,43 @@ test("operator and IP limits use independent keys", () => {
   }));
 });
 
+test("rate limit store prunes expired entries", () => {
+  const rateLimitStore = new Map([
+    ["expired-a", { count: 1, resetAt: 1000 }],
+    ["expired-b", { count: 1, resetAt: 1500 }],
+    ["active", { count: 1, resetAt: 5000 }],
+  ]);
+
+  const size = pruneRateLimitStore({
+    rateLimitStore,
+    now: 2000,
+    maxEntries: 10,
+  });
+
+  assert.equal(size, 1);
+  assert.equal(rateLimitStore.has("active"), true);
+  assert.equal(rateLimitStore.has("expired-a"), false);
+  assert.equal(rateLimitStore.has("expired-b"), false);
+});
+
+test("rate limit store is capped when many unique keys arrive", () => {
+  const rateLimitStore = new Map();
+
+  for (let index = 0; index < 20; index += 1) {
+    checkRateLimit({
+      key: `ip:${index}`,
+      limit: 10,
+      windowSeconds: 60,
+      now: 1000 + index,
+      rateLimitStore,
+      maxEntries: 5,
+    });
+  }
+
+  assert.equal(rateLimitStore.size <= 5, true);
+  assert.equal(rateLimitStore.has("ip:19"), true);
+});
+
 test("rate limit config has safe defaults and accepts server-only overrides", () => {
   assert.deepEqual(readAiRateLimitConfig({
     AI_RATE_LIMIT_WINDOW_SECONDS: "30",
@@ -133,6 +171,27 @@ test("global processing capacity rejects before provider work when processing co
 
   await assert.rejects(
     () => assertGlobalProcessingCapacity({ supabase, limit: 2 }),
+    (error) => error.status === 429 && error.code === AI_ERROR.RATE_LIMITED[0],
+  );
+});
+
+test("global processing capacity reserves a slot before claiming queued work", async () => {
+  const supabase = {
+    from(table) {
+      assert.equal(table, "ai_observation_jobs");
+      return {
+        select() {
+          return this;
+        },
+        eq() {
+          return Promise.resolve({ count: 2, error: null });
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => assertGlobalProcessingCapacity({ supabase, limit: 2, reservedSlots: 1 }),
     (error) => error.status === 429 && error.code === AI_ERROR.RATE_LIMITED[0],
   );
 });
