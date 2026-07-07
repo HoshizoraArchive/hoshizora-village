@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
+import "./pushNotificationSetup.js";
 import "./index.css";
 
 createRoot(document.getElementById("root")).render(
