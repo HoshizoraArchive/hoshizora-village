@@ -24,6 +24,7 @@ export const AI_ERROR = Object.freeze({
   SCHEMA_INVALID: ["AI_OUTPUT_SCHEMA_INVALID", "AI出力の形式が正しくありません。"],
   CONFIGURATION_ERROR: ["AI_CONFIGURATION_ERROR", "AI観測機能は現在利用できません。"],
   WORKER_DISPATCH_FAILED: ["WORKER_DISPATCH_FAILED", "観測を始められませんでした。もう一度試してください。"],
+  WORKER_STALE: ["WORKER_STALE", "観測処理が途中で止まったため、再実行できる状態へ戻しました。"],
   POST_CHANGED: ["POST_CHANGED", "流星便の内容が変わったため、観測を中止しました。"],
   MEDIA_UNAVAILABLE: ["MEDIA_UNAVAILABLE", "作品データを確認できませんでした。"],
   GEMINI_UPLOAD_FAILED: ["GEMINI_UPLOAD_FAILED", "作品データの準備に失敗しました。"],

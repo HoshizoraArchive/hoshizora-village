@@ -11,6 +11,7 @@ import {
 import { reserveAiObservationJob } from "./_shared/aiJobReservation.mjs";
 import { cancelAiObservationJob } from "./_shared/aiJobState.mjs";
 import { validateCurrentPostInput } from "./_shared/aiObservationData.mjs";
+import { recoverStaleProcessingJobs } from "./_shared/aiStaleJobs.mjs";
 import {
   getClientIp,
   assertGlobalProcessingCapacity,
@@ -120,6 +121,12 @@ async function handlePost(request, requestId, startedAt) {
     key: operator.id,
     limit: config.rateLimits.operatorPostLimit,
     windowSeconds: config.rateLimits.windowSeconds,
+  });
+  await recoverStaleProcessingJobs({
+    supabase,
+    config,
+    requestId,
+    operation: "ai_observation_request_post",
   });
   const { post, mediaRows, mediaSummary } = await validateCurrentPostInput({ supabase, postId: payload.postId });
   await assertGlobalProcessingCapacity({

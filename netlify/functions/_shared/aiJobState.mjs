@@ -47,6 +47,29 @@ export async function cancelAiObservationJob({ supabase, jobId, publicErrorCode 
   return assertKnownOutcome(firstRpcRow(data), new Set(["cancelled", "invalid_status"]));
 }
 
+export async function recoverStaleAiObservationJobs({
+  supabase,
+  staleBefore,
+  publicErrorCode = "WORKER_STALE",
+  limit = 20,
+}) {
+  const { data, error } = await supabase.rpc("recover_stale_ai_observation_jobs", {
+    p_stale_before: staleBefore,
+    p_public_error_code: publicErrorCode,
+    p_limit: limit,
+  });
+
+  throwInternalOnError(error);
+  const row = firstRpcRow(data);
+  const recoveredCount = Number(row?.recovered_count ?? 0);
+
+  if (!Number.isSafeInteger(recoveredCount) || recoveredCount < 0) {
+    throw aiHttpError(503, AI_ERROR.INTERNAL);
+  }
+
+  return recoveredCount;
+}
+
 export async function claimAiObservationJob({ supabase, jobId }) {
   const { data, error } = await supabase.rpc("claim_ai_observation_job", {
     p_job_id: jobId,

@@ -5,6 +5,7 @@ import test from "node:test";
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const migrationSql = readFileSync("supabase/migrations/20260703_add_ai_observation_security_foundation.sql", "utf8");
 const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
+const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
@@ -79,6 +80,36 @@ test("AI observation MVP migration and schema.sql contain worker state RPCs with
     assert.equal(observationMvpMigrationSql.includes(token), true, `MVP migration missing ${token}`);
     assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
   }
+});
+
+test("AI observation stale recovery RPC is service-role only and does not retry provider calls", () => {
+  const tokens = [
+    "public.recover_stale_ai_observation_jobs",
+    "where j.status = 'processing'",
+    "j.completed_at is null",
+    "coalesce(j.started_at, j.updated_at, j.created_at) < p_stale_before",
+    "for update skip locked",
+    "set status = 'cancelled'",
+    "public_error_code = p_public_error_code",
+    "WORKER_STALE",
+    "to service_role",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(staleRecoveryMigrationSql.includes(token), true, `stale recovery migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing stale recovery token ${token}`);
+  }
+
+  assert.equal(
+    /revoke\s+all\s+on\s+function\s+public\.recover_stale_ai_observation_jobs\(timestamptz,\s*text,\s*integer\)\s+from\s+public,\s+anon,\s+authenticated/i.test(staleRecoveryMigrationSql),
+    true,
+  );
+  assert.equal(
+    /revoke\s+all\s+on\s+function\s+public\.recover_stale_ai_observation_jobs\(timestamptz,\s*text,\s*integer\)\s+from\s+public,\s+anon,\s+authenticated/i.test(schemaSql),
+    true,
+  );
+  assert.equal(staleRecoveryMigrationSql.includes("start_ai_observation_attempt"), false);
+  assert.equal(staleRecoveryMigrationSql.includes("runGemini"), false);
 });
 
 test("AI observation MVP current fingerprint helper locks and hashes current post and media rows", () => {
@@ -228,6 +259,11 @@ test("AI observation MVP RPCs are not executable by browser roles", () => {
   }
 });
 
+test("AI observation MVP verification SQL checks stale recovery RPC grants", () => {
+  assert.equal(observationMvpVerificationSql.includes("recover_stale_ai_observation_jobs"), true);
+  assert.equal(observationMvpVerificationSql.includes("stale_processing_candidates"), true);
+});
+
 test("post_media Storage path checks do not depend on app_private helper functions", () => {
   assert.equal(migrationSql.includes(forbiddenStorageHelperToken), false, "migration still references private Storage path helper");
   assert.equal(schemaSql.includes(forbiddenStorageHelperToken), false, "schema.sql still references private Storage path helper");
@@ -280,16 +316,19 @@ test("AI observation MVP preflight treats missing chia profile as an anomaly", (
   assert.equal(observationMvpPreflightSql.includes("auth_user_count"), true);
 });
 
-test("AI observation frontend polling has timeout, fatal status stop, and no setInterval loop", () => {
-  assert.equal(appJsx.includes("AI_OBSERVATION_STATUS_MAX_MS"), true);
-  assert.equal(appJsx.includes("AI_OBSERVATION_STATUS_MAX_ERRORS"), true);
-  assert.equal(appJsx.includes("isAiObservationFatalStatus"), true);
-  assert.equal(appJsx.includes("window.setTimeout"), true);
-  assert.equal(appJsx.includes("window.setInterval"), false);
-  assert.equal(appJsx.includes("aiObservationPollingAccessTokenRef"), true);
-  assert.equal(appJsx.includes("previousAccessToken && previousAccessToken !== nextAccessToken"), true);
-  assert.equal(appJsx.includes("aiObservationPollingAccessTokenRef.current !== accessToken"), true);
-  assert.equal(appJsx.includes("status === \"failed\""), true);
-  assert.equal(appJsx.includes("status === \"succeeded\""), true);
-  assert.equal(appJsx.includes("status === \"status_unknown\""), true);
+test("production post cards do not expose manual AI observation controls", () => {
+  const forbiddenUiTokens = [
+    "ちあに観測してもらう",
+    "ちあは観測したけど",
+    "観測できませんでした",
+    "観測を始められませんでした",
+    "AI_OBSERVATION_STATUS_MAX_MS",
+    "aiObservationPollingAccessTokenRef",
+    "handleStartAiObservation",
+    "/api/ai-observation-status",
+  ];
+
+  for (const token of forbiddenUiTokens) {
+    assert.equal(appJsx.includes(token), false, `App.jsx still exposes manual AI observation UI token: ${token}`);
+  }
 });

@@ -10,6 +10,7 @@ import {
 import { createGeminiClient } from "./_shared/aiGemini.mjs";
 import { runAiObservationJob } from "./_shared/aiObservationWorker.mjs";
 import { getClientIp, assertRateLimit, readAiRateLimitConfig } from "./_shared/aiRateLimit.mjs";
+import { recoverStaleProcessingJobs } from "./_shared/aiStaleJobs.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 import { assertJsonRequest, readStrictJsonBody } from "./_shared/aiValidation.mjs";
 import { verifyWorkerDispatchPayload } from "./_shared/aiWorkerDispatch.mjs";
@@ -66,6 +67,12 @@ export default async function handler(request, context) {
       ttlSeconds: config.workerDispatchTtlSeconds,
     });
     const supabase = createSupabaseAdminClient(config);
+    await recoverStaleProcessingJobs({
+      supabase,
+      config,
+      requestId,
+      operation: "ai_observation_worker",
+    });
     const geminiClient = createGeminiClient(config);
     const result = await runAiObservationJob({
       jobId: payload.jobId,
