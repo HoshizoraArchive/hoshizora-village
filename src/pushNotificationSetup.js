@@ -38,7 +38,7 @@ function updatePermission(card) {
   if (!label) return;
 
   if (!isSupported()) {
-    label.textContent = "通知: この端末では未対応";
+    label.textContent = "通知: この表示環境では未対応";
     return;
   }
 
@@ -53,7 +53,7 @@ function updatePermission(card) {
 
 async function requestPermission(card) {
   if (!isSupported()) {
-    setStatus(card, "この端末では通知テストを利用できません。");
+    setStatus(card, "この表示環境では通知テストを利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
     updatePermission(card);
     return;
   }
@@ -70,7 +70,7 @@ async function requestPermission(card) {
 
 async function sendTest(card) {
   if (!isSupported()) {
-    setStatus(card, "この端末では通知テストを利用できません。");
+    setStatus(card, "この表示環境では通知テストを利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
     updatePermission(card);
     return;
   }
@@ -106,7 +106,7 @@ function createCard() {
 
   const description = document.createElement("p");
   description.className = "mt-2 text-sm leading-6 text-slate-200";
-  description.textContent = "この端末でR.Connect通知を表示できるか確認します。";
+  description.textContent = "この端末でR.Connect通知を表示できるか確認します。iPhoneではホーム画面に追加した星空Villageから試してください。";
 
   const permission = document.createElement("p");
   permission.className = "mt-3 text-xs font-bold text-cyan-100";
@@ -138,7 +138,7 @@ function createCard() {
   if (!isSupported()) {
     allowButton.disabled = true;
     testButton.disabled = true;
-    setStatus(card, "この端末では通知テストを利用できません。");
+    setStatus(card, "この表示環境では通知テストを利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
   } else {
     void registerWorker().catch(() => setStatus(card, "通知準備に失敗しました。"));
   }
