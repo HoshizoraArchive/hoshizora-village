@@ -7,6 +7,13 @@ import {
   logSafeError,
 } from "./safeErrors";
 import { supabase } from "./lib/supabaseClient";
+import {
+  getPushNotificationPermission,
+  getPushNotificationPermissionLabel,
+  isPushNotificationSupported,
+  requestPushNotificationPermission,
+  sendPushNotificationTest,
+} from "./pushNotificationSetup";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -6596,6 +6603,115 @@ function AvatarPreviewModal({ avatar, onClose }) {
   );
 }
 
+function PushNotificationTestCard() {
+  const [permission, setPermission] = useState(() => getPushNotificationPermission());
+  const [statusMessage, setStatusMessage] = useState(() =>
+    isPushNotificationSupported()
+      ? ""
+      : "この表示環境では通知テストを利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。",
+  );
+  const [isWorking, setIsWorking] = useState(false);
+  const isSupported = permission !== "unsupported";
+  const permissionLabel = getPushNotificationPermissionLabel(permission);
+
+  useEffect(() => {
+    function refreshPermission() {
+      setPermission(getPushNotificationPermission());
+    }
+
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
+
+    return () => {
+      window.removeEventListener("focus", refreshPermission);
+    };
+  }, []);
+
+  async function handleRequestPermission() {
+    if (!isSupported) {
+      setStatusMessage("この表示環境では通知テストを利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
+      setPermission(getPushNotificationPermission());
+      return;
+    }
+
+    setIsWorking(true);
+    setStatusMessage("");
+
+    try {
+      const nextPermission = await requestPushNotificationPermission();
+      setPermission(getPushNotificationPermission());
+      setStatusMessage(nextPermission === "granted" ? "通知を許可しました。" : "通知許可は完了していません。");
+    } catch {
+      setPermission(getPushNotificationPermission());
+      setStatusMessage("通知許可の準備に失敗しました。");
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function handleSendTestNotification() {
+    if (!isSupported) {
+      setStatusMessage("この表示環境では通知テストを利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
+      setPermission(getPushNotificationPermission());
+      return;
+    }
+
+    if (getPushNotificationPermission() !== "granted") {
+      setPermission(getPushNotificationPermission());
+      setStatusMessage("先に通知を許可してください。");
+      return;
+    }
+
+    setIsWorking(true);
+    setStatusMessage("");
+
+    try {
+      await sendPushNotificationTest();
+      setPermission(getPushNotificationPermission());
+      setStatusMessage("テスト通知を送りました。");
+    } catch {
+      setPermission(getPushNotificationPermission());
+      setStatusMessage("テスト通知に失敗しました。");
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  return (
+    <section className="mt-5 rounded-2xl border border-comet/25 bg-comet/10 px-4 py-4 text-comet shadow-[0_0_24px_rgba(125,223,255,0.08)] sm:px-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-base font-black text-white">スマホ通知テスト</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-200">
+            この端末でR.Connect通知を表示できるか確認します。iPhoneではホーム画面に追加した星空Villageから試してください。
+          </p>
+          <p className="mt-3 text-xs font-black text-comet">{permissionLabel}</p>
+          {statusMessage ? <p className="mt-2 text-xs leading-5 text-comet/80">{statusMessage}</p> : null}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+          <button
+            className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!isSupported || isWorking}
+            onClick={handleRequestPermission}
+            type="button"
+          >
+            通知を許可
+          </button>
+          <button
+            className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
+            disabled={!isSupported || isWorking || permission !== "granted"}
+            onClick={handleSendTestNotification}
+            type="button"
+          >
+            テスト通知
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function RConnectScreen({ notifications }) {
   return (
     <main className="mx-auto max-w-3xl">
@@ -6603,6 +6719,7 @@ function RConnectScreen({ notifications }) {
         <p className="text-xs font-bold normal-case text-comet">R.Connect</p>
         <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">R.Connect</h2>
         <p className="mt-4 text-sm leading-7 text-slate-300">共鳴・星文・観測通知がここに届きます。</p>
+        <PushNotificationTestCard />
 
         {!notifications.session ? (
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
