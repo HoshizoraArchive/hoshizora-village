@@ -306,6 +306,8 @@ as $$
   ) as r;
 $$;
 
+drop function if exists public.claim_ai_observation_job(uuid);
+
 create or replace function public.claim_ai_observation_job(p_job_id uuid)
 returns table (
   outcome text,
