@@ -1,11 +1,18 @@
 import { AI_ERROR, aiHttpError } from "./aiErrors.mjs";
 import { signWorkerDispatch } from "./aiWorkerDispatch.mjs";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
-export async function dispatchAiObservationWorker({ request, config, jobId }) {
+export async function dispatchAiObservationWorker({
+  request,
+  config,
+  jobId,
+  observationContext = AI_OBSERVATION_CONTEXT.MANUAL,
+}) {
   const workerUrl = new URL("/api/ai-observation-worker", request.url);
   const dispatchPayload = signWorkerDispatch({
     jobId,
     secret: config.workerSharedSecret,
+    observationContext,
   });
   const response = await fetch(workerUrl, {
     method: "POST",

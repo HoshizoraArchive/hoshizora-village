@@ -8,6 +8,7 @@ import {
   uploadMediaFiles,
 } from "./aiGemini.mjs";
 import { AI_ERROR } from "./aiErrors.mjs";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
 test("Gemini media validation checks basic image signatures", () => {
   assert.equal(bufferMatchesMimeType(Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]), "image/jpeg"), true);
@@ -279,12 +280,15 @@ test("Interactions create disables SDK retry and receives timeout options and Ab
     mediaRows: [],
     storageRequirements: [],
     supabase: {},
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
   });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].options.retries.strategy, "none");
   assert.equal(calls[0].options.timeout_ms, 1234);
   assert.equal(calls[0].options.signal instanceof AbortSignal, true);
+  assert.equal(calls[0].request.input[0].text.includes("投稿作成直後の自動観測"), true);
+  assert.equal(calls[0].request.input[0].text.includes("原則 should_post=true"), true);
   assert.equal(result.usage.outputTokens, 257);
   assert.equal(result.usage.actualCostMicroUsd, 3113);
 });

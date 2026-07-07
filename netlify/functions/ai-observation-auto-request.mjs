@@ -20,6 +20,7 @@ import {
   assertRateLimit,
   readAiRateLimitConfig,
 } from "./_shared/aiRateLimit.mjs";
+import { AI_OBSERVATION_CONTEXT } from "./_shared/aiObservationContext.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 import {
   assertJsonRequest,
@@ -141,7 +142,12 @@ async function handlePost(request, requestId, startedAt) {
   });
 
   try {
-    await dispatchAiObservationWorker({ request, config, jobId: job.jobId });
+    await dispatchAiObservationWorker({
+      request,
+      config,
+      jobId: job.jobId,
+      observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    });
   } catch (error) {
     await cancelAiObservationJob({
       supabase,

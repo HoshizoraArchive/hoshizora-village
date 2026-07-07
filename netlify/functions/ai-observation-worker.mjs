@@ -80,6 +80,7 @@ export default async function handler(request, context) {
       supabase,
       config,
       geminiClient,
+      observationContext: payload.observationContext,
     });
 
     logAiEvent("info", "ai_observation_worker_accepted", {
