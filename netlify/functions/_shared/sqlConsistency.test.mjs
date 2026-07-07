@@ -11,6 +11,8 @@ const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "ut
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
 const appJsx = readFileSync("src/App.jsx", "utf8");
+const mainJsx = readFileSync("src/main.jsx", "utf8");
+const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "utf8");
 
 function normalizedSql(sql) {
   return sql.replace(/\s+/g, " ");
@@ -454,4 +456,28 @@ test("production post cards do not expose manual AI observation controls", () =>
 
   assert.equal(appJsx.includes("/api/ai-observation-auto-request"), true);
   assert.equal(appJsx.includes("requestAutomaticChiaObservation"), true);
+});
+
+test("R.Connect renders smartphone notification test card through React instead of DOM injection", () => {
+  const requiredAppTokens = [
+    "function PushNotificationTestCard()",
+    "<PushNotificationTestCard />",
+    "スマホ通知テスト",
+    "この端末でR.Connect通知を表示できるか確認します。",
+    "通知を許可",
+    "テスト通知",
+    "getPushNotificationPermissionLabel(permission)",
+  ];
+
+  for (const token of requiredAppTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing React notification card token: ${token}`);
+  }
+
+  assert.equal(mainJsx.includes('import "./pushNotificationSetup.js";'), false);
+  assert.equal(pushNotificationSetupJs.includes("MutationObserver"), false);
+  assert.equal(pushNotificationSetupJs.includes("querySelector"), false);
+  assert.equal(pushNotificationSetupJs.includes("createElement"), false);
+  assert.equal(pushNotificationSetupJs.includes("insertAdjacentElement"), false);
+  assert.equal(pushNotificationSetupJs.includes("navigator.serviceWorker.register(SERVICE_WORKER_PATH)"), true);
+  assert.equal(pushNotificationSetupJs.includes('registration.showNotification("星空Village"'), true);
 });
