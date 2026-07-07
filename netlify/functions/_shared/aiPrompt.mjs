@@ -2,6 +2,24 @@ import { AI_OBSERVATION_CONTEXT, normalizeAiObservationContext } from "./aiObser
 
 const FALLBACK_AUTHOR_CALL_NAME = "村人さん";
 const MAX_AUTHOR_CALL_NAME_LENGTH = 16;
+const DEFAULT_AUTHOR_HONORIFIC = "さん";
+const AUTHOR_CALL_NAME_SUFFIXES = [
+  "さん",
+  "くん",
+  "君",
+  "ちゃん",
+  "様",
+  "さま",
+  "先生",
+  "先輩",
+  "殿",
+  "氏",
+  "たん",
+  "しゃん",
+  "ちん",
+  "ぴょん",
+  "ぴ",
+];
 const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f-\u009f]/g;
 const URL_PATTERN = /https?:\/\/|www\./i;
 const SUSPICIOUS_NAME_PATTERN =
@@ -64,6 +82,21 @@ function truncateGraphemes(value, maxLength) {
   return chars.length > maxLength ? chars.slice(0, maxLength).join("") : value;
 }
 
+function hasAuthorCallNameSuffix(value) {
+  return AUTHOR_CALL_NAME_SUFFIXES.some((suffix) => value.endsWith(suffix));
+}
+
+function withAuthorCallNameHonorific(value) {
+  if (!value || hasAuthorCallNameSuffix(value)) {
+    return value || FALLBACK_AUTHOR_CALL_NAME;
+  }
+
+  const maxBaseLength =
+    MAX_AUTHOR_CALL_NAME_LENGTH - Array.from(DEFAULT_AUTHOR_HONORIFIC).length;
+
+  return `${truncateGraphemes(value, maxBaseLength)}${DEFAULT_AUTHOR_HONORIFIC}`;
+}
+
 function sanitizeNameCandidate(value) {
   if (typeof value !== "string") {
     return "";
@@ -96,12 +129,12 @@ export function sanitizeAuthorCallName(profile) {
   const displayName = sanitizeNameCandidate(profile?.display_name);
 
   if (displayName) {
-    return displayName;
+    return withAuthorCallNameHonorific(displayName);
   }
 
   const username = sanitizeNameCandidate(profile?.username);
 
-  return username || FALLBACK_AUTHOR_CALL_NAME;
+  return withAuthorCallNameHonorific(username || FALLBACK_AUTHOR_CALL_NAME);
 }
 
 export function isDirectChiaQuestion(text) {
