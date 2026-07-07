@@ -301,8 +301,13 @@ async function cleanupLocalFiles(localPaths) {
   await Promise.allSettled(localPaths.map((path) => unlink(path)));
 }
 
-function buildGeminiInput({ post, mediaRows, uploadedFiles, observationContext }) {
-  const prompt = buildObservationPrompt({ post, mediaRows, observationContext });
+function buildGeminiInput({ post, mediaRows, uploadedFiles, observationContext, authorProfile }) {
+  const prompt = buildObservationPrompt({
+    post,
+    mediaRows,
+    observationContext,
+    authorProfile,
+  });
   const input = [{ type: "text", text: prompt }];
 
   if (post.type === "youtube") {
@@ -332,6 +337,7 @@ export async function runGeminiObservation({
   storageRequirements,
   supabase,
   observationContext,
+  authorProfile,
 }) {
   const mediaUpload = await uploadMediaFiles({
     client,
@@ -351,6 +357,7 @@ export async function runGeminiObservation({
             mediaRows,
             uploadedFiles: mediaUpload.uploadedFiles,
             observationContext,
+            authorProfile,
           }),
           response_format: {
             type: "text",

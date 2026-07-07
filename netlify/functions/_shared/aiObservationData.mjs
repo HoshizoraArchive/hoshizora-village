@@ -110,4 +110,18 @@ export async function loadChiaProfile({ supabase, chiaProfileId }) {
   return data;
 }
 
+export async function loadAuthorProfile({ supabase, profileId }) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, username, display_name")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  if (error) {
+    throw aiHttpError(503, AI_ERROR.INTERNAL);
+  }
+
+  return data;
+}
+
 export { POST_MEDIA_SELECT_COLUMNS, POST_SELECT_COLUMNS };

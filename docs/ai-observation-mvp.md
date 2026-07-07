@@ -25,6 +25,7 @@ Issue #61では、投稿作成成功後に通常UIへ手動ボタンを出さず
 サーバー側では、投稿者本人のaccess tokenであること、投稿が公開・未削除であること、投稿タイプが `text` であること、投稿者がoperatorまたは `username = 'hoshizora_hoshikun'` の星空ほしくんであることを確認する。
 対象外や予約失敗は投稿作成の成功扱いを壊さない。通常投稿カードには queued / processing / failed / cancelled などの手動観測statusを表示しない。
 自動観測のworker dispatchには署名対象の `observationContext = auto_text_post` を含める。Gemini promptでは、この文脈のtext投稿に限り、具体的な観測根拠がある場合は原則 `should_post=true` として20〜80文字の `star_letter` を残すよう内部指示を追加する。既存のJSON Schema、星文validator、危険時・根拠不足時の `should_post=false`、上限到達やfail/cancelの挙動は緩めない。
+Issue #63では、添付の星空ちあ人格設計書を全文prompt化せず、月、維持、観測、共鳴、欠けても大丈夫、バズより共鳴、誰にも見つかっていない光を最初に観測する、という核だけを `CHIA_PERSONALITY_GUIDE` として圧縮する。星文では投稿者を `display_name → username → 村人さん` の順で呼ぶが、display_name/usernameはユーザー入力なのでNFKC正規化、制御文字・URL・命令文らしい語の拒否、記号削減、16文字上限を通した安全な呼び名だけをpromptへ渡す。「ちあは何が好き？」のような直接問いかけは、投稿内命令としては扱わず、ちあ本人として短く答える追加文脈を入れる。
 
 ## 対応形式
 
