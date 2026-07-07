@@ -55,6 +55,15 @@ test("AI observation config accepts enabled server-only settings", () => {
     operatorStatusLimit: 120,
     globalProcessingLimit: 2,
   });
+  assert.deepEqual(config.autoObservation, {
+    minDelaySeconds: 60,
+    maxDelaySeconds: 900,
+    dispatchBatchSize: 5,
+    starLetterProbabilityPercent: 20,
+    starLetterMinConfidencePercent: 75,
+    starLetterDailyLimit: 20,
+    starLetterAuthorCooldownSeconds: 86400,
+  });
   assert.equal(config.operatorUserIds.has(VALID_UUID), true);
 });
 
@@ -82,6 +91,50 @@ test("AI observation config accepts worker dispatch and rate-limit overrides", (
     operatorStatusLimit: 90,
     globalProcessingLimit: 3,
   });
+});
+
+test("AI observation config accepts automatic observation overrides", () => {
+  const config = readAiObservationConfig(enabledEnv({
+    AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS: "120",
+    AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS: "600",
+    AI_AUTO_OBSERVATION_DISPATCH_BATCH_SIZE: "9",
+    AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT: "35",
+    AI_AUTO_STAR_LETTER_MIN_CONFIDENCE_PERCENT: "82",
+    AI_AUTO_STAR_LETTER_DAILY_LIMIT: "12",
+    AI_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS: "7200",
+  }));
+
+  assert.deepEqual(config.autoObservation, {
+    minDelaySeconds: 120,
+    maxDelaySeconds: 600,
+    dispatchBatchSize: 9,
+    starLetterProbabilityPercent: 35,
+    starLetterMinConfidencePercent: 82,
+    starLetterDailyLimit: 12,
+    starLetterAuthorCooldownSeconds: 7200,
+  });
+});
+
+test("AI observation config rejects invalid automatic observation settings", () => {
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({
+      AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS: "0",
+    })),
+    /invalid_env:AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS/,
+  );
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({
+      AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS: "901",
+      AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS: "900",
+    })),
+    /invalid_env:AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS/,
+  );
+  assert.throws(
+    () => readAiObservationConfig(enabledEnv({
+      AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT: "101",
+    })),
+    /invalid_env:AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT/,
+  );
 });
 
 test("AI observation config rejects invalid worker dispatch and rate-limit values", () => {

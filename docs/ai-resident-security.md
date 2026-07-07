@@ -6,14 +6,14 @@
 Issue #56対応として、本番ON前にFunction入口rate limit、worker dispatch署名、prompt injection境界テストを追加する。
 POST予約はIP単位とoperator user id単位で厳しめに制限し、GET権限確認とstatus pollingは通常利用を妨げない範囲で制限する。
 worker入口もIP単位で制限し、DB上の全体processing数が `AI_GLOBAL_PROCESSING_LIMIT` を超える場合はGemini呼び出し前にfail closedする。
-capacity不足は一時的な混雑として扱い、provider未実行・attempt開始前のjobを永続 `failed` にしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを `cancelled` に戻して後で再予約できる状態にする。
+capacity不足は一時的な混雑として扱い、provider未実行・attempt開始前のjobを永続 `failed` にしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを残し、次回のdue dispatchで再試行できる状態にする。
 worker timeoutなどで古い `processing` jobが残った場合は、service_role専用の `recover_stale_ai_observation_jobs` RPCで `cancelled` + `WORKER_STALE` に戻す。Geminiのblind retryは行わない。
 これらはDBの日次/月次回数・料金上限とは別の、間接乱打と過剰pollingを抑えるための入口制御である。
 
 ## 処理フロー
 
 1. 通常の投稿カードはAI観測APIを呼ばず、手動実行ボタンや手動status文言を表示しない。分離された運営・検証導線だけがログイン済みoperatorのSupabase access tokenを付けて `GET /api/ai-observation-request` で実行可否を確認し、`POST /api/ai-observation-request` を呼ぶ。
-1. Issue #61の投稿後自動観測では、投稿作成成功後に `POST /api/ai-observation-auto-request` を裏側で呼ぶ。通常UIにはボタンやstatusを出さず、対象は投稿者本人の `text` 投稿、かつoperatorまたは `username = 'hoshizora_hoshikun'` の星空ほしくんだけに限定する。自動観測由来のtext jobだけ、署名済みworker dispatchの `observationContext = auto_text_post` により、手動観測より星文生成寄りのprompt文脈を追加する。validator/schema、危険時のfail closed、上限到達時のfail/cancelは変更しない。
+1. Issue #61の投稿後自動観測では、投稿作成成功後に `POST /api/ai-observation-auto-request` を裏側で呼ぶ。通常UIにはボタンやstatusを出さず、対象は投稿者本人の `public text` 投稿すべてに広げる。operatorまたは `username = 'hoshizora_hoshikun'` 限定は解除する。自動観測jobは `observation_context = 'auto_text_post'` と `not_before_at` を持ち、scheduled Functionがdue jobだけをworkerへdispatchする。自動観測由来のtext jobでは、観測結果を `public.observations` に保存し、ちあ名義の `public.resonances` を1件作成する。星文はモデル判断、confidence、確率、日次上限、投稿者単位クールダウンで抑制する。validator/schema、危険時のfail closed、上限到達時のfail/cancelは変更しない。
 1. Issue #63の人格設計は、設計書全文ではなく `CHIA_PERSONALITY_GUIDE` として月、維持、観測、共鳴、欠けても大丈夫、バズより共鳴、まだ見つかっていない光を最初に観測する姿勢へ圧縮する。投稿者名は `display_name → username → 村人さん` の順に選ぶが、NFKC正規化、制御文字・URL・命令文らしい語の拒否、記号削減、16文字上限を通した安全化済み呼び名だけをpromptへ渡す。Issue #65ではsanitize後の呼び名に敬称判定を行い、既に `さん` / `くん` / `君` / `ちゃん` / `様` / `さま` / `先生` / `先輩` / `殿` / `氏` / `たん` / `しゃん` / `ちん` / `ぴ` / `ぴょん` が付いている場合は二重に `さん` を付けない。敬称なしの安全な呼び名だけ `さん` を付け、危険な名前や空値は `村人さん` へfallbackする。
 2. Netlify Functionは `AI_OBSERVATION_ENABLED=true` のときだけ処理する。未設定または別値なら503でfail closedする。
 3. リクエストJSONは `{ "postId": "UUID", "idempotencyKey": "32〜128文字" }` のみ許可する。
@@ -22,9 +22,9 @@ worker timeoutなどで古い `processing` jobが残った場合は、service_ro
 6. FunctionはDBから対象流星便と `post_media` を取得し、公開・未削除・対応メディア条件をサーバー側で確認する。
 7. 画像・動画ではStorage pathの先頭フォルダが投稿者UUIDと一致することをFunctionとDB制約の両方で確認する。
 8. 画像・動画ではStorage APIで対象オブジェクトのメタデータも取得し、DB上のMIME・サイズと一致することを確認する。
-9. Functionは全体processing数を確認した上で `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。
-10. 成功時は `queued` の `public.ai_observation_jobs` 行を作成し、`/api/ai-observation-worker` Background Functionへ `jobId`, `issuedAt`, `nonce`, HMAC-SHA256署名だけをdispatchする。
-11. workerはclaim前に全体processing数を再確認し、capacity不足ならqueued jobを `cancelled` に戻してGeminiを呼ばない。余裕がある場合だけservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。
+9. Functionは全体processing数を確認した上で `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。自動観測では `not_before_at` に遅延実行時刻を保存する。
+10. 手動予約の成功時は `queued` jobを即時dispatchする。自動観測では scheduled Functionがdue jobだけを `/api/ai-observation-worker` Background Functionへ `jobId`, `issuedAt`, `nonce`, HMAC-SHA256署名でdispatchする。
+11. workerはclaim前に全体processing数を再確認し、capacity不足ならqueued jobを残してGeminiを呼ばない。余裕がある場合だけservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。
 12. 検証済み出力だけを `public.complete_ai_observation_job(...)` へ渡す。completion RPCはtransaction内で現在の `posts` / `post_media` からfingerprintを再計算し、job保存値とworker入力値の両方に一致する場合だけ `public.observations` 保存、必要時の星文insert、job成功更新を同一transactionで確定する。
 
 ## 信頼境界
@@ -73,6 +73,13 @@ Netlify Functionsだけが以下を参照する。
 - `AI_RATE_LIMIT_OPERATOR_POST`
 - `AI_RATE_LIMIT_OPERATOR_STATUS`
 - `AI_GLOBAL_PROCESSING_LIMIT`
+- `AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS`
+- `AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS`
+- `AI_AUTO_OBSERVATION_DISPATCH_BATCH_SIZE`
+- `AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT`
+- `AI_AUTO_STAR_LETTER_MIN_CONFIDENCE_PERCENT`
+- `AI_AUTO_STAR_LETTER_DAILY_LIMIT`
+- `AI_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS`
 
 これらは `VITE_` 変数にしない。PRでは本番Netlifyへ値を設定していない。
 
@@ -86,11 +93,11 @@ MVPでは `AI_OPERATOR_USER_IDS` をカンマ区切りAuth UUIDとして扱う�
 
 `public.ai_observation_jobs.status` はPostgreSQL enumで管理する。
 
-- `queued`: 予約済み。今回のFunctionが作成する唯一の状態。
+- `queued`: 予約済み。自動観測では `not_before_at` まではclaimされない。
 - `processing`: 観測workerが処理開始時にclaimして遷移する。
 - `succeeded`: 観測結果と星文処理が完了した状態。
 - `failed`: 観測失敗。
-- `cancelled`: dispatch失敗、capacity不足、stale processing回収など、再予約可能な中止状態。
+- `cancelled`: dispatch失敗、stale processing回収など、再予約可能な中止状態。capacity不足だけならqueuedを残して再dispatch対象にする。
 
 ## 二重実行防止
 
@@ -197,7 +204,7 @@ Gemini出力は固定JSON Schemaとローカルvalidatorで再検証し、AI生�
 2. Storage path違反件数がすべて0件であることを確認する。1件以上ある場合は、migration適用前に対象データを確認する。
 3. `supabase/migrations/20260703_add_ai_observation_security_foundation.sql` が未適用なら適用する。
 4. `docs/ai-observation-mvp-preflight.sql` を読み取り専用で実行する。
-5. `supabase/migrations/20260704_add_chia_observation_mvp.sql` と `supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql` をSupabase SQL Editorで確認後に適用する。
+5. `supabase/migrations/20260704_add_chia_observation_mvp.sql`、`supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql`、`supabase/migrations/20260708_expand_chia_auto_observation.sql` をSupabase SQL Editorで確認後に適用する。
 6. `docs/ai-observation-mvp-verification.sql` を読み取り専用で実行し、RPC、RLS、GRANT、制約、job状態を確認する。
 7. Netlify環境変数は、本番で観測を開始する直前まで未設定または機能OFFのまま維持する。
 8. 明示的に有効化するまで `AI_OBSERVATION_ENABLED` は空または未設定にする。

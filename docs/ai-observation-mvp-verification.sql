@@ -1,6 +1,7 @@
 -- 星空ちあ観測MVP migration verification.
 -- Read-only. Run after applying the AI observation MVP migrations, including
--- supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql.
+-- supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql and
+-- supabase/migrations/20260708_expand_chia_auto_observation.sql.
 
 select
   n.nspname as schema_name,
@@ -26,7 +27,67 @@ select
   'completion_rpc_signature' as check_name,
   pg_get_function_identity_arguments(p.oid) as identity_arguments,
   case
-    when pg_get_function_identity_arguments(p.oid) = 'p_job_id uuid, p_chia_profile_id uuid, p_expected_request_fingerprint text, p_observed_points jsonb, p_analysis_summary text, p_should_post boolean, p_star_letter_body text, p_input_tokens integer, p_output_tokens integer, p_total_tokens integer, p_actual_cost_micro_usd bigint'
+    when pg_get_function_identity_arguments(p.oid) = 'p_job_id uuid, p_chia_profile_id uuid, p_expected_request_fingerprint text, p_observed_points jsonb, p_analysis_summary text, p_should_post boolean, p_star_letter_body text, p_input_tokens integer, p_output_tokens integer, p_total_tokens integer, p_actual_cost_micro_usd bigint, p_auto_star_letter_daily_limit integer, p_auto_star_letter_author_cooldown_seconds integer'
+    then 0
+    else 1
+  end::bigint as anomaly_count
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname = 'complete_ai_observation_job';
+
+select
+  'auto_observation_job_columns' as check_name,
+  count(*) filter (where column_name = 'observation_context') as observation_context_columns,
+  count(*) filter (where column_name = 'not_before_at') as not_before_at_columns,
+  case
+    when count(*) filter (where column_name = 'observation_context') = 1
+      and count(*) filter (where column_name = 'not_before_at') = 1
+    then 0
+    else 1
+  end::bigint as anomaly_count
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'ai_observation_jobs'
+  and column_name in ('observation_context', 'not_before_at');
+
+select
+  'auto_observation_due_queue_index' as check_name,
+  case
+    when exists (
+      select 1
+      from pg_indexes
+      where schemaname = 'public'
+        and tablename = 'ai_observation_jobs'
+        and indexname = 'ai_observation_jobs_due_queue_idx'
+        and indexdef like '%not_before_at%'
+        and indexdef like '%WHERE (status = ''queued''::ai_observation_job_status)%'
+    )
+    then 0
+    else 1
+  end::bigint as anomaly_count;
+
+select
+  'claim_respects_not_before_at' as check_name,
+  case
+    when pg_get_functiondef(p.oid) like '%v_job.not_before_at > now()%'
+      and pg_get_functiondef(p.oid) like '%outcome := ''not_ready''%'
+    then 0
+    else 1
+  end::bigint as anomaly_count
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname = 'claim_ai_observation_job';
+
+select
+  'completion_auto_star_letter_gate' as check_name,
+  case
+    when pg_get_functiondef(p.oid) like '%p_auto_star_letter_daily_limit%'
+      and pg_get_functiondef(p.oid) like '%p_auto_star_letter_author_cooldown_seconds%'
+      and pg_get_functiondef(p.oid) like '%ai_observation_star_letters:hoshizora_chia%'
+      and pg_get_functiondef(p.oid) like '%v_job.observation_context = ''auto_text_post''%'
+      and pg_get_functiondef(p.oid) like '%insert into public.resonances%'
     then 0
     else 1
   end::bigint as anomaly_count
@@ -108,6 +169,7 @@ left join pg_roles r on r.oid = a.grantee
 where n.nspname = 'public'
   and p.proname in (
     'claim_ai_observation_job',
+    'reserve_ai_observation_job',
     'start_ai_observation_attempt',
     'complete_ai_observation_job',
     'fail_ai_observation_job',
@@ -151,6 +213,7 @@ join pg_roles r on r.oid = a.grantee
 where n.nspname = 'public'
   and p.proname in (
     'claim_ai_observation_job',
+    'reserve_ai_observation_job',
     'start_ai_observation_attempt',
     'complete_ai_observation_job',
     'fail_ai_observation_job',

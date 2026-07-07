@@ -82,6 +82,7 @@ export async function claimAiObservationJob({ supabase, jobId }) {
     "already_succeeded",
     "already_failed",
     "already_cancelled",
+    "not_ready",
   ]));
 }
 
@@ -94,7 +95,16 @@ export async function startAiObservationAttempt({ supabase, jobId }) {
   return assertKnownOutcome(firstRpcRow(data), new Set(["attempt_started"]));
 }
 
-export async function completeAiObservationJob({ supabase, jobId, chiaProfileId, expectedRequestFingerprint, observation, usage }) {
+export async function completeAiObservationJob({
+  supabase,
+  jobId,
+  chiaProfileId,
+  expectedRequestFingerprint,
+  observation,
+  usage,
+  autoStarLetterDailyLimit,
+  autoStarLetterAuthorCooldownSeconds,
+}) {
   const { data, error } = await supabase.rpc("complete_ai_observation_job", {
     p_job_id: jobId,
     p_chia_profile_id: chiaProfileId,
@@ -107,6 +117,8 @@ export async function completeAiObservationJob({ supabase, jobId, chiaProfileId,
     p_output_tokens: usage.outputTokens,
     p_total_tokens: usage.totalTokens,
     p_actual_cost_micro_usd: usage.actualCostMicroUsd,
+    p_auto_star_letter_daily_limit: autoStarLetterDailyLimit,
+    p_auto_star_letter_author_cooldown_seconds: autoStarLetterAuthorCooldownSeconds,
   });
 
   throwInternalOnError(error);

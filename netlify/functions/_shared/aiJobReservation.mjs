@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { AI_ERROR, aiHttpError } from "./aiErrors.mjs";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 import { buildReservationParams } from "./aiLimits.mjs";
 
 const AI_RESIDENT_KEY = "hoshizora_chia";
@@ -92,7 +93,17 @@ function mapOutcomeToError(outcome) {
   return aiHttpError(503, AI_ERROR.INTERNAL);
 }
 
-export async function reserveAiObservationJob({ supabase, operatorUserId, payload, post, mediaRows, mediaSummary, config }) {
+export async function reserveAiObservationJob({
+  supabase,
+  operatorUserId,
+  payload,
+  post,
+  mediaRows,
+  mediaSummary,
+  config,
+  observationContext = AI_OBSERVATION_CONTEXT.MANUAL,
+  notBeforeAt = new Date(),
+}) {
   const reservation = buildReservationParams({ config, mediaSummary });
   const requestFingerprint = createRequestFingerprint({ post, mediaRows, mediaSummary });
 
@@ -104,6 +115,8 @@ export async function reserveAiObservationJob({ supabase, operatorUserId, payloa
     p_model: config.model,
     p_idempotency_key: payload.idempotencyKey,
     p_request_fingerprint: requestFingerprint,
+    p_observation_context: observationContext,
+    p_not_before_at: notBeforeAt.toISOString(),
     p_input_kind: reservation.inputKind,
     p_input_size_bytes: reservation.inputSizeBytes,
     p_input_duration_seconds: reservation.inputDurationSeconds,
@@ -130,6 +143,8 @@ export async function reserveAiObservationJob({ supabase, operatorUserId, payloa
   return {
     jobId: row.job_id,
     status: row.job_status ?? "queued",
+    notBeforeAt: row.not_before_at ?? null,
+    observationContext: row.observation_context ?? observationContext,
   };
 }
 

@@ -1,0 +1,79 @@
+import { createHash } from "node:crypto";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
+
+function deterministicPercent(seed) {
+  const digest = createHash("sha256").update(seed).digest();
+  const value = digest.readUInt32BE(0);
+
+  return value % 100;
+}
+
+export function shouldAllowAutoStarLetter({
+  observation,
+  observationContext,
+  jobId,
+  requestFingerprint,
+  config,
+}) {
+  if (observationContext !== AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST) {
+    return { allowed: Boolean(observation?.shouldPost), reason: "manual_or_non_auto" };
+  }
+
+  if (!observation?.shouldPost || !observation.starLetter) {
+    return { allowed: false, reason: "model_declined" };
+  }
+
+  const autoConfig = config?.autoObservation ?? {};
+  const confidencePercent = Math.floor(Number(observation.confidence ?? 0) * 100);
+  const minConfidencePercent = Number(autoConfig.starLetterMinConfidencePercent ?? 75);
+
+  if (!Number.isSafeInteger(confidencePercent) || confidencePercent < minConfidencePercent) {
+    return { allowed: false, reason: "low_confidence" };
+  }
+
+  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 20);
+
+  if (!Number.isSafeInteger(probabilityPercent) || probabilityPercent <= 0) {
+    return { allowed: false, reason: "probability_zero" };
+  }
+
+  if (probabilityPercent >= 100) {
+    return { allowed: true, reason: "probability_full" };
+  }
+
+  const bucket = deterministicPercent(`${jobId}:${requestFingerprint}:star-letter`);
+
+  return bucket < probabilityPercent
+    ? { allowed: true, reason: "probability_passed" }
+    : { allowed: false, reason: "probability_skipped" };
+}
+
+export function applyAutoStarLetterGate({
+  observation,
+  observationContext,
+  jobId,
+  requestFingerprint,
+  config,
+}) {
+  const decision = shouldAllowAutoStarLetter({
+    observation,
+    observationContext,
+    jobId,
+    requestFingerprint,
+    config,
+  });
+
+  if (decision.allowed) {
+    return {
+      ...observation,
+      starLetterGateReason: decision.reason,
+    };
+  }
+
+  return {
+    ...observation,
+    shouldPost: false,
+    starLetter: null,
+    starLetterGateReason: decision.reason,
+  };
+}

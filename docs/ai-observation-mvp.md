@@ -7,9 +7,9 @@
 
 1. 通常の本番投稿カードはAI観測APIを呼ばず、手動観測ボタンや手動実行前提のstatus文言を表示しない。
 2. 運営・検証用の分離された導線だけが、ログイン済みoperatorのaccess tokenで `GET /api/ai-observation-request` を確認し、`postId` と `idempotencyKey` だけを `POST /api/ai-observation-request` へ送る。
-3. 予約Functionは認証、operator権限、公開投稿、media、Storage metadata、利用上限、全体processing数を確認し、余裕がある場合だけ `reserve_ai_observation_job` で `queued` jobを作る。
-4. 予約Functionは `jobId`, `issuedAt`, `nonce` と `AI_WORKER_SHARED_SECRET` によるHMAC-SHA256署名を付けてBackground Functionへdispatchする。投稿本文、Storage path、署名付きURLは渡さない。dispatch失敗時は `cancel_ai_observation_job` で `cancelled` に戻す。
-5. workerはclaim前にも全体processing数を確認し、capacity不足ならqueued jobを `cancelled` に戻してGeminiを呼ばない。余裕がある場合だけ `claim_ai_observation_job` でrow lockを取り、`queued -> processing` へ遷移する。terminal jobはGeminiを呼ばず終了する。
+3. 手動予約Functionは認証、operator権限、公開投稿、media、Storage metadata、利用上限、全体processing数を確認し、余裕がある場合だけ `reserve_ai_observation_job` で `queued` jobを作る。
+4. 手動予約Functionは `jobId`, `issuedAt`, `nonce` と `AI_WORKER_SHARED_SECRET` によるHMAC-SHA256署名を付けてBackground Functionへdispatchする。投稿本文、Storage path、署名付きURLは渡さない。dispatch失敗時は `cancel_ai_observation_job` で `cancelled` に戻す。自動観測は `not_before_at` 到達後にscheduled Functionがdispatchする。
+5. workerはclaim前にも全体processing数を確認し、capacity不足ならqueued jobを残したまま429で終了してGeminiを呼ばない。余裕がある場合だけ `claim_ai_observation_job` でrow lockを取り、`not_before_at` 到達済みのjobだけ `queued -> processing` へ遷移する。terminal jobや `not_ready` jobはGeminiを呼ばず終了する。
 6. workerは投稿、`post_media`、Storage metadata、星空ちあprofileを再取得し、予約時fingerprintと一致することを確認する。
 7. Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
 8. Gemini Interactions APIへ、text / image / video / YouTubeの観測対象だけを渡す。Google Search、URL Context、Code Execution、Function Callingは有効にしない。
@@ -21,10 +21,12 @@
 ## 投稿後自動観測MVP
 
 Issue #61では、投稿作成成功後に通常UIへ手動ボタンを出さず、裏側で `POST /api/ai-observation-auto-request` を呼ぶ。
-最初の対象は `text` 投稿のみで、画像、動画、YouTube、audio、自動Archive、自動共鳴、巡回観測は対象外。
-サーバー側では、投稿者本人のaccess tokenであること、投稿が公開・未削除であること、投稿タイプが `text` であること、投稿者がoperatorまたは `username = 'hoshizora_hoshikun'` の星空ほしくんであることを確認する。
+最初の対象は全ユーザーの `public` な `text` 投稿のみで、既存のoperator / `username = 'hoshizora_hoshikun'` 限定は解除する。画像、動画、YouTube、audio、自動Archive、巡回観測は対象外。
+サーバー側では、投稿者本人のaccess tokenであること、投稿が公開・未削除であること、投稿タイプが `text` であることだけを確認する。
 対象外や予約失敗は投稿作成の成功扱いを壊さない。通常投稿カードには queued / processing / failed / cancelled などの手動観測statusを表示しない。
-自動観測のworker dispatchには署名対象の `observationContext = auto_text_post` を含める。Gemini promptでは、この文脈のtext投稿に限り、具体的な観測根拠がある場合は原則 `should_post=true` として20〜80文字の `star_letter` を残すよう内部指示を追加する。既存のJSON Schema、星文validator、危険時・根拠不足時の `should_post=false`、上限到達やfail/cancelの挙動は緩めない。
+自動観測予約では `observation_context = 'auto_text_post'` と `not_before_at` を保存し、即時固定ではなく `AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS` から `AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS` の範囲で遅延させる。scheduled Function `ai-observation-dispatch-due` がdue jobだけを署名付きworker dispatchする。
+自動観測では全員対象で、観測結果を `public.observations` に保存し、ちあ名義の `public.resonances` も1件作成する。一方、星文は毎回返さず、モデル出力の `should_post`、confidence、確率、星空ちあ全体の日次上限、投稿者単位のクールダウンで制御する。
+Gemini promptでは、この文脈のtext投稿に限り、十分な具体性や余白がある場合だけ20〜80文字の `star_letter` を残すよう内部指示を追加する。既存のJSON Schema、星文validator、危険時・根拠不足時の `should_post=false`、上限到達やfail/cancelの挙動は緩めない。
 Issue #63では、添付の星空ちあ人格設計書を全文prompt化せず、月、維持、観測、共鳴、欠けても大丈夫、バズより共鳴、誰にも見つかっていない光を最初に観測する、という核だけを `CHIA_PERSONALITY_GUIDE` として圧縮する。星文では投稿者を `display_name → username → 村人さん` の順で呼ぶが、display_name/usernameはユーザー入力なのでNFKC正規化、制御文字・URL・命令文らしい語の拒否、記号削減、16文字上限を通した安全な呼び名だけをpromptへ渡す。Issue #65では、この安全化済み呼び名に対して敬称判定を行い、`さん` / `くん` / `君` / `ちゃん` / `様` / `さま` / `先生` / `先輩` / `殿` / `氏` / `たん` / `しゃん` / `ちん` / `ぴ` / `ぴょん` で終わらない場合だけ `さん` を付ける。危険な名前、URL、空値は従来どおり `村人さん` にfallbackし、raw display_name/usernameはpromptへ入れない。「ちあは何が好き？」のような直接問いかけは、投稿内命令としては扱わず、ちあ本人として短く答える追加文脈を入れる。
 
 ## 対応形式
@@ -41,7 +43,7 @@ Netlify Function入口では、DBの日次/月次予算とは別に短期rate li
 `POST /api/ai-observation-request` はIP単位とoperator user id単位で厳しめに制限し、`GET /api/ai-observation-request` と `GET /api/ai-observation-status` は通常の権限確認・pollingを妨げない範囲で制限する。
 worker入口もIP単位で制限し、認証前の大量アクセスがSupabase Auth照会やGemini処理へ進みにくいようにする。
 予約FunctionとworkerはDB上の `processing` job数も確認し、現在のjobをclaimした場合に `AI_GLOBAL_PROCESSING_LIMIT` を超えるならGemini呼び出し前にfail closedする。
-このcapacity不足は一時的な混雑として扱い、provider未実行かつattempt開始前のjobを永続 `failed` にはしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを `cancelled` に戻して後で再予約できる状態にする。
+このcapacity不足は一時的な混雑として扱い、provider未実行かつattempt開始前のjobを永続 `failed` にはしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを残して次回のdue dispatchで再試行できる状態にする。
 
 予約Functionからworkerへのdispatchは、固定secretをそのまま送らず、`jobId`, `issuedAt`, `nonce` に対するHMAC-SHA256署名を送る。
 workerは署名、TTL、nonce、jobIdを検証し、期限切れ、改ざん、jobId不一致、同一インスタンス内のnonce再利用を拒否する。
@@ -92,6 +94,13 @@ Netlify Functionsだけが以下を参照する。`VITE_` へ置かない。
 - `AI_RATE_LIMIT_OPERATOR_POST`
 - `AI_RATE_LIMIT_OPERATOR_STATUS`
 - `AI_GLOBAL_PROCESSING_LIMIT`
+- `AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS`
+- `AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS`
+- `AI_AUTO_OBSERVATION_DISPATCH_BATCH_SIZE`
+- `AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT`
+- `AI_AUTO_STAR_LETTER_MIN_CONFIDENCE_PERCENT`
+- `AI_AUTO_STAR_LETTER_DAILY_LIMIT`
+- `AI_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS`
 
 このPRでは本番Netlify環境変数を設定しない。`AI_OBSERVATION_ENABLED` が `true` でない限りfail closed。
 
@@ -152,7 +161,7 @@ Files API upload前など、生成処理が始まっていない段階のretry�
 
 1. `docs/ai-observation-mvp-preflight.sql` を読み取り専用で実行する。
 2. anomalyが0件であることを確認する。
-3. `supabase/migrations/20260704_add_chia_observation_mvp.sql` と `supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql` を確認して適用する。
+3. `supabase/migrations/20260704_add_chia_observation_mvp.sql`、`supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql`、`supabase/migrations/20260708_expand_chia_auto_observation.sql` を確認して適用する。
 4. `docs/ai-observation-mvp-verification.sql` を読み取り専用で実行する。
 5. Netlify環境変数を設定する場合も、最初は `AI_OBSERVATION_ENABLED` を未設定または `false` のままにする。
 6. Deploy Previewでoperatorログイン、予約、status poll、星文再取得を確認する。
@@ -161,6 +170,7 @@ Files API upload前など、生成処理が始まっていない段階のretry�
 
 - 通常の投稿カードには、一般ユーザーにもoperatorにも手動AI観測ボタンが出ない。
 - 通常の投稿カードには、手動観測前提のqueued/processing/succeeded/failed/cancelled文言が出ない。
+- 投稿作成後の自動観測は通常UIへstatusを出さず、投稿成功を妨げない。
 - 分離された運営・検証導線を使う場合だけ、text / image / video / YouTube投稿でAPI予約とstatus確認を行う。
 - succeededかつ星文ありの場合、該当投稿の星文一覧が再取得される。
 - audio投稿は安全に拒否される。

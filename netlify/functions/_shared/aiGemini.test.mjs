@@ -291,8 +291,9 @@ test("Interactions create disables SDK retry and receives timeout options and Ab
   assert.equal(calls[0].options.retries.strategy, "none");
   assert.equal(calls[0].options.timeout_ms, 1234);
   assert.equal(calls[0].options.signal instanceof AbortSignal, true);
-  assert.equal(calls[0].request.input[0].text.includes("投稿作成直後の自動観測"), true);
-  assert.equal(calls[0].request.input[0].text.includes("原則 should_post=true"), true);
+  assert.equal(calls[0].request.input[0].text.includes("投稿作成後の自動観測候補"), true);
+  assert.equal(calls[0].request.input[0].text.includes("原則 should_post=true"), false);
+  assert.equal(calls[0].request.input[0].text.includes("星文は毎回返しません"), true);
   assert.equal(calls[0].request.input[0].text.includes("<author_call_name>\nほしくん\n</author_call_name>"), true);
   assert.equal(result.usage.outputTokens, 257);
   assert.equal(result.usage.actualCostMicroUsd, 3113);

@@ -6,6 +6,13 @@ const MAX_SECONDS_BETWEEN_REQUESTS = 86400;
 const SUPPORTED_AI_OBSERVATION_MODEL = "gemini-3.5-flash";
 const MIN_WORKER_SHARED_SECRET_LENGTH = 32;
 const DEFAULT_WORKER_DISPATCH_TTL_SECONDS = 60;
+const DEFAULT_AUTO_OBSERVATION_MIN_DELAY_SECONDS = 60;
+const DEFAULT_AUTO_OBSERVATION_MAX_DELAY_SECONDS = 900;
+const DEFAULT_AUTO_OBSERVATION_DISPATCH_BATCH_SIZE = 5;
+const DEFAULT_AUTO_STAR_LETTER_PROBABILITY_PERCENT = 20;
+const DEFAULT_AUTO_STAR_LETTER_MIN_CONFIDENCE_PERCENT = 75;
+const DEFAULT_AUTO_STAR_LETTER_DAILY_LIMIT = 20;
+const DEFAULT_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS = 86400;
 
 function defaultEnvSource() {
   return globalThis.Netlify?.env ?? process.env;
@@ -108,6 +115,41 @@ export function readAiObservationConfig(env = defaultEnvSource()) {
     throw new Error("invalid_env:AI_WORKER_SHARED_SECRET");
   }
 
+  const autoObservation = {
+    minDelaySeconds: parseOptionalInteger("AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS", env, DEFAULT_AUTO_OBSERVATION_MIN_DELAY_SECONDS, {
+      min: 1,
+      max: 86400,
+    }),
+    maxDelaySeconds: parseOptionalInteger("AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS", env, DEFAULT_AUTO_OBSERVATION_MAX_DELAY_SECONDS, {
+      min: 1,
+      max: 86400,
+    }),
+    dispatchBatchSize: parseOptionalInteger("AI_AUTO_OBSERVATION_DISPATCH_BATCH_SIZE", env, DEFAULT_AUTO_OBSERVATION_DISPATCH_BATCH_SIZE, {
+      min: 1,
+      max: 50,
+    }),
+    starLetterProbabilityPercent: parseOptionalInteger("AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT", env, DEFAULT_AUTO_STAR_LETTER_PROBABILITY_PERCENT, {
+      min: 0,
+      max: 100,
+    }),
+    starLetterMinConfidencePercent: parseOptionalInteger("AI_AUTO_STAR_LETTER_MIN_CONFIDENCE_PERCENT", env, DEFAULT_AUTO_STAR_LETTER_MIN_CONFIDENCE_PERCENT, {
+      min: 0,
+      max: 100,
+    }),
+    starLetterDailyLimit: parseOptionalInteger("AI_AUTO_STAR_LETTER_DAILY_LIMIT", env, DEFAULT_AUTO_STAR_LETTER_DAILY_LIMIT, {
+      min: 0,
+      max: Math.min(MAX_REQUEST_LIMIT, POSTGRES_INTEGER_MAX),
+    }),
+    starLetterAuthorCooldownSeconds: parseOptionalInteger("AI_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS", env, DEFAULT_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS, {
+      min: 0,
+      max: 2592000,
+    }),
+  };
+
+  if (autoObservation.maxDelaySeconds < autoObservation.minDelaySeconds) {
+    throw new Error("invalid_env:AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS");
+  }
+
   return {
     enabled: true,
     supabaseUrl,
@@ -121,6 +163,7 @@ export function readAiObservationConfig(env = defaultEnvSource()) {
       min: 1,
       max: 300,
     }),
+    autoObservation,
     operatorUserIds: parseOperatorUserIds(env),
     dailyRequestLimit: parseRequiredInteger("AI_DAILY_REQUEST_LIMIT", env, {
       min: 1,

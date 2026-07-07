@@ -83,6 +83,12 @@ function config() {
     rateLimits: {
       globalProcessingLimit: 2,
     },
+    autoObservation: {
+      starLetterProbabilityPercent: 100,
+      starLetterMinConfidencePercent: 75,
+      starLetterDailyLimit: 20,
+      starLetterAuthorCooldownSeconds: 86400,
+    },
   };
 }
 
@@ -104,6 +110,7 @@ function output(overrides = {}) {
 function createMockSupabase({
   claimFingerprint,
   claimOutcome = "claimed",
+  claimObservationContext = AI_OBSERVATION_CONTEXT.MANUAL,
   completeOutcome = "completed",
   failOutcome = "failed",
   processingCount = 1,
@@ -148,6 +155,8 @@ function createMockSupabase({
               max_attempts: 2,
               input_kind: "text",
               model: "gemini-3.5-flash",
+              observation_context: claimObservationContext,
+              not_before_at: "2026-07-07T00:00:00.000Z",
             }],
             error: null,
           });
@@ -318,7 +327,7 @@ test("post fingerprint mismatch fails before provider attempt", async () => {
   assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.POST_CHANGED[0]);
 });
 
-test("global processing limit cancels queued job before provider attempt", async () => {
+test("global processing limit leaves queued job retryable before provider attempt", async () => {
   const { supabase, calls } = createMockSupabase({ processingCount: 3 });
   let providerCalls = 0;
   await assert.rejects(
@@ -339,15 +348,36 @@ test("global processing limit cancels queued job before provider attempt", async
   assert.equal(providerCalls, 0);
   assert.equal(calls.attempts, 0);
   assert.equal(calls.failArgs, null);
-  assert.deepEqual(calls.cancelArgs, {
-    p_job_id: "77777777-7777-4777-8777-777777777777",
-    p_public_error_code: AI_ERROR.RATE_LIMITED[0],
+  assert.equal(calls.cancelArgs, null);
+  assert.deepEqual(calls.rpc.map((call) => call.name), []);
+});
+
+test("not-ready delayed jobs are not sent to Gemini", async () => {
+  const { supabase, calls } = createMockSupabase({ claimOutcome: "not_ready" });
+  let providerCalls = 0;
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    runProvider: async () => {
+      providerCalls += 1;
+      return { output: output(), usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 } };
+    },
   });
-  assert.deepEqual(calls.rpc.map((call) => call.name), ["cancel_ai_observation_job"]);
+
+  assert.equal(result.outcome, "not_ready");
+  assert.equal(providerCalls, 0);
+  assert.equal(calls.attempts, 0);
+  assert.equal(calls.completeCalls, 0);
 });
 
 test("global processing capacity allows the last available processing slot", async () => {
-  const { supabase, calls } = createMockSupabase({ processingCount: 1 });
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    processingCount: 1,
+  });
   const providerContexts = [];
   const providerAuthorNames = [];
   let providerCalls = 0;
@@ -375,6 +405,37 @@ test("global processing capacity allows the last available processing slot", asy
   assert.deepEqual(providerAuthorNames, ["ほしくん"]);
   assert.equal(calls.attempts, 1);
   assert.equal(calls.cancelArgs, null);
+  assert.equal(calls.completeArgs.p_should_post, true);
+  assert.equal(calls.completeArgs.p_auto_star_letter_daily_limit, 20);
+  assert.equal(calls.completeArgs.p_auto_star_letter_author_cooldown_seconds, 86400);
+});
+
+test("automatic text observation can suppress star letters while keeping observation completion", async () => {
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  });
+  const lowConfidenceConfig = {
+    ...config(),
+    autoObservation: {
+      ...config().autoObservation,
+      starLetterMinConfidencePercent: 90,
+    },
+  };
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: lowConfidenceConfig,
+    geminiClient: {},
+    runProvider: async () => ({
+      output: output({ confidence: 0.81 }),
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
+    }),
+  });
+
+  assert.equal(result.outcome, "completed");
+  assert.equal(calls.completeArgs.p_should_post, false);
+  assert.equal(calls.completeArgs.p_star_letter_body, null);
 });
 
 test("provider failure after attempt is not blindly retried", async () => {
