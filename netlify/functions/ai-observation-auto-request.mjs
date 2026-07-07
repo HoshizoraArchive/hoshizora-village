@@ -1,7 +1,9 @@
 import { readAiObservationConfig } from "./_shared/aiConfig.mjs";
 import { requireAuthenticatedUser } from "./_shared/aiAuth.mjs";
-import { getAutomaticChiaObservationEligibility } from "./_shared/aiAutoObservation.mjs";
-import { dispatchAiObservationWorker } from "./_shared/aiDispatch.mjs";
+import {
+  buildAutoObservationNotBeforeAt,
+  getAutomaticChiaObservationEligibility,
+} from "./_shared/aiAutoObservation.mjs";
 import {
   AI_ERROR,
   AiHttpError,
@@ -11,12 +13,10 @@ import {
   logAiEvent,
 } from "./_shared/aiErrors.mjs";
 import { reserveAiObservationJob } from "./_shared/aiJobReservation.mjs";
-import { cancelAiObservationJob } from "./_shared/aiJobState.mjs";
 import { loadPostAndMedia } from "./_shared/aiObservationData.mjs";
 import { recoverStaleProcessingJobs } from "./_shared/aiStaleJobs.mjs";
 import {
   getClientIp,
-  assertGlobalProcessingCapacity,
   assertRateLimit,
   readAiRateLimitConfig,
 } from "./_shared/aiRateLimit.mjs";
@@ -110,7 +110,6 @@ async function handlePost(request, requestId, startedAt) {
     userId: user.id,
     post,
     profile,
-    operatorUserIds: config.operatorUserIds,
   });
 
   if (!eligibility.eligible) {
@@ -125,12 +124,11 @@ async function handlePost(request, requestId, startedAt) {
   }
 
   const mediaSummary = validatePostMedia(post, mediaRows);
-
-  await assertGlobalProcessingCapacity({
-    supabase,
-    limit: config.rateLimits.globalProcessingLimit,
-    reservedSlots: 1,
+  const notBeforeAt = buildAutoObservationNotBeforeAt({
+    minDelaySeconds: config.autoObservation.minDelaySeconds,
+    maxDelaySeconds: config.autoObservation.maxDelaySeconds,
   });
+
   const job = await reserveAiObservationJob({
     supabase,
     operatorUserId: user.id,
@@ -139,23 +137,9 @@ async function handlePost(request, requestId, startedAt) {
     mediaRows,
     mediaSummary,
     config,
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    notBeforeAt,
   });
-
-  try {
-    await dispatchAiObservationWorker({
-      request,
-      config,
-      jobId: job.jobId,
-      observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
-    });
-  } catch (error) {
-    await cancelAiObservationJob({
-      supabase,
-      jobId: job.jobId,
-      publicErrorCode: AI_ERROR.WORKER_DISPATCH_FAILED[0],
-    });
-    throw error;
-  }
 
   logAiEvent("info", "ai_observation_auto_reserved", {
     requestId,
@@ -169,6 +153,7 @@ async function handlePost(request, requestId, startedAt) {
   return jsonResponse(202, {
     jobId: job.jobId,
     status: job.status,
+    notBeforeAt: job.notBeforeAt,
     requestId,
   });
 }

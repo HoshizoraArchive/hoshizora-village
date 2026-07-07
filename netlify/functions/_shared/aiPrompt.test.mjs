@@ -165,13 +165,14 @@ test("automatic text observation prompt nudges star-letter creation without chan
     },
   });
 
-  assert.equal(manualPrompt.includes("投稿作成直後の自動観測"), false);
+  assert.equal(manualPrompt.includes("投稿作成後の自動観測候補"), false);
   assert.equal(manualPrompt.includes("原則 should_post=true"), false);
   assert.equal(manualPrompt.includes("星文を残す場合は、この呼び名を自然に1回だけ使ってください。"), true);
-  assert.equal(automaticPrompt.includes("投稿作成直後の自動観測"), true);
-  assert.equal(automaticPrompt.includes("原則 should_post=true"), true);
-  assert.equal(automaticPrompt.includes("20〜80文字のstar_letter"), true);
-  assert.equal(automaticPrompt.includes("validator条件を満たす星文を作れない場合"), true);
+  assert.equal(automaticPrompt.includes("投稿作成後の自動観測候補"), true);
+  assert.equal(automaticPrompt.includes("原則 should_post=true"), false);
+  assert.equal(automaticPrompt.includes("星文は毎回返しません"), true);
+  assert.equal(automaticPrompt.includes("十分な具体性や余白"), true);
+  assert.equal(automaticPrompt.includes("should_post=false"), true);
   assert.equal(automaticPrompt.includes("<meteor_text>"), true);
   assert.equal(automaticPrompt.includes("星空ちあすき"), true);
   assert.equal(automaticPrompt.includes("</meteor_text>"), true);

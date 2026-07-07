@@ -599,6 +599,8 @@ create table if not exists public.ai_observation_jobs (
   status public.ai_observation_job_status not null default 'queued',
   idempotency_key text not null,
   request_fingerprint text not null,
+  observation_context text not null default 'manual',
+  not_before_at timestamptz not null default now(),
   attempt_count integer not null default 0,
   max_attempts integer not null default 1,
   input_kind text not null,
@@ -619,6 +621,7 @@ create table if not exists public.ai_observation_jobs (
   constraint ai_observation_jobs_ai_resident_key_check check (ai_resident_key in ('hoshizora_chia')),
   constraint ai_observation_jobs_provider_check check (provider in ('gemini')),
   constraint ai_observation_jobs_input_kind_check check (input_kind in ('text', 'image', 'audio', 'video', 'youtube')),
+  constraint ai_observation_jobs_observation_context_check check (observation_context in ('manual', 'auto_text_post')),
   constraint ai_observation_jobs_idempotency_key_check check (idempotency_key ~ '^[A-Za-z0-9._:-]{32,128}$'),
   constraint ai_observation_jobs_request_fingerprint_check check (request_fingerprint ~ '^[0-9a-f]{64}$'),
   constraint ai_observation_jobs_attempts_check check (attempt_count >= 0 and max_attempts between 1 and 10 and attempt_count <= max_attempts),
@@ -640,6 +643,8 @@ comment on table public.ai_observation_jobs is 'AI住人観測ジョブの内部
 comment on column public.ai_observation_jobs.reserved_cost_micro_usd is '利用上限判定に使う予約料金。micro USD単位の整数で保存する。';
 comment on column public.ai_observation_jobs.actual_cost_micro_usd is 'AI実行後にprovider usageから推定した料金。Gemini 3.5 Flash Standardのpricing snapshotに基づくmicro USD整数で、請求書上の確定額ではない。';
 comment on column public.ai_observation_jobs.request_fingerprint is '同じ入力を安全に識別するハッシュ。投稿本文やStorage pathそのものは保存しない。';
+comment on column public.ai_observation_jobs.observation_context is 'AI観測jobの実行文脈。manualまたは投稿後自動観測(auto_text_post)のみ。';
+comment on column public.ai_observation_jobs.not_before_at is 'この時刻まではworkerがclaimしない。投稿後自動観測を即時固定にしないための遅延実行時刻。';
 comment on column public.ai_observation_jobs.public_error_code is '外部へ出してよい短いエラーコード。内部エラー本文は保存しない。';
 comment on column public.ai_observation_jobs.attempt_count is 'provider APIを実際に呼び出した回数。自動リトライは同じジョブ行の中でこの値を増やす。';
 comment on column public.ai_observation_jobs.max_attempts is '1つの観測処理で許可するprovider API呼び出し総数。';
@@ -825,6 +830,9 @@ create index if not exists ai_observation_jobs_status_created_at_idx
 on public.ai_observation_jobs(status, created_at desc);
 create index if not exists ai_observation_jobs_created_at_idx
 on public.ai_observation_jobs(created_at desc);
+create index if not exists ai_observation_jobs_due_queue_idx
+on public.ai_observation_jobs(status, not_before_at, created_at)
+where status = 'queued';
 
 create unique index if not exists ai_observation_jobs_idempotency_key_idx
 on public.ai_observation_jobs(idempotency_key);
@@ -850,6 +858,8 @@ create or replace function public.reserve_ai_observation_job(
   p_model text,
   p_idempotency_key text,
   p_request_fingerprint text,
+  p_observation_context text,
+  p_not_before_at timestamptz,
   p_input_kind text,
   p_input_size_bytes bigint,
   p_input_duration_seconds numeric,
@@ -864,14 +874,16 @@ create or replace function public.reserve_ai_observation_job(
 returns table (
   outcome text,
   job_id uuid,
-  job_status text
+  job_status text,
+  observation_context text,
+  not_before_at timestamptz
 )
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
-  v_job_id uuid;
+  v_job public.ai_observation_jobs%rowtype;
   v_day_start timestamptz := (date_trunc('day', now() at time zone 'UTC') at time zone 'UTC');
   v_month_start timestamptz := (date_trunc('month', now() at time zone 'UTC') at time zone 'UTC');
   v_daily_requests bigint;
@@ -884,6 +896,10 @@ begin
     or p_model <> 'gemini-3.5-flash'
     or p_idempotency_key !~ '^[A-Za-z0-9._:-]{32,128}$'
     or p_request_fingerprint !~ '^[0-9a-f]{64}$'
+    or p_observation_context not in ('manual', 'auto_text_post')
+    or p_not_before_at is null
+    or p_not_before_at < now() - interval '5 minutes'
+    or p_not_before_at > now() + interval '1 day'
     or p_input_kind not in ('text', 'image', 'audio', 'video', 'youtube')
     or p_input_size_bytes < 0
     or p_reserved_cost_micro_usd < 1
@@ -1017,6 +1033,8 @@ begin
     status,
     idempotency_key,
     request_fingerprint,
+    observation_context,
+    not_before_at,
     max_attempts,
     input_kind,
     input_size_bytes,
@@ -1032,17 +1050,21 @@ begin
     'queued',
     p_idempotency_key,
     p_request_fingerprint,
+    p_observation_context,
+    p_not_before_at,
     p_max_attempts,
     p_input_kind,
     p_input_size_bytes,
     p_input_duration_seconds,
     p_reserved_cost_micro_usd
   )
-  returning id into v_job_id;
+  returning * into v_job;
 
   outcome := 'reserved';
-  job_id := v_job_id;
-  job_status := 'queued';
+  job_id := v_job.id;
+  job_status := v_job.status::text;
+  observation_context := v_job.observation_context;
+  not_before_at := v_job.not_before_at;
   return next;
 
 exception
@@ -1050,8 +1072,62 @@ exception
     outcome := 'already_queued';
     job_id := null;
     job_status := null;
+    observation_context := null;
+    not_before_at := null;
     return next;
 end;
+$$;
+
+create or replace function public.reserve_ai_observation_job(
+  p_post_id uuid,
+  p_requested_by uuid,
+  p_ai_resident_key text,
+  p_provider text,
+  p_model text,
+  p_idempotency_key text,
+  p_request_fingerprint text,
+  p_input_kind text,
+  p_input_size_bytes bigint,
+  p_input_duration_seconds numeric,
+  p_reserved_cost_micro_usd bigint,
+  p_max_attempts integer,
+  p_daily_request_limit integer,
+  p_monthly_request_limit integer,
+  p_daily_cost_limit_micro_usd bigint,
+  p_monthly_cost_limit_micro_usd bigint,
+  p_min_seconds_between_requests integer
+)
+returns table (
+  outcome text,
+  job_id uuid,
+  job_status text
+)
+language sql
+security definer
+set search_path = ''
+as $$
+  select r.outcome, r.job_id, r.job_status
+  from public.reserve_ai_observation_job(
+    p_post_id,
+    p_requested_by,
+    p_ai_resident_key,
+    p_provider,
+    p_model,
+    p_idempotency_key,
+    p_request_fingerprint,
+    'manual',
+    now(),
+    p_input_kind,
+    p_input_size_bytes,
+    p_input_duration_seconds,
+    p_reserved_cost_micro_usd,
+    p_max_attempts,
+    p_daily_request_limit,
+    p_monthly_request_limit,
+    p_daily_cost_limit_micro_usd,
+    p_monthly_cost_limit_micro_usd,
+    p_min_seconds_between_requests
+  ) as r;
 $$;
 
 -- updated_at triggers.
@@ -1851,6 +1927,28 @@ revoke all on function public.reserve_ai_observation_job(
   integer
 ) from public, anon, authenticated;
 
+revoke all on function public.reserve_ai_observation_job(
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  timestamptz,
+  text,
+  bigint,
+  numeric,
+  bigint,
+  integer,
+  integer,
+  integer,
+  bigint,
+  bigint,
+  integer
+) from public, anon, authenticated;
+
 grant execute on function public.reserve_ai_observation_job(
   uuid,
   uuid,
@@ -1859,6 +1957,28 @@ grant execute on function public.reserve_ai_observation_job(
   text,
   text,
   text,
+  text,
+  bigint,
+  numeric,
+  bigint,
+  integer,
+  integer,
+  integer,
+  bigint,
+  bigint,
+  integer
+) to service_role;
+
+grant execute on function public.reserve_ai_observation_job(
+  uuid,
+  uuid,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  timestamptz,
   text,
   bigint,
   numeric,
@@ -1881,7 +2001,9 @@ returns table (
   attempt_count integer,
   max_attempts integer,
   input_kind text,
-  model text
+  model text,
+  observation_context text,
+  not_before_at timestamptz
 )
 language plpgsql
 security definer
@@ -1902,7 +2024,9 @@ begin
     return;
   end if;
 
-  if v_job.status = 'queued' then
+  if v_job.status = 'queued' and v_job.not_before_at > now() then
+    outcome := 'not_ready';
+  elsif v_job.status = 'queued' then
     update public.ai_observation_jobs j
       set status = 'processing',
           started_at = coalesce(j.started_at, now()),
@@ -1922,6 +2046,8 @@ begin
   max_attempts := v_job.max_attempts;
   input_kind := v_job.input_kind;
   model := v_job.model;
+  observation_context := v_job.observation_context;
+  not_before_at := v_job.not_before_at;
   return next;
 end;
 $$;
@@ -2002,7 +2128,9 @@ create or replace function public.complete_ai_observation_job(
   p_input_tokens integer,
   p_output_tokens integer,
   p_total_tokens integer,
-  p_actual_cost_micro_usd bigint
+  p_actual_cost_micro_usd bigint,
+  p_auto_star_letter_daily_limit integer,
+  p_auto_star_letter_author_cooldown_seconds integer
 )
 returns table (
   outcome text,
@@ -2020,6 +2148,11 @@ declare
   v_current_request_fingerprint text;
   v_observation_id uuid;
   v_star_letter_id uuid;
+  v_post_author_id uuid;
+  v_should_post boolean;
+  v_star_letter_body text;
+  v_day_start timestamptz := (date_trunc('day', now() at time zone 'UTC') at time zone 'UTC');
+  v_daily_star_letters bigint;
 begin
   select *
     into v_job
@@ -2073,6 +2206,10 @@ begin
     or p_total_tokens is null
     or p_actual_cost_micro_usd is null
     or p_should_post is null
+    or p_auto_star_letter_daily_limit is null
+    or p_auto_star_letter_daily_limit < 0
+    or p_auto_star_letter_author_cooldown_seconds is null
+    or p_auto_star_letter_author_cooldown_seconds < 0
     or p_input_tokens < 0
     or p_output_tokens < 0
     or p_total_tokens < p_input_tokens + p_output_tokens
@@ -2107,6 +2244,41 @@ begin
     return;
   end if;
 
+  select p.author_id
+    into v_post_author_id
+  from public.posts p
+  where p.id = v_job.post_id;
+
+  v_should_post := p_should_post;
+  v_star_letter_body := p_star_letter_body;
+
+  if v_job.observation_context = 'auto_text_post' and v_should_post then
+    perform pg_advisory_xact_lock(hashtext('ai_observation_star_letters:hoshizora_chia')::bigint);
+
+    select count(*)
+      into v_daily_star_letters
+    from public.star_letters sl
+    where sl.author_id = p_chia_profile_id
+      and sl.created_at >= v_day_start;
+
+    if v_daily_star_letters >= p_auto_star_letter_daily_limit
+      or (
+        p_auto_star_letter_author_cooldown_seconds > 0
+        and exists (
+          select 1
+          from public.star_letters sl
+          join public.posts p on p.id = sl.post_id
+          where sl.author_id = p_chia_profile_id
+            and p.author_id = v_post_author_id
+            and sl.created_at > now() - make_interval(secs => p_auto_star_letter_author_cooldown_seconds)
+        )
+      )
+    then
+      v_should_post := false;
+      v_star_letter_body := null;
+    end if;
+  end if;
+
   insert into public.observations (
     post_id,
     observer_id,
@@ -2129,15 +2301,28 @@ begin
     'ai_observation',
     nullif(left(coalesce(p_analysis_summary, ''), 1200), ''),
     p_observed_points,
-    p_should_post,
-    p_star_letter_body,
+    v_should_post,
+    v_star_letter_body,
     false,
     null,
     null
   )
   returning id into v_observation_id;
 
-  if p_should_post then
+  if v_job.observation_context = 'auto_text_post' then
+    insert into public.resonances (
+      post_id,
+      profile_id,
+      resonance_type
+    )
+    values (
+      v_job.post_id,
+      p_chia_profile_id,
+      'silent'
+    );
+  end if;
+
+  if v_should_post then
     insert into public.star_letters (
       post_id,
       author_id,
@@ -2146,7 +2331,7 @@ begin
     values (
       v_job.post_id,
       p_chia_profile_id,
-      p_star_letter_body
+      v_star_letter_body
     )
     returning id into v_star_letter_id;
   end if;
@@ -2171,6 +2356,48 @@ begin
   star_letter_id := v_star_letter_id;
   return next;
 end;
+$$;
+
+create or replace function public.complete_ai_observation_job(
+  p_job_id uuid,
+  p_chia_profile_id uuid,
+  p_expected_request_fingerprint text,
+  p_observed_points jsonb,
+  p_analysis_summary text,
+  p_should_post boolean,
+  p_star_letter_body text,
+  p_input_tokens integer,
+  p_output_tokens integer,
+  p_total_tokens integer,
+  p_actual_cost_micro_usd bigint
+)
+returns table (
+  outcome text,
+  job_id uuid,
+  job_status text,
+  observation_id uuid,
+  star_letter_id uuid
+)
+language sql
+security definer
+set search_path = ''
+as $$
+  select *
+  from public.complete_ai_observation_job(
+    p_job_id,
+    p_chia_profile_id,
+    p_expected_request_fingerprint,
+    p_observed_points,
+    p_analysis_summary,
+    p_should_post,
+    p_star_letter_body,
+    p_input_tokens,
+    p_output_tokens,
+    p_total_tokens,
+    p_actual_cost_micro_usd,
+    20,
+    86400
+  );
 $$;
 
 create or replace function public.fail_ai_observation_job(
@@ -2363,6 +2590,9 @@ revoke all on function public.start_ai_observation_attempt(uuid) from public, an
 revoke all on function public.complete_ai_observation_job(
   uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint
 ) from public, anon, authenticated;
+revoke all on function public.complete_ai_observation_job(
+  uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer
+) from public, anon, authenticated;
 revoke all on function public.fail_ai_observation_job(
   uuid, text, integer, integer, integer, bigint
 ) from public, anon, authenticated;
@@ -2373,6 +2603,9 @@ grant execute on function public.claim_ai_observation_job(uuid) to service_role;
 grant execute on function public.start_ai_observation_attempt(uuid) to service_role;
 grant execute on function public.complete_ai_observation_job(
   uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint
+) to service_role;
+grant execute on function public.complete_ai_observation_job(
+  uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer
 ) to service_role;
 grant execute on function public.fail_ai_observation_job(
   uuid, text, integer, integer, integer, bigint

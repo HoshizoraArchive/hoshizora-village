@@ -2,7 +2,6 @@ import { AI_ERROR, AiHttpError, aiHttpError, logAiEvent } from "./aiErrors.mjs";
 import { runGeminiObservation } from "./aiGemini.mjs";
 import { createRequestFingerprint } from "./aiJobReservation.mjs";
 import {
-  cancelAiObservationJob,
   claimAiObservationJob,
   completeAiObservationJob,
   failAiObservationJob,
@@ -10,6 +9,8 @@ import {
 } from "./aiJobState.mjs";
 import { loadAuthorProfile, loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
 import { assertGlobalProcessingCapacity } from "./aiRateLimit.mjs";
+import { normalizeAiObservationContext } from "./aiObservationContext.mjs";
+import { applyAutoStarLetterGate } from "./aiStarLetterGate.mjs";
 
 const OBSERVATION_SUMMARY_MAX_LENGTH = 1200;
 
@@ -63,6 +64,7 @@ export function normalizeObservationForDb(output) {
     analysisSummary,
     shouldPost: output.should_post,
     starLetter: output.star_letter,
+    confidence: output.confidence,
   };
 }
 
@@ -100,12 +102,6 @@ export async function runAiObservationJob({
     });
   } catch (error) {
     if (error instanceof AiHttpError && error.status === 429) {
-      await cancelAiObservationJob({
-        supabase,
-        jobId,
-        publicErrorCode: AI_ERROR.RATE_LIMITED[0],
-      });
-
       logAiEvent("warn", "ai_observation_worker_capacity_limited", {
         requestId,
         jobId,
@@ -137,6 +133,9 @@ export async function runAiObservationJob({
   }
 
   let providerUsage = null;
+  const effectiveObservationContext = normalizeAiObservationContext(
+    claim.observation_context ?? observationContext,
+  );
 
   try {
     await loadChiaProfile({ supabase, chiaProfileId: config.hoshizoraChiaProfileId });
@@ -161,7 +160,7 @@ export async function runAiObservationJob({
       mediaRows,
       storageRequirements,
       supabase,
-      observationContext,
+      observationContext: effectiveObservationContext,
       authorProfile,
     });
     providerUsage = usage;
@@ -180,7 +179,13 @@ export async function runAiObservationJob({
       throw aiHttpError(422, AI_ERROR.POST_CHANGED);
     }
 
-    const observation = normalizeObservationForDb(output);
+    const observation = applyAutoStarLetterGate({
+      observation: normalizeObservationForDb(output),
+      observationContext: effectiveObservationContext,
+      jobId,
+      requestFingerprint: claim.request_fingerprint,
+      config,
+    });
     const completion = await completeAiObservationJob({
       supabase,
       jobId,
@@ -188,6 +193,8 @@ export async function runAiObservationJob({
       expectedRequestFingerprint: latestFingerprint,
       observation,
       usage,
+      autoStarLetterDailyLimit: config.autoObservation?.starLetterDailyLimit ?? 20,
+      autoStarLetterAuthorCooldownSeconds: config.autoObservation?.starLetterAuthorCooldownSeconds ?? 86400,
     });
 
     logAiEvent("info", "ai_observation_worker_completed", {

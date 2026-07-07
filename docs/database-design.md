@@ -614,6 +614,8 @@ AI住人の観測処理を安全に予約・状態管理する内部ジョブテ
 - `status`: `queued`, `processing`, `succeeded`, `failed`, `cancelled`
 - `idempotency_key`: 同じリクエストの二重受理防止
 - `request_fingerprint`: 投稿本文、投稿タイプ、YouTube識別情報、更新時刻、media summary、個別 `post_media` 行を含む入力識別用ハッシュ
+- `observation_context`: `manual` または投稿後自動観測の `auto_text_post`
+- `not_before_at`: workerがclaimしてよい最短時刻。自動観測を即時固定にしないために使う
 - `attempt_count`: provider APIを実際に呼び出した回数
 - `max_attempts`: 1つの観測処理で許可するprovider API呼び出し総数
 - `reserved_cost_micro_usd`: 予約時に利用上限へ計上するmicro USD
@@ -633,12 +635,14 @@ completion RPCはtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post
 - `idempotency_key` はunique
 - 同じ `post_id` + `ai_resident_key` の `queued` / `processing` は1件だけ
 - 同じ `post_id` + `ai_resident_key` の `succeeded` は1件だけ
+- `observation_context` は `manual` / `auto_text_post` のみ
 - `attempt_count <= max_attempts`
 - RLSを有効化し、`anon` / `authenticated` / `PUBLIC` の直接操作権限を付与しない
 - 予約処理は `public.reserve_ai_observation_job(...)` でDB側transaction内に閉じる
 - workerは `public.claim_ai_observation_job(...)` でrow lockを取り、同じjobの並列処理を防ぐ
 - provider呼び出し直前に `public.start_ai_observation_attempt(...)` で `attempt_count` を増やす
-- `public.complete_ai_observation_job(...)` は期待fingerprintと公開・未削除状態を確認し、`observations` insert、必要時の `star_letters` insert、job `succeeded` 更新を同一transactionで行う
+- `public.complete_ai_observation_job(...)` は期待fingerprintと公開・未削除状態を確認し、`observations` insert、`auto_text_post` の場合のちあ名義 `resonances` insert、必要時の `star_letters` insert、job `succeeded` 更新を同一transactionで行う
+- `auto_text_post` の星文は、Function側の確率・confidence判定に加えて、completion RPC内で星空ちあ全体の日次上限と投稿者単位クールダウンを確認し、上限時は観測結果だけ保存して星文作成を抑制する
 - `public.fail_ai_observation_job(...)` と `public.cancel_ai_observation_job(...)` は安全な公開エラーコードだけを保存する
 - `public.recover_stale_ai_observation_jobs(...)` はservice_role専用で、worker timeoutなどにより古くなった `processing` jobだけを `cancelled` + `WORKER_STALE` へ戻し、同じ投稿の将来予約を詰まらせない。Geminiの自動再送は行わない
 - すべてのAI job RPCは `security definer` + `set search_path = ''` とし、browser roleからのEXECUTEを許可しない
