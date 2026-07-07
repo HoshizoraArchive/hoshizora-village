@@ -254,6 +254,58 @@ exception
 end;
 $$;
 
+create or replace function public.reserve_ai_observation_job(
+  p_post_id uuid,
+  p_requested_by uuid,
+  p_ai_resident_key text,
+  p_provider text,
+  p_model text,
+  p_idempotency_key text,
+  p_request_fingerprint text,
+  p_input_kind text,
+  p_input_size_bytes bigint,
+  p_input_duration_seconds numeric,
+  p_reserved_cost_micro_usd bigint,
+  p_max_attempts integer,
+  p_daily_request_limit integer,
+  p_monthly_request_limit integer,
+  p_daily_cost_limit_micro_usd bigint,
+  p_monthly_cost_limit_micro_usd bigint,
+  p_min_seconds_between_requests integer
+)
+returns table (
+  outcome text,
+  job_id uuid,
+  job_status text
+)
+language sql
+security definer
+set search_path = ''
+as $$
+  select r.outcome, r.job_id, r.job_status
+  from public.reserve_ai_observation_job(
+    p_post_id,
+    p_requested_by,
+    p_ai_resident_key,
+    p_provider,
+    p_model,
+    p_idempotency_key,
+    p_request_fingerprint,
+    'manual',
+    now(),
+    p_input_kind,
+    p_input_size_bytes,
+    p_input_duration_seconds,
+    p_reserved_cost_micro_usd,
+    p_max_attempts,
+    p_daily_request_limit,
+    p_monthly_request_limit,
+    p_daily_cost_limit_micro_usd,
+    p_monthly_cost_limit_micro_usd,
+    p_min_seconds_between_requests
+  ) as r;
+$$;
+
 create or replace function public.claim_ai_observation_job(p_job_id uuid)
 returns table (
   outcome text,
@@ -560,6 +612,55 @@ begin
 end;
 $$;
 
+create or replace function public.complete_ai_observation_job(
+  p_job_id uuid,
+  p_chia_profile_id uuid,
+  p_expected_request_fingerprint text,
+  p_observed_points jsonb,
+  p_analysis_summary text,
+  p_should_post boolean,
+  p_star_letter_body text,
+  p_input_tokens integer,
+  p_output_tokens integer,
+  p_total_tokens integer,
+  p_actual_cost_micro_usd bigint
+)
+returns table (
+  outcome text,
+  job_id uuid,
+  job_status text,
+  observation_id uuid,
+  star_letter_id uuid
+)
+language sql
+security definer
+set search_path = ''
+as $$
+  select *
+  from public.complete_ai_observation_job(
+    p_job_id,
+    p_chia_profile_id,
+    p_expected_request_fingerprint,
+    p_observed_points,
+    p_analysis_summary,
+    p_should_post,
+    p_star_letter_body,
+    p_input_tokens,
+    p_output_tokens,
+    p_total_tokens,
+    p_actual_cost_micro_usd,
+    20,
+    86400
+  );
+$$;
+
+revoke all on function public.reserve_ai_observation_job(
+  uuid, uuid, text, text, text, text, text, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer
+) from public, anon, authenticated;
+grant execute on function public.reserve_ai_observation_job(
+  uuid, uuid, text, text, text, text, text, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer
+) to service_role;
+
 revoke all on function public.reserve_ai_observation_job(
   uuid, uuid, text, text, text, text, text, text, timestamptz, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer
 ) from public, anon, authenticated;
@@ -569,6 +670,13 @@ grant execute on function public.reserve_ai_observation_job(
 
 revoke all on function public.claim_ai_observation_job(uuid) from public, anon, authenticated;
 grant execute on function public.claim_ai_observation_job(uuid) to service_role;
+
+revoke all on function public.complete_ai_observation_job(
+  uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint
+) from public, anon, authenticated;
+grant execute on function public.complete_ai_observation_job(
+  uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint
+) to service_role;
 
 revoke all on function public.complete_ai_observation_job(
   uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer

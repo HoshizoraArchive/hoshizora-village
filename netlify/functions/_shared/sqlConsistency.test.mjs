@@ -135,7 +135,9 @@ test("AI automatic observation expansion migration and schema.sql add delayed co
 });
 
 test("AI automatic observation expansion RPC signatures are synced and service-role only", () => {
+  const oldReserveSignature = "uuid, uuid, text, text, text, text, text, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer";
   const reserveSignature = "uuid, uuid, text, text, text, text, text, text, timestamptz, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer";
+  const oldCompleteSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint";
   const completeSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer";
   const tokens = [
     "p_observation_context text",
@@ -157,17 +159,75 @@ test("AI automatic observation expansion RPC signatures are synced and service-r
 
   for (const sql of [autoObservationExpansionMigrationSql, schemaSql]) {
     const compact = normalizedSql(sql);
+    const regexSignature = (signature) => signature.replaceAll(" ", "\\s*").replaceAll(",", "\\s*,\\s*");
+    assert.equal(compact.includes(oldReserveSignature), true, "reserve RPC old compatibility signature missing");
     assert.equal(compact.includes(reserveSignature), true, "reserve RPC signature missing new context/not_before_at args");
+    assert.equal(compact.includes(oldCompleteSignature), true, "complete RPC old compatibility signature missing");
     assert.equal(compact.includes(completeSignature), true, "complete RPC signature missing auto star-letter gate args");
     assert.equal(
-      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.reserve_ai_observation_job\\(\\s*${reserveSignature.replaceAll(" ", "\\s*").replaceAll(",", "\\s*,\\s*")}\\s*\\)\\s+from\\s+public,\\s+anon,\\s+authenticated`, "i").test(sql),
+      /from\s+public\.reserve_ai_observation_job\([^;]*'manual'[^;]*now\(\)[^;]*\)/i.test(compact),
       true,
-      "reserve RPC browser revoke missing",
+      "reserve RPC old wrapper must delegate to manual/now defaults",
     );
     assert.equal(
-      new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.complete_ai_observation_job\\(\\s*${completeSignature.replaceAll(" ", "\\s*").replaceAll(",", "\\s*,\\s*")}\\s*\\)\\s+to\\s+service_role`, "i").test(sql),
+      /from\s+public\.complete_ai_observation_job\([^;]*20\s*,\s*86400[^;]*\)/i.test(compact),
       true,
-      "complete RPC service_role grant missing",
+      "complete RPC old wrapper must delegate to daily/cooldown defaults",
+    );
+
+    for (const signature of [oldReserveSignature, reserveSignature]) {
+      assert.equal(
+        new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.reserve_ai_observation_job\\(\\s*${regexSignature(signature)}\\s*\\)\\s+from\\s+public,\\s+anon,\\s+authenticated`, "i").test(sql),
+        true,
+        `reserve RPC browser revoke missing for ${signature}`,
+      );
+      assert.equal(
+        new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.reserve_ai_observation_job\\(\\s*${regexSignature(signature)}\\s*\\)\\s+to\\s+service_role`, "i").test(sql),
+        true,
+        `reserve RPC service_role grant missing for ${signature}`,
+      );
+    }
+
+    for (const signature of [oldCompleteSignature, completeSignature]) {
+      assert.equal(
+        new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.complete_ai_observation_job\\(\\s*${regexSignature(signature)}\\s*\\)\\s+from\\s+public,\\s+anon,\\s+authenticated`, "i").test(sql),
+        true,
+        `complete RPC browser revoke missing for ${signature}`,
+      );
+      assert.equal(
+        new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.complete_ai_observation_job\\(\\s*${regexSignature(signature)}\\s*\\)\\s+to\\s+service_role`, "i").test(sql),
+        true,
+        `complete RPC service_role grant missing for ${signature}`,
+      );
+    }
+  }
+
+  assert.equal(observationMvpVerificationSql.includes("rpc_backward_compatible_signatures"), true);
+  assert.equal(observationMvpVerificationSql.includes("rpc_backward_compatible_execute_grants"), true);
+  assert.equal(observationMvpVerificationSql.includes(oldReserveSignature), true);
+  assert.equal(observationMvpVerificationSql.includes("timestamp with time zone"), true);
+  assert.equal(observationMvpVerificationSql.includes(oldCompleteSignature), true);
+});
+
+test("AI automatic observation expansion keeps old Netlify RPC wrappers deploy-order safe", () => {
+  const oldReserveSignature = "uuid, uuid, text, text, text, text, text, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer";
+  const oldCompleteSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint";
+  const compactMigration = normalizedSql(autoObservationExpansionMigrationSql);
+
+  assert.equal(compactMigration.includes(`drop function if exists public.reserve_ai_observation_job( ${oldReserveSignature} )`), true);
+  assert.equal(compactMigration.includes(`drop function if exists public.complete_ai_observation_job( ${oldCompleteSignature} )`), true);
+
+  for (const sql of [autoObservationExpansionMigrationSql, schemaSql]) {
+    const compact = normalizedSql(sql);
+    assert.equal(
+      /create\s+or\s+replace\s+function\s+public\.reserve_ai_observation_job\([^)]*p_min_seconds_between_requests\s+integer\s*\)\s+returns\s+table\s*\(\s*outcome\s+text,\s+job_id\s+uuid,\s+job_status\s+text\s*\)\s+language\s+sql/i.test(compact),
+      true,
+      "old reserve wrapper should keep the old three-column return shape",
+    );
+    assert.equal(
+      /create\s+or\s+replace\s+function\s+public\.complete_ai_observation_job\([^)]*p_actual_cost_micro_usd\s+bigint\s*\)\s+returns\s+table\s*\(\s*outcome\s+text,\s+job_id\s+uuid,\s+job_status\s+text,\s+observation_id\s+uuid,\s+star_letter_id\s+uuid\s*\)\s+language\s+sql/i.test(compact),
+      true,
+      "old complete wrapper should keep the old completion return shape",
     );
   }
 });
@@ -287,7 +347,7 @@ test("AI observation MVP JS and SQL fingerprint canonical fields stay aligned", 
   }
 });
 
-test("AI observation MVP completion RPC old overload is removed and new signature is granted", () => {
+test("AI observation MVP completion RPC pre-fingerprint overload is removed and fingerprint signature exists", () => {
   const oldSignature = "uuid, uuid, jsonb, text, boolean, text, integer, integer, integer, bigint";
   const newSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint";
 

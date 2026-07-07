@@ -23,18 +23,119 @@ where n.nspname = 'public'
   )
 order by p.proname;
 
+with expected(function_name, argument_types) as (
+  values
+    (
+      'reserve_ai_observation_job',
+      'uuid, uuid, text, text, text, text, text, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer'
+    ),
+    (
+      'reserve_ai_observation_job',
+      'uuid, uuid, text, text, text, text, text, text, timestamp with time zone, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer'
+    ),
+    (
+      'complete_ai_observation_job',
+      'uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint'
+    ),
+    (
+      'complete_ai_observation_job',
+      'uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer'
+    )
+),
+actual as (
+  select
+    p.oid,
+    p.proname as function_name,
+    oidvectortypes(p.proargtypes) as argument_types,
+    pg_get_function_identity_arguments(p.oid) as identity_arguments
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname in ('reserve_ai_observation_job', 'complete_ai_observation_job')
+)
 select
-  'completion_rpc_signature' as check_name,
-  pg_get_function_identity_arguments(p.oid) as identity_arguments,
+  'rpc_backward_compatible_signatures' as check_name,
+  expected.function_name,
+  expected.argument_types,
+  actual.identity_arguments,
+  case when actual.oid is null then 1 else 0 end::bigint as anomaly_count
+from expected
+left join actual
+  on actual.function_name = expected.function_name
+ and actual.argument_types = expected.argument_types
+order by expected.function_name, expected.argument_types;
+
+with expected(function_name, argument_types) as (
+  values
+    (
+      'reserve_ai_observation_job',
+      'uuid, uuid, text, text, text, text, text, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer'
+    ),
+    (
+      'reserve_ai_observation_job',
+      'uuid, uuid, text, text, text, text, text, text, timestamp with time zone, text, bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer'
+    ),
+    (
+      'complete_ai_observation_job',
+      'uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint'
+    ),
+    (
+      'complete_ai_observation_job',
+      'uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer'
+    )
+),
+actual as (
+  select
+    p.oid,
+    p.proname as function_name,
+    oidvectortypes(p.proargtypes) as argument_types
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+),
+grants as (
+  select
+    actual.function_name,
+    actual.argument_types,
+    coalesce(r.rolname, 'PUBLIC') as grantee,
+    a.privilege_type
+  from actual
+  cross join lateral aclexplode(coalesce(
+    (select p.proacl from pg_proc p where p.oid = actual.oid),
+    acldefault('f'::"char", (select p.proowner from pg_proc p where p.oid = actual.oid))
+  )) a
+  left join pg_roles r on r.oid = a.grantee
+)
+select
+  'rpc_backward_compatible_execute_grants' as check_name,
+  expected.function_name,
+  expected.argument_types,
+  count(*) filter (
+    where grants.grantee = 'service_role'
+      and grants.privilege_type = 'EXECUTE'
+  ) as service_role_execute_grants,
+  count(*) filter (
+    where grants.grantee in ('PUBLIC', 'anon', 'authenticated')
+      and grants.privilege_type = 'EXECUTE'
+  ) as browser_execute_grants,
   case
-    when pg_get_function_identity_arguments(p.oid) = 'p_job_id uuid, p_chia_profile_id uuid, p_expected_request_fingerprint text, p_observed_points jsonb, p_analysis_summary text, p_should_post boolean, p_star_letter_body text, p_input_tokens integer, p_output_tokens integer, p_total_tokens integer, p_actual_cost_micro_usd bigint, p_auto_star_letter_daily_limit integer, p_auto_star_letter_author_cooldown_seconds integer'
+    when count(*) filter (
+      where grants.grantee = 'service_role'
+        and grants.privilege_type = 'EXECUTE'
+    ) = 1
+      and count(*) filter (
+        where grants.grantee in ('PUBLIC', 'anon', 'authenticated')
+          and grants.privilege_type = 'EXECUTE'
+      ) = 0
     then 0
     else 1
   end::bigint as anomaly_count
-from pg_proc p
-join pg_namespace n on n.oid = p.pronamespace
-where n.nspname = 'public'
-  and p.proname = 'complete_ai_observation_job';
+from expected
+left join grants
+  on grants.function_name = expected.function_name
+ and grants.argument_types = expected.argument_types
+group by expected.function_name, expected.argument_types
+order by expected.function_name, expected.argument_types;
 
 select
   'auto_observation_job_columns' as check_name,
