@@ -213,11 +213,14 @@ function createMockSupabase({
         return Promise.resolve({ data: null, error: null });
       },
       from(table) {
+        const filters = new Map();
         const query = {
           select() {
             return query;
           },
-          eq() {
+          eq(column, value) {
+            filters.set(column, value);
+
             if (table === "ai_observation_jobs") {
               return Promise.resolve({ count: processingCount, error: null });
             }
@@ -232,6 +235,17 @@ function createMockSupabase({
             }
 
             if (table === "profiles") {
+              if (filters.get("id") === AUTHOR_ID) {
+                return Promise.resolve({
+                  data: {
+                    id: AUTHOR_ID,
+                    username: "hoshikun",
+                    display_name: "ほしくん",
+                  },
+                  error: null,
+                });
+              }
+
               return Promise.resolve({
                 data: {
                   id: CHIA_ID,
@@ -335,6 +349,7 @@ test("global processing limit cancels queued job before provider attempt", async
 test("global processing capacity allows the last available processing slot", async () => {
   const { supabase, calls } = createMockSupabase({ processingCount: 1 });
   const providerContexts = [];
+  const providerAuthorNames = [];
   let providerCalls = 0;
   const result = await runAiObservationJob({
     jobId: "77777777-7777-4777-8777-777777777777",
@@ -343,9 +358,10 @@ test("global processing capacity allows the last available processing slot", asy
     config: config(),
     geminiClient: {},
     observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
-    runProvider: async ({ observationContext }) => {
+    runProvider: async ({ observationContext, authorProfile }) => {
       providerCalls += 1;
       providerContexts.push(observationContext);
+      providerAuthorNames.push(authorProfile?.display_name);
       return {
         output: output(),
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
@@ -356,6 +372,7 @@ test("global processing capacity allows the last available processing slot", asy
   assert.equal(result.outcome, "completed");
   assert.equal(providerCalls, 1);
   assert.deepEqual(providerContexts, [AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST]);
+  assert.deepEqual(providerAuthorNames, ["ほしくん"]);
   assert.equal(calls.attempts, 1);
   assert.equal(calls.cancelArgs, null);
 });

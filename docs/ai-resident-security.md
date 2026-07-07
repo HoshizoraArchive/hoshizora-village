@@ -14,6 +14,7 @@ worker timeoutなどで古い `processing` jobが残った場合は、service_ro
 
 1. 通常の投稿カードはAI観測APIを呼ばず、手動実行ボタンや手動status文言を表示しない。分離された運営・検証導線だけがログイン済みoperatorのSupabase access tokenを付けて `GET /api/ai-observation-request` で実行可否を確認し、`POST /api/ai-observation-request` を呼ぶ。
 1. Issue #61の投稿後自動観測では、投稿作成成功後に `POST /api/ai-observation-auto-request` を裏側で呼ぶ。通常UIにはボタンやstatusを出さず、対象は投稿者本人の `text` 投稿、かつoperatorまたは `username = 'hoshizora_hoshikun'` の星空ほしくんだけに限定する。自動観測由来のtext jobだけ、署名済みworker dispatchの `observationContext = auto_text_post` により、手動観測より星文生成寄りのprompt文脈を追加する。validator/schema、危険時のfail closed、上限到達時のfail/cancelは変更しない。
+1. Issue #63の人格設計は、設計書全文ではなく `CHIA_PERSONALITY_GUIDE` として月、維持、観測、共鳴、欠けても大丈夫、バズより共鳴、まだ見つかっていない光を最初に観測する姿勢へ圧縮する。投稿者名は `display_name → username → 村人さん` の順に選ぶが、NFKC正規化、制御文字・URL・命令文らしい語の拒否、記号削減、16文字上限を通した安全化済み呼び名だけをpromptへ渡す。
 2. Netlify Functionは `AI_OBSERVATION_ENABLED=true` のときだけ処理する。未設定または別値なら503でfail closedする。
 3. リクエストJSONは `{ "postId": "UUID", "idempotencyKey": "32〜128文字" }` のみ許可する。
 4. Functionは `SUPABASE_SERVICE_ROLE_KEY` を使い、Supabase Auth tokenをサーバー側で検証する。
