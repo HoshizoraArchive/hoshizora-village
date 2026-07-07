@@ -9,6 +9,7 @@ import {
   logAiEvent,
 } from "./_shared/aiErrors.mjs";
 import { getClientIp, assertRateLimit, readAiRateLimitConfig } from "./_shared/aiRateLimit.mjs";
+import { recoverStaleProcessingJobs } from "./_shared/aiStaleJobs.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 
 function getRequestId(context) {
@@ -83,6 +84,12 @@ export default async function handler(request, context) {
       key: operator.id,
       limit: config.rateLimits.operatorStatusLimit,
       windowSeconds: config.rateLimits.windowSeconds,
+    });
+    await recoverStaleProcessingJobs({
+      supabase,
+      config,
+      requestId,
+      operation: "ai_observation_status",
     });
     const { data, error } = await supabase
       .from("ai_observation_jobs")

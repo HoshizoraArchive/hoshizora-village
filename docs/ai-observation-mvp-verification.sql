@@ -1,5 +1,6 @@
 -- 星空ちあ観測MVP migration verification.
--- Read-only. Run after applying supabase/migrations/20260704_add_chia_observation_mvp.sql.
+-- Read-only. Run after applying the AI observation MVP migrations, including
+-- supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql.
 
 select
   n.nspname as schema_name,
@@ -16,7 +17,8 @@ where n.nspname = 'public'
     'start_ai_observation_attempt',
     'complete_ai_observation_job',
     'fail_ai_observation_job',
-    'cancel_ai_observation_job'
+    'cancel_ai_observation_job',
+    'recover_stale_ai_observation_jobs'
   )
 order by p.proname;
 
@@ -109,7 +111,8 @@ where n.nspname = 'public'
     'start_ai_observation_attempt',
     'complete_ai_observation_job',
     'fail_ai_observation_job',
-    'cancel_ai_observation_job'
+    'cancel_ai_observation_job',
+    'recover_stale_ai_observation_jobs'
   )
   and coalesce(r.rolname, 'PUBLIC') in ('PUBLIC', 'anon', 'authenticated')
   and a.privilege_type = 'EXECUTE'
@@ -151,7 +154,8 @@ where n.nspname = 'public'
     'start_ai_observation_attempt',
     'complete_ai_observation_job',
     'fail_ai_observation_job',
-    'cancel_ai_observation_job'
+    'cancel_ai_observation_job',
+    'recover_stale_ai_observation_jobs'
   )
   and r.rolname = 'service_role'
 order by function_name;
@@ -183,6 +187,14 @@ select
 from public.ai_observation_jobs
 group by status
 order by status::text;
+
+select
+  'stale_processing_candidates' as check_name,
+  count(*)::bigint as candidate_count
+from public.ai_observation_jobs
+where status = 'processing'
+  and completed_at is null
+  and coalesce(started_at, updated_at, created_at) < now() - interval '10 minutes';
 
 select
   'post_media_storage_path_constraints' as check_name,

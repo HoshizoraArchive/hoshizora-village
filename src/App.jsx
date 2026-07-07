@@ -89,10 +89,6 @@ const PROFILE_FRAME_SELECT_COLUMNS =
 const PROFILE_FRAME_OWNERSHIP_SELECT_COLUMNS = "profile_id, frame_id, acquisition_source, granted_at";
 const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
 const VISIBLE_POST_TYPES = ["text", "image", "video", "youtube"];
-const AI_OBSERVATION_TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
-const AI_OBSERVATION_STATUS_POLL_MS = 2500;
-const AI_OBSERVATION_STATUS_MAX_MS = 10 * 60 * 1000;
-const AI_OBSERVATION_STATUS_MAX_ERRORS = 4;
 
 const emptyProfileForm = {
   display_name: "",
@@ -1600,14 +1596,6 @@ function App() {
   const [starLetterEditDrafts, setStarLetterEditDrafts] = useState({});
   const [starLetterUpdatingId, setStarLetterUpdatingId] = useState(null);
   const [starLetterDeletingId, setStarLetterDeletingId] = useState(null);
-  const [aiObservationAllowed, setAiObservationAllowed] = useState(false);
-  const [aiObservationChecking, setAiObservationChecking] = useState(false);
-  const [aiObservationJobsByPostId, setAiObservationJobsByPostId] = useState({});
-  const [aiObservationSavingPostId, setAiObservationSavingPostId] = useState(null);
-  const [aiObservationMessage, setAiObservationMessage] = useState("");
-  const [aiObservationError, setAiObservationError] = useState("");
-  const aiObservationPollingRef = useRef(new Map());
-  const aiObservationPollingAccessTokenRef = useRef(null);
   const [feedbackType, setFeedbackType] = useState(FEEDBACK_TYPES[0]);
   const [feedbackBody, setFeedbackBody] = useState("");
   const [feedbackSaving, setFeedbackSaving] = useState(false);
@@ -1702,28 +1690,6 @@ function App() {
     [],
   );
 
-  useEffect(
-    () => () => {
-      stopAllAiObservationPolling();
-    },
-    [],
-  );
-
-  useEffect(() => {
-    const nextAccessToken = session?.access_token ?? null;
-    const previousAccessToken = aiObservationPollingAccessTokenRef.current;
-
-    if (previousAccessToken && previousAccessToken !== nextAccessToken) {
-      stopAllAiObservationPolling();
-    }
-
-    if (!nextAccessToken) {
-      stopAllAiObservationPolling();
-    }
-
-    aiObservationPollingAccessTokenRef.current = nextAccessToken;
-  }, [session?.access_token]);
-
   useEffect(() => {
     if (!avatarModal) {
       return undefined;
@@ -1776,55 +1742,6 @@ function App() {
       subscription.unsubscribe();
     };
   }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-    const accessToken = session?.access_token;
-
-    if (!accessToken) {
-      setAiObservationAllowed(false);
-      setAiObservationChecking(false);
-      setAiObservationJobsByPostId({});
-      setAiObservationMessage("");
-      setAiObservationError("");
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function checkAiObservationOperator() {
-      setAiObservationChecking(true);
-
-      try {
-        const response = await fetch("/api/ai-observation-request", {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-
-        if (!isMounted) {
-          return;
-        }
-
-        setAiObservationAllowed(response.ok);
-      } catch (_error) {
-        if (isMounted) {
-          setAiObservationAllowed(false);
-        }
-      } finally {
-        if (isMounted) {
-          setAiObservationChecking(false);
-        }
-      }
-    }
-
-    checkAiObservationOperator();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [session?.access_token]);
 
   useEffect(() => {
     let isMounted = true;
@@ -4907,269 +4824,6 @@ function App() {
     }));
   }
 
-  function getAiObservationStatusLabel(job) {
-    if (!job) {
-      return "ちあに観測してもらう";
-    }
-
-    if (job.status === "queued" || job.status === "processing") {
-      return "ちあが観測中…";
-    }
-
-    if (job.status === "status_unknown") {
-      return "観測状況を確認中";
-    }
-
-    if (job.status === "succeeded") {
-      return job.starLetterId ? "ちあから星文が届きました" : "ちあは観測しました";
-    }
-
-    if (job.status === "cancelled") {
-      return "観測を始められませんでした";
-    }
-
-    if (job.status === "failed") {
-      return "観測できませんでした";
-    }
-
-    return "ちあに観測してもらう";
-  }
-
-  function stopAiObservationPolling(jobId) {
-    const polling = aiObservationPollingRef.current.get(jobId);
-
-    if (polling?.timerId) {
-      window.clearTimeout(polling.timerId);
-    }
-
-    aiObservationPollingRef.current.delete(jobId);
-  }
-
-  function stopAllAiObservationPolling() {
-    for (const jobId of aiObservationPollingRef.current.keys()) {
-      stopAiObservationPolling(jobId);
-    }
-  }
-
-  function scheduleAiObservationPoll(jobId, postId) {
-    const polling = aiObservationPollingRef.current.get(jobId);
-
-    if (!polling) {
-      return;
-    }
-
-    if (polling.timerId) {
-      window.clearTimeout(polling.timerId);
-    }
-
-    polling.timerId = window.setTimeout(() => {
-      pollAiObservationStatus(jobId, postId);
-    }, AI_OBSERVATION_STATUS_POLL_MS);
-  }
-
-  function markAiObservationStatusUnknown(jobId, postId) {
-    stopAiObservationPolling(jobId);
-    updateAiObservationJob(postId, {
-      jobId,
-      status: "status_unknown",
-    });
-    setAiObservationError("観測状況の確認に時間がかかっています。画面を開き直して確認してください。");
-  }
-
-  function isAiObservationFatalStatus(status) {
-    return status === 401 || status === 403 || status === 404;
-  }
-
-  function handleAiObservationPollFailure(jobId, postId, status) {
-    const polling = aiObservationPollingRef.current.get(jobId);
-
-    if (!polling) {
-      return false;
-    }
-
-    if (isAiObservationFatalStatus(status)) {
-      markAiObservationStatusUnknown(jobId, postId);
-      return false;
-    }
-
-    polling.consecutiveErrors += 1;
-
-    if (polling.consecutiveErrors >= AI_OBSERVATION_STATUS_MAX_ERRORS) {
-      markAiObservationStatusUnknown(jobId, postId);
-      return false;
-    }
-
-    return true;
-  }
-
-  async function pollAiObservationStatus(jobId, postId) {
-    const polling = aiObservationPollingRef.current.get(jobId);
-
-    if (!polling || polling.inFlight) {
-      return;
-    }
-
-    if (Date.now() - polling.startedAt > AI_OBSERVATION_STATUS_MAX_MS) {
-      markAiObservationStatusUnknown(jobId, postId);
-      return;
-    }
-
-    const accessToken = session?.access_token;
-
-    if (!accessToken) {
-      stopAiObservationPolling(jobId);
-      return;
-    }
-
-    polling.inFlight = true;
-    let shouldContinue = true;
-
-    try {
-      const response = await fetch(`/api/ai-observation-status?jobId=${encodeURIComponent(jobId)}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (
-        aiObservationPollingAccessTokenRef.current !== accessToken ||
-        aiObservationPollingRef.current.get(jobId) !== polling
-      ) {
-        shouldContinue = false;
-        return;
-      }
-
-      if (!response.ok) {
-        shouldContinue = handleAiObservationPollFailure(jobId, postId, response.status);
-        return;
-      }
-
-      const payload = await response.json();
-      const nextStatus = payload?.status;
-
-      if (!nextStatus) {
-        shouldContinue = handleAiObservationPollFailure(jobId, postId, 500);
-        return;
-      }
-
-      polling.consecutiveErrors = 0;
-      updateAiObservationJob(postId, {
-        jobId,
-        status: nextStatus,
-        observationId: payload.observationId ?? null,
-        starLetterId: payload.starLetterId ?? null,
-        publicErrorCode: payload.publicErrorCode ?? null,
-      });
-
-      if (AI_OBSERVATION_TERMINAL_STATUSES.has(nextStatus)) {
-        shouldContinue = false;
-        stopAiObservationPolling(jobId);
-
-        if (nextStatus === "succeeded") {
-          await refreshStarLettersForPost(postId);
-          setOpenStarLetterPostId(postId);
-          setAiObservationMessage(
-            payload.starLetterId
-              ? "ちあから星文が届きました。"
-              : "ちあは観測したけど、今回は星文を残さなかったよ。",
-          );
-          return;
-        }
-
-        if (nextStatus === "cancelled") {
-          setAiObservationError("観測を始められませんでした。もう一度試してください。");
-          return;
-        }
-
-        setAiObservationError("ちあは今回、この流星便を観測できませんでした。");
-      }
-    } catch (_error) {
-      if (
-        aiObservationPollingAccessTokenRef.current !== accessToken ||
-        aiObservationPollingRef.current.get(jobId) !== polling
-      ) {
-        shouldContinue = false;
-        return;
-      }
-
-      shouldContinue = handleAiObservationPollFailure(jobId, postId, 500);
-    } finally {
-      const currentPolling = aiObservationPollingRef.current.get(jobId);
-
-      if (currentPolling) {
-        currentPolling.inFlight = false;
-
-        if (shouldContinue) {
-          scheduleAiObservationPoll(jobId, postId);
-        }
-      }
-    }
-  }
-
-  function updateAiObservationJob(postId, nextJob) {
-    setAiObservationJobsByPostId((currentJobs) => ({
-      ...currentJobs,
-      [postId]: {
-        ...(currentJobs[postId] ?? {}),
-        ...nextJob,
-      },
-    }));
-  }
-
-  function startAiObservationPolling(jobId, postId) {
-    stopAiObservationPolling(jobId);
-    aiObservationPollingRef.current.set(jobId, {
-      consecutiveErrors: 0,
-      inFlight: false,
-      startedAt: Date.now(),
-      timerId: null,
-    });
-    pollAiObservationStatus(jobId, postId);
-  }
-
-  async function handleStartAiObservation(postId) {
-    setAiObservationMessage("");
-    setAiObservationError("");
-
-    if (!session?.access_token || !aiObservationAllowed) {
-      setAiObservationError("AI観測を実行する権限がありません。");
-      return;
-    }
-
-    setAiObservationSavingPostId(postId);
-
-    try {
-      const response = await fetch("/api/ai-observation-request", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          postId,
-          idempotencyKey: crypto.randomUUID(),
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(payload?.error?.code ?? "AI_OBSERVATION_FAILED");
-      }
-
-      updateAiObservationJob(postId, {
-        jobId: payload.jobId,
-        status: payload.status ?? "queued",
-      });
-      setAiObservationMessage("ちあが観測を始めました。");
-      startAiObservationPolling(payload.jobId, postId);
-    } catch (_error) {
-      setAiObservationError("ちあの観測を始められませんでした。時間をおいてもう一度試してください。");
-    } finally {
-      setAiObservationSavingPostId(null);
-    }
-  }
-
   function handleToggleStarLetters(postId) {
     setStarLettersMessage("");
     setStarLettersError("");
@@ -5711,21 +5365,11 @@ function App() {
     session,
   };
   const postActions = {
-    aiObservation: {
-      allowed: aiObservationAllowed,
-      checking: aiObservationChecking,
-      error: aiObservationError,
-      getLabel: getAiObservationStatusLabel,
-      jobsByPostId: aiObservationJobsByPostId,
-      message: aiObservationMessage,
-      onStart: handleStartAiObservation,
-      savingPostId: aiObservationSavingPostId,
-    },
     deletingId: postDeletingId,
     editingId: editingPostId,
     editDrafts: postEditDrafts,
-    error: postActionError || aiObservationError,
-    message: postActionMessage || aiObservationMessage,
+    error: postActionError,
+    message: postActionMessage,
     onCancelEdit: handleCancelPostEdit,
     onDelete: handlePostDelete,
     onEditChange: handlePostEditDraftChange,
@@ -9833,21 +9477,6 @@ function PostCard({
   const youtubeVideoId = !isPostEditing ? findFirstYouTubeVideoId(post.text) : null;
   const isPostUpdating = postActions?.updatingId === post.id;
   const isPostDeleting = postActions?.deletingId === post.id;
-  const aiObservation = postActions?.aiObservation;
-  const aiObservationJob = aiObservation?.jobsByPostId?.[post.id];
-  const isAiObservationBusy =
-    aiObservation?.savingPostId === post.id ||
-    aiObservationJob?.status === "queued" ||
-    aiObservationJob?.status === "processing";
-  const isAiObservationTerminalLocked =
-    aiObservationJob?.status === "succeeded" ||
-    aiObservationJob?.status === "failed" ||
-    aiObservationJob?.status === "status_unknown";
-  const canShowAiObservation =
-    Boolean(aiObservation?.allowed) &&
-    !isPostEditing &&
-    !post.deletedAt &&
-    ["text", "image", "video", "youtube"].includes(post.type);
   const canSavePostEdit =
     (Boolean(postEditDraft.trim()) || postMedia.length > 0) &&
     !isPostEditOverLimit &&
@@ -10044,16 +9673,6 @@ function PostCard({
             label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
             onClick={() => archive?.onToggleArchive?.(post.id)}
           />
-          {canShowAiObservation && (
-            <ActionButton
-              active={isAiObservationBusy || aiObservationJob?.status === "succeeded"}
-              disabled={isAiObservationBusy || isAiObservationTerminalLocked || aiObservation?.checking || !aiObservation?.onStart}
-              icon="✩"
-              label={aiObservation?.getLabel?.(aiObservationJob) ?? "ちあに観測してもらう"}
-              onClick={() => aiObservation?.onStart?.(post.id)}
-              variant="edit"
-            />
-          )}
           {isOwnPost && !post.deletedAt && (
             <>
               <ActionButton

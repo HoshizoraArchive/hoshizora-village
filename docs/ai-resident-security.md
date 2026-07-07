@@ -7,11 +7,12 @@ Issue #56対応として、本番ON前にFunction入口rate limit、worker dispa
 POST予約はIP単位とoperator user id単位で厳しめに制限し、GET権限確認とstatus pollingは通常利用を妨げない範囲で制限する。
 worker入口もIP単位で制限し、DB上の全体processing数が `AI_GLOBAL_PROCESSING_LIMIT` を超える場合はGemini呼び出し前にfail closedする。
 capacity不足は一時的な混雑として扱い、provider未実行・attempt開始前のjobを永続 `failed` にしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを `cancelled` に戻して後で再予約できる状態にする。
+worker timeoutなどで古い `processing` jobが残った場合は、service_role専用の `recover_stale_ai_observation_jobs` RPCで `cancelled` + `WORKER_STALE` に戻す。Geminiのblind retryは行わない。
 これらはDBの日次/月次回数・料金上限とは別の、間接乱打と過剰pollingを抑えるための入口制御である。
 
 ## 処理フロー
 
-1. クライアントはログイン済みoperatorのSupabase access tokenを付けて `GET /api/ai-observation-request` で実行可否を確認し、`POST /api/ai-observation-request` を呼ぶ。
+1. 通常の投稿カードはAI観測APIを呼ばず、手動実行ボタンや手動status文言を表示しない。分離された運営・検証導線だけがログイン済みoperatorのSupabase access tokenを付けて `GET /api/ai-observation-request` で実行可否を確認し、`POST /api/ai-observation-request` を呼ぶ。
 2. Netlify Functionは `AI_OBSERVATION_ENABLED=true` のときだけ処理する。未設定または別値なら503でfail closedする。
 3. リクエストJSONは `{ "postId": "UUID", "idempotencyKey": "32〜128文字" }` のみ許可する。
 4. Functionは `SUPABASE_SERVICE_ROLE_KEY` を使い、Supabase Auth tokenをサーバー側で検証する。
@@ -87,7 +88,7 @@ MVPでは `AI_OPERATOR_USER_IDS` をカンマ区切りAuth UUIDとして扱う�
 - `processing`: 観測workerが処理開始時にclaimして遷移する。
 - `succeeded`: 観測結果と星文処理が完了した状態。
 - `failed`: 観測失敗。
-- `cancelled`: 明示的に中止された状態。
+- `cancelled`: dispatch失敗、capacity不足、stale processing回収など、再予約可能な中止状態。
 
 ## 二重実行防止
 
@@ -178,6 +179,7 @@ rate limit超過、worker署名不正、prompt injection由来のschema不正、
 ## 星空ちあ観測MVP
 
 MVPでは運営ユーザーだけが手動で公開流星便1件を観測できる。
+ただし通常の本番投稿カードには手動観測ボタンを表示せず、通常UIには「星文を残さなかった」などの手動実行前提の文言も出さない。
 対応形式は text / image / video / YouTube。audio単体はserver-verifiableなStorage metadataがないためfail closedのままにする。
 予約Functionからworkerへ渡す値はjobId、issuedAt、nonce、HMAC-SHA256署名だけで、投稿本文、Storage path、署名付きURL、プロンプト、星空ちあprofile idは渡さない。
 workerは署名、TTL、nonce、jobIdを検証し、古いdispatch、改ざん、jobId不一致、同一インスタンス内のnonce再利用を拒否する。
@@ -193,7 +195,7 @@ Gemini出力は固定JSON Schemaとローカルvalidatorで再検証し、AI生�
 2. Storage path違反件数がすべて0件であることを確認する。1件以上ある場合は、migration適用前に対象データを確認する。
 3. `supabase/migrations/20260703_add_ai_observation_security_foundation.sql` が未適用なら適用する。
 4. `docs/ai-observation-mvp-preflight.sql` を読み取り専用で実行する。
-5. `supabase/migrations/20260704_add_chia_observation_mvp.sql` をSupabase SQL Editorで確認後に適用する。
+5. `supabase/migrations/20260704_add_chia_observation_mvp.sql` と `supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql` をSupabase SQL Editorで確認後に適用する。
 6. `docs/ai-observation-mvp-verification.sql` を読み取り専用で実行し、RPC、RLS、GRANT、制約、job状態を確認する。
 7. Netlify環境変数は、本番で観測を開始する直前まで未設定または機能OFFのまま維持する。
 8. 明示的に有効化するまで `AI_OBSERVATION_ENABLED` は空または未設定にする。

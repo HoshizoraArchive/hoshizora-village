@@ -1,12 +1,12 @@
 # 星空ちあ観測MVP
 
-このPRは、運営ユーザーが手動で公開流星便1件を星空ちあに観測させるMVPを追加する。
-自動巡回、一般ユーザー向けボタン、複数AI住人、GPTリライト、音声単体観測は含めない。
+このMVPは、運営ユーザーだけが公開流星便1件を星空ちあに観測させるためのサーバー側基盤を追加する。
+本番の通常投稿カードには手動観測ボタンを表示しない。自動巡回、一般ユーザー向けボタン、複数AI住人、GPTリライト、音声単体観測は含めない。
 
 ## 処理フロー
 
-1. フロントはログイン済みsessionのaccess tokenで `GET /api/ai-observation-request` を呼び、operatorだけに観測ボタンを表示する。
-2. operatorが「ちあに観測してもらう」を押すと、`postId` と `idempotencyKey` だけを `POST /api/ai-observation-request` へ送る。
+1. 通常の本番投稿カードはAI観測APIを呼ばず、手動観測ボタンや手動実行前提のstatus文言を表示しない。
+2. 運営・検証用の分離された導線だけが、ログイン済みoperatorのaccess tokenで `GET /api/ai-observation-request` を確認し、`postId` と `idempotencyKey` だけを `POST /api/ai-observation-request` へ送る。
 3. 予約Functionは認証、operator権限、公開投稿、media、Storage metadata、利用上限、全体processing数を確認し、余裕がある場合だけ `reserve_ai_observation_job` で `queued` jobを作る。
 4. 予約Functionは `jobId`, `issuedAt`, `nonce` と `AI_WORKER_SHARED_SECRET` によるHMAC-SHA256署名を付けてBackground Functionへdispatchする。投稿本文、Storage path、署名付きURLは渡さない。dispatch失敗時は `cancel_ai_observation_job` で `cancelled` に戻す。
 5. workerはclaim前にも全体processing数を確認し、capacity不足ならqueued jobを `cancelled` に戻してGeminiを呼ばない。余裕がある場合だけ `claim_ai_observation_job` でrow lockを取り、`queued -> processing` へ遷移する。terminal jobはGeminiを呼ばず終了する。
@@ -16,7 +16,7 @@
 9. 出力は固定JSON Schemaとローカルvalidatorで検証する。AI生レスポンスは保存しない。
 10. DB確定直前に投稿、`post_media`、Storage metadataを再取得し、予約時fingerprintと一致することを再確認する。
 11. `complete_ai_observation_job` がtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post_media` を安定順で `FOR SHARE` し、DB現在値からfingerprintを再計算する。再計算値がjob保存値とworker入力値の両方に一致する場合だけ、`public.observations` 保存、必要時のちあ名義 `star_letters` insert、job `succeeded` 更新を同一transactionで確定する。
-12. フロントは `GET /api/ai-observation-status` をpollし、成功時に該当投稿の星文を再取得する。
+12. 分離された運営・検証導線は `GET /api/ai-observation-status` で結果を確認できる。通常投稿カードは手動実行状態を表示しない。
 
 ## 対応形式
 
@@ -38,6 +38,12 @@ worker入口もIP単位で制限し、認証前の大量アクセスがSupabase 
 workerは署名、TTL、nonce、jobIdを検証し、期限切れ、改ざん、jobId不一致、同一インスタンス内のnonce再利用を拒否する。
 TTLの既定値は60秒で、`AI_WORKER_DISPATCH_TTL_SECONDS` で調整できる。
 429応答はJSONのpublic error codeを返し、可能な場合は `Retry-After` を付ける。
+
+## stale processing job回収
+
+worker異常終了、Netlify timeout、プロセス停止などで `ai_observation_jobs.status = 'processing'` が残ると、同じ投稿とAI住人の新規予約を詰まらせる。
+`public.recover_stale_ai_observation_jobs(...)` はservice_role専用RPCとして、`AI_OBSERVATION_TIMEOUT_MS + 60秒` より古いprocessing jobだけを `cancelled` に戻し、`public_error_code = 'WORKER_STALE'` を記録する。
+この回収はGeminiを再送しない。request/status/worker入口で安全に実行し、既存の `succeeded` / `failed` / `cancelled` jobは変更しない。
 
 ## request fingerprint
 
@@ -137,16 +143,16 @@ Files API upload前など、生成処理が始まっていない段階のretry�
 
 1. `docs/ai-observation-mvp-preflight.sql` を読み取り専用で実行する。
 2. anomalyが0件であることを確認する。
-3. `supabase/migrations/20260704_add_chia_observation_mvp.sql` を確認して適用する。
+3. `supabase/migrations/20260704_add_chia_observation_mvp.sql` と `supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql` を確認して適用する。
 4. `docs/ai-observation-mvp-verification.sql` を読み取り専用で実行する。
 5. Netlify環境変数を設定する場合も、最初は `AI_OBSERVATION_ENABLED` を未設定または `false` のままにする。
 6. Deploy Previewでoperatorログイン、予約、status poll、星文再取得を確認する。
 
 ## Preview確認
 
-- 一般ユーザーには観測ボタンが出ない。
-- operatorだけに「ちあに観測してもらう」が表示される。
-- text / image / video / YouTube投稿でqueued/processing/succeeded/failed表示が崩れない。
+- 通常の投稿カードには、一般ユーザーにもoperatorにも手動AI観測ボタンが出ない。
+- 通常の投稿カードには、手動観測前提のqueued/processing/succeeded/failed/cancelled文言が出ない。
+- 分離された運営・検証導線を使う場合だけ、text / image / video / YouTube投稿でAPI予約とstatus確認を行う。
 - succeededかつ星文ありの場合、該当投稿の星文一覧が再取得される。
 - audio投稿は安全に拒否される。
 - 既存の星文投稿、共鳴、Archive、動画再生、プロフィールアイコンフレームが壊れていない。

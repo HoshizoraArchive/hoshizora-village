@@ -640,6 +640,7 @@ completion RPCはtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post
 - provider呼び出し直前に `public.start_ai_observation_attempt(...)` で `attempt_count` を増やす
 - `public.complete_ai_observation_job(...)` は期待fingerprintと公開・未削除状態を確認し、`observations` insert、必要時の `star_letters` insert、job `succeeded` 更新を同一transactionで行う
 - `public.fail_ai_observation_job(...)` と `public.cancel_ai_observation_job(...)` は安全な公開エラーコードだけを保存する
+- `public.recover_stale_ai_observation_jobs(...)` はservice_role専用で、worker timeoutなどにより古くなった `processing` jobだけを `cancelled` + `WORKER_STALE` へ戻し、同じ投稿の将来予約を詰まらせない。Geminiの自動再送は行わない
 - すべてのAI job RPCは `security definer` + `set search_path = ''` とし、browser roleからのEXECUTEを許可しない
 
 本番適用時は、先に `docs/ai-resident-security-preflight.sql` を実行し、既存 `post_media` のStorage path違反件数がすべて0件であることを確認してからmigrationを適用します。適用後は `docs/ai-resident-security-verification.sql` で制約、RLS、GRANT、RPC権限を確認します。
