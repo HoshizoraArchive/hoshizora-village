@@ -1,5 +1,6 @@
 const CARD_ID = "hoshizora-notification-test-card";
 const SERVICE_WORKER_PATH = "/sw.js";
+const R_CONNECT_INTRO_TEXT = "共鳴・星文・観測通知がここに届きます。";
 
 let registrationPromise = null;
 let syncQueued = false;
@@ -23,9 +24,22 @@ function registerWorker() {
   return registrationPromise;
 }
 
-function findRConnectRoot() {
-  const heading = [...document.querySelectorAll("h1")].find((node) => node.textContent?.trim() === "R.Connect");
+function findRConnectHeading() {
+  return [...document.querySelectorAll("h1")].find((node) => node.textContent?.trim() === "R.Connect") ?? null;
+}
+
+function findRConnectRoot(heading = findRConnectHeading()) {
   return heading?.closest("section") ?? heading?.parentElement ?? null;
+}
+
+function findRConnectIntroAnchor(heading, root) {
+  const intro = heading?.nextElementSibling ?? null;
+
+  if (intro && root?.contains(intro) && intro.textContent?.trim() === R_CONNECT_INTRO_TEXT) {
+    return intro;
+  }
+
+  return heading ?? null;
 }
 
 function setStatus(card, text) {
@@ -147,20 +161,22 @@ function createCard() {
 }
 
 function syncCard() {
-  const root = findRConnectRoot();
+  const heading = findRConnectHeading();
+  const root = heading ? findRConnectRoot(heading) : null;
+  const anchor = heading && root ? findRConnectIntroAnchor(heading, root) : null;
   const existing = document.getElementById(CARD_ID);
 
-  if (!root) {
+  if (!root || !anchor) {
     existing?.remove();
     return;
   }
 
-  if (existing) {
-    updatePermission(existing);
-    return;
-  }
+  const card = existing ?? createCard();
+  updatePermission(card);
 
-  root.append(createCard());
+  if (anchor.nextElementSibling !== card) {
+    anchor.insertAdjacentElement("afterend", card);
+  }
 }
 
 function queueSyncCard() {
