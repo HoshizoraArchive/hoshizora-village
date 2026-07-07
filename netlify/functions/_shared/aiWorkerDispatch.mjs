@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { AI_ERROR, aiHttpError } from "./aiErrors.mjs";
 import { UUID_PATTERN } from "./aiConfig.mjs";
+import { AI_OBSERVATION_CONTEXT, isAiObservationContext, normalizeAiObservationContext } from "./aiObservationContext.mjs";
 
 const DEFAULT_TTL_SECONDS = 60;
 const MAX_TTL_SECONDS = 300;
@@ -9,7 +10,11 @@ const SIGNATURE_PATTERN = /^[0-9a-f]{64}$/;
 const nonceStore = globalThis.__hoshizoraAiWorkerDispatchNonceStore ?? new Map();
 globalThis.__hoshizoraAiWorkerDispatchNonceStore = nonceStore;
 
-function dispatchMessage({ jobId, issuedAt, nonce }) {
+function dispatchMessage({ jobId, issuedAt, nonce, observationContext }) {
+  if (observationContext) {
+    return `${jobId}.${issuedAt}.${nonce}.${observationContext}`;
+  }
+
   return `${jobId}.${issuedAt}.${nonce}`;
 }
 
@@ -51,13 +56,21 @@ export function normalizeWorkerDispatchTtlSeconds(value) {
   return ttl;
 }
 
-export function signWorkerDispatch({ jobId, secret, now = Date.now(), nonce = randomUUID() }) {
+export function signWorkerDispatch({
+  jobId,
+  secret,
+  observationContext = AI_OBSERVATION_CONTEXT.MANUAL,
+  now = Date.now(),
+  nonce = randomUUID(),
+}) {
   const normalizedJobId = String(jobId).toLowerCase();
+  const normalizedContext = normalizeAiObservationContext(observationContext);
   const issuedAt = Math.floor(now / 1000);
   const payload = {
     jobId: normalizedJobId,
     issuedAt,
     nonce,
+    observationContext: normalizedContext,
   };
 
   return {
@@ -79,7 +92,12 @@ export function verifyWorkerDispatchPayload(payload, {
 
   const keys = Object.keys(payload).sort();
 
-  if (keys.join(",") !== "issuedAt,jobId,nonce,signature") {
+  const hasObservationContext = Object.prototype.hasOwnProperty.call(payload, "observationContext");
+
+  if (
+    keys.join(",") !== "issuedAt,jobId,nonce,signature" &&
+    keys.join(",") !== "issuedAt,jobId,nonce,observationContext,signature"
+  ) {
     throw aiHttpError(400, AI_ERROR.BAD_REQUEST);
   }
 
@@ -94,6 +112,10 @@ export function verifyWorkerDispatchPayload(payload, {
   }
 
   if (typeof payload.nonce !== "string" || !NONCE_PATTERN.test(payload.nonce)) {
+    throw aiHttpError(403, AI_ERROR.FORBIDDEN);
+  }
+
+  if (hasObservationContext && !isAiObservationContext(payload.observationContext)) {
     throw aiHttpError(403, AI_ERROR.FORBIDDEN);
   }
 
@@ -112,6 +134,7 @@ export function verifyWorkerDispatchPayload(payload, {
     jobId,
     issuedAt: payload.issuedAt,
     nonce: payload.nonce,
+    observationContext: hasObservationContext ? payload.observationContext : undefined,
   }));
 
   if (!timingSafeEqualText(payload.signature, expectedSignature)) {
@@ -132,10 +155,12 @@ export function verifyWorkerDispatchPayload(payload, {
     jobId,
     issuedAt: payload.issuedAt,
     nonce: payload.nonce,
+    observationContext: hasObservationContext
+      ? payload.observationContext
+      : AI_OBSERVATION_CONTEXT.MANUAL,
   };
 }
 
 export function resetWorkerDispatchNonceStore(store = nonceStore) {
   store.clear();
 }
-

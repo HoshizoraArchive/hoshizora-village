@@ -88,6 +88,7 @@ export async function runAiObservationJob({
   supabase,
   config,
   geminiClient,
+  observationContext,
   runProvider = runGeminiObservation,
 }) {
   const startedAt = Date.now();
@@ -158,6 +159,7 @@ export async function runAiObservationJob({
       mediaRows,
       storageRequirements,
       supabase,
+      observationContext,
     });
     providerUsage = usage;
 

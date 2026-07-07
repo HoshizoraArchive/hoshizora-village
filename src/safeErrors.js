@@ -1,6 +1,7 @@
 export const ERROR_OPERATION = Object.freeze({
   ARCHIVE_LOAD: "archive_load",
   ARCHIVE_SAVE: "archive_save",
+  AI_OBSERVATION_AUTO: "ai_observation_auto",
   AUTH_SESSION: "auth_session",
   AUTH_SIGN_IN: "auth_sign_in",
   AUTH_SIGN_OUT: "auth_sign_out",
@@ -37,6 +38,7 @@ const SAFE_USER_ERRORS = new WeakSet();
 const USER_ERROR_MESSAGES = Object.freeze({
   [ERROR_OPERATION.ARCHIVE_LOAD]: "Archiveの読み込みに失敗しました。時間をおいてもう一度お試しください。",
   [ERROR_OPERATION.ARCHIVE_SAVE]: "Archiveの更新に失敗しました。時間をおいてもう一度お試しください。",
+  [ERROR_OPERATION.AI_OBSERVATION_AUTO]: "AI観測の自動予約に失敗しました。",
   [ERROR_OPERATION.AUTH_SESSION]: "ログイン状態の確認に失敗しました。時間をおいてもう一度お試しください。",
   [ERROR_OPERATION.AUTH_SIGN_IN]: "ログインに失敗しました。メールアドレスとパスワードを確認してください。",
   [ERROR_OPERATION.AUTH_SIGN_OUT]: "ログアウトに失敗しました。時間をおいてもう一度お試しください。",

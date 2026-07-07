@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AI_ERROR, aiHttpError } from "./aiErrors.mjs";
 import { createRequestFingerprint } from "./aiJobReservation.mjs";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 import { normalizeObservationForDb, runAiObservationJob } from "./aiObservationWorker.mjs";
 
 const POST_ID = "22222222-2222-4222-8222-222222222222";
@@ -333,6 +334,7 @@ test("global processing limit cancels queued job before provider attempt", async
 
 test("global processing capacity allows the last available processing slot", async () => {
   const { supabase, calls } = createMockSupabase({ processingCount: 1 });
+  const providerContexts = [];
   let providerCalls = 0;
   const result = await runAiObservationJob({
     jobId: "77777777-7777-4777-8777-777777777777",
@@ -340,8 +342,10 @@ test("global processing capacity allows the last available processing slot", asy
     supabase,
     config: config(),
     geminiClient: {},
-    runProvider: async () => {
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    runProvider: async ({ observationContext }) => {
       providerCalls += 1;
+      providerContexts.push(observationContext);
       return {
         output: output(),
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
@@ -351,6 +355,7 @@ test("global processing capacity allows the last available processing slot", asy
 
   assert.equal(result.outcome, "completed");
   assert.equal(providerCalls, 1);
+  assert.deepEqual(providerContexts, [AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST]);
   assert.equal(calls.attempts, 1);
   assert.equal(calls.cancelArgs, null);
 });

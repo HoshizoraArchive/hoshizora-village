@@ -4062,6 +4062,34 @@ function App() {
     }
   }
 
+  async function requestAutomaticChiaObservation(postId, postType) {
+    if (postType !== "text" || !session?.access_token) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/ai-observation-auto-request", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          postId,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
+
+      if (!response.ok) {
+        logSafeError(ERROR_OPERATION.AI_OBSERVATION_AUTO, {
+          status: response.status,
+        });
+      }
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.AI_OBSERVATION_AUTO, error);
+    }
+  }
+
   async function handlePostSubmit(event) {
     event.preventDefault();
     setPostMessage("");
@@ -4310,6 +4338,7 @@ function App() {
       setPostUploadProgress("完了");
       setPostMessage("流星便を放流しました。");
       setActiveTab("observe");
+      void requestAutomaticChiaObservation(data.id, postType);
     } catch (error) {
       setPostUploadProgress("失敗");
       await removeUploadedMeteorMedia([

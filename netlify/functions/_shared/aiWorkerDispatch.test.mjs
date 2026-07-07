@@ -5,6 +5,7 @@ import {
   signWorkerDispatch,
   verifyWorkerDispatchPayload,
 } from "./aiWorkerDispatch.mjs";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
 const JOB_ID = "77777777-7777-4777-8777-777777777777";
 const SECRET = "s".repeat(32);
@@ -27,7 +28,45 @@ test("worker dispatch signature verifies valid payloads", () => {
     jobId: JOB_ID,
     issuedAt: 100,
     nonce: "nonce-1234567890abcd",
+    observationContext: AI_OBSERVATION_CONTEXT.MANUAL,
   });
+});
+
+test("worker dispatch signs automatic text observation context", () => {
+  const store = new Map();
+  const payload = signWorkerDispatch({
+    jobId: JOB_ID,
+    secret: SECRET,
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    now: 100000,
+    nonce: "nonce-1234567890abcd",
+  });
+
+  assert.equal(payload.observationContext, AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST);
+  assert.deepEqual(verifyWorkerDispatchPayload(payload, {
+    secret: SECRET,
+    ttlSeconds: 60,
+    now: 100500,
+    store,
+  }), {
+    jobId: JOB_ID,
+    issuedAt: 100,
+    nonce: "nonce-1234567890abcd",
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  });
+
+  assert.throws(
+    () => verifyWorkerDispatchPayload({
+      ...payload,
+      observationContext: AI_OBSERVATION_CONTEXT.MANUAL,
+    }, {
+      secret: SECRET,
+      ttlSeconds: 60,
+      now: 100500,
+      store: new Map(),
+    }),
+    (error) => error.status === 403,
+  );
 });
 
 test("worker dispatch rejects expired, mismatched, tampered, and replayed payloads", () => {

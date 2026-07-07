@@ -331,4 +331,7 @@ test("production post cards do not expose manual AI observation controls", () =>
   for (const token of forbiddenUiTokens) {
     assert.equal(appJsx.includes(token), false, `App.jsx still exposes manual AI observation UI token: ${token}`);
   }
+
+  assert.equal(appJsx.includes("/api/ai-observation-auto-request"), true);
+  assert.equal(appJsx.includes("requestAutomaticChiaObservation"), true);
 });

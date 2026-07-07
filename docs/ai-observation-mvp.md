@@ -18,6 +18,14 @@
 11. `complete_ai_observation_job` がtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post_media` を安定順で `FOR SHARE` し、DB現在値からfingerprintを再計算する。再計算値がjob保存値とworker入力値の両方に一致する場合だけ、`public.observations` 保存、必要時のちあ名義 `star_letters` insert、job `succeeded` 更新を同一transactionで確定する。
 12. 分離された運営・検証導線は `GET /api/ai-observation-status` で結果を確認できる。通常投稿カードは手動実行状態を表示しない。
 
+## 投稿後自動観測MVP
+
+Issue #61では、投稿作成成功後に通常UIへ手動ボタンを出さず、裏側で `POST /api/ai-observation-auto-request` を呼ぶ。
+最初の対象は `text` 投稿のみで、画像、動画、YouTube、audio、自動Archive、自動共鳴、巡回観測は対象外。
+サーバー側では、投稿者本人のaccess tokenであること、投稿が公開・未削除であること、投稿タイプが `text` であること、投稿者がoperatorまたは `username = 'hoshizora_hoshikun'` の星空ほしくんであることを確認する。
+対象外や予約失敗は投稿作成の成功扱いを壊さない。通常投稿カードには queued / processing / failed / cancelled などの手動観測statusを表示しない。
+自動観測のworker dispatchには署名対象の `observationContext = auto_text_post` を含める。Gemini promptでは、この文脈のtext投稿に限り、具体的な観測根拠がある場合は原則 `should_post=true` として20〜80文字の `star_letter` を残すよう内部指示を追加する。既存のJSON Schema、星文validator、危険時・根拠不足時の `should_post=false`、上限到達やfail/cancelの挙動は緩めない。
+
 ## 対応形式
 
 - text: 投稿本文をdelimiterで囲んで観測対象として渡す。

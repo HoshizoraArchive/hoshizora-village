@@ -7,7 +7,7 @@ export function extractBearerToken(request) {
   return match?.[1] ?? "";
 }
 
-export async function requireAiOperator({ request, supabase, config }) {
+export async function requireAuthenticatedUser({ request, supabase }) {
   const token = extractBearerToken(request);
 
   if (!token) {
@@ -21,11 +21,17 @@ export async function requireAiOperator({ request, supabase, config }) {
     throw aiHttpError(401, AI_ERROR.INVALID_TOKEN);
   }
 
-  if (!config.operatorUserIds.has(userId)) {
-    throw aiHttpError(403, AI_ERROR.FORBIDDEN);
-  }
-
   return {
     id: userId,
   };
+}
+
+export async function requireAiOperator({ request, supabase, config }) {
+  const user = await requireAuthenticatedUser({ request, supabase });
+
+  if (!config.operatorUserIds.has(user.id)) {
+    throw aiHttpError(403, AI_ERROR.FORBIDDEN);
+  }
+
+  return user;
 }
