@@ -8,7 +8,7 @@ import {
   failAiObservationJob,
   startAiObservationAttempt,
 } from "./aiJobState.mjs";
-import { loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
+import { loadAuthorProfile, loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
 import { assertGlobalProcessingCapacity } from "./aiRateLimit.mjs";
 
 const OBSERVATION_SUMMARY_MAX_LENGTH = 1200;
@@ -150,6 +150,8 @@ export async function runAiObservationJob({
       throw aiHttpError(422, AI_ERROR.POST_CHANGED);
     }
 
+    const authorProfile = await loadAuthorProfile({ supabase, profileId: post.author_id });
+
     await startAiObservationAttempt({ supabase, jobId });
 
     const { output, usage } = await runProvider({
@@ -160,6 +162,7 @@ export async function runAiObservationJob({
       storageRequirements,
       supabase,
       observationContext,
+      authorProfile,
     });
     providerUsage = usage;
 

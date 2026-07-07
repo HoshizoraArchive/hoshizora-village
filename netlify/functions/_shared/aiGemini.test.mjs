@@ -281,6 +281,10 @@ test("Interactions create disables SDK retry and receives timeout options and Ab
     storageRequirements: [],
     supabase: {},
     observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    authorProfile: {
+      display_name: "ほしくん",
+      username: "hoshikun",
+    },
   });
 
   assert.equal(calls.length, 1);
@@ -289,6 +293,7 @@ test("Interactions create disables SDK retry and receives timeout options and Ab
   assert.equal(calls[0].options.signal instanceof AbortSignal, true);
   assert.equal(calls[0].request.input[0].text.includes("投稿作成直後の自動観測"), true);
   assert.equal(calls[0].request.input[0].text.includes("原則 should_post=true"), true);
+  assert.equal(calls[0].request.input[0].text.includes("<author_call_name>\nほしくん\n</author_call_name>"), true);
   assert.equal(result.usage.outputTokens, 257);
   assert.equal(result.usage.actualCostMicroUsd, 3113);
 });
