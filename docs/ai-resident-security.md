@@ -13,6 +13,7 @@ worker timeoutなどで古い `processing` jobが残った場合は、service_ro
 ## 処理フロー
 
 1. 通常の投稿カードはAI観測APIを呼ばず、手動実行ボタンや手動status文言を表示しない。分離された運営・検証導線だけがログイン済みoperatorのSupabase access tokenを付けて `GET /api/ai-observation-request` で実行可否を確認し、`POST /api/ai-observation-request` を呼ぶ。
+1. Issue #61の投稿後自動観測では、投稿作成成功後に `POST /api/ai-observation-auto-request` を裏側で呼ぶ。通常UIにはボタンやstatusを出さず、対象は投稿者本人の `text` 投稿、かつoperatorまたは `username = 'hoshizora_hoshikun'` の星空ほしくんだけに限定する。
 2. Netlify Functionは `AI_OBSERVATION_ENABLED=true` のときだけ処理する。未設定または別値なら503でfail closedする。
 3. リクエストJSONは `{ "postId": "UUID", "idempotencyKey": "32〜128文字" }` のみ許可する。
 4. Functionは `SUPABASE_SERVICE_ROLE_KEY` を使い、Supabase Auth tokenをサーバー側で検証する。

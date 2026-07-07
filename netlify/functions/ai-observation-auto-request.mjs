@@ -1,5 +1,6 @@
 import { readAiObservationConfig } from "./_shared/aiConfig.mjs";
-import { requireAiOperator } from "./_shared/aiAuth.mjs";
+import { requireAuthenticatedUser } from "./_shared/aiAuth.mjs";
+import { getAutomaticChiaObservationEligibility } from "./_shared/aiAutoObservation.mjs";
 import { dispatchAiObservationWorker } from "./_shared/aiDispatch.mjs";
 import {
   AI_ERROR,
@@ -11,7 +12,7 @@ import {
 } from "./_shared/aiErrors.mjs";
 import { reserveAiObservationJob } from "./_shared/aiJobReservation.mjs";
 import { cancelAiObservationJob } from "./_shared/aiJobState.mjs";
-import { validateCurrentPostInput } from "./_shared/aiObservationData.mjs";
+import { loadPostAndMedia } from "./_shared/aiObservationData.mjs";
 import { recoverStaleProcessingJobs } from "./_shared/aiStaleJobs.mjs";
 import {
   getClientIp,
@@ -23,6 +24,7 @@ import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 import {
   assertJsonRequest,
   readStrictJsonBody,
+  validatePostMedia,
   validateObservationRequestPayload,
 } from "./_shared/aiValidation.mjs";
 
@@ -42,7 +44,7 @@ function toSafeError(error) {
   return aiHttpError(503, AI_ERROR.INTERNAL);
 }
 
-async function readConfigOrThrow() {
+function readConfigOrThrow() {
   try {
     const config = readAiObservationConfig();
 
@@ -60,29 +62,23 @@ async function readConfigOrThrow() {
   }
 }
 
-async function handleGet(request, requestId, startedAt) {
-  const config = await readConfigOrThrow();
-  const supabase = createSupabaseAdminClient(config);
-  const operator = await requireAiOperator({ request, supabase, config });
+async function loadRequesterProfile({ supabase, userId }) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, username, display_name")
+    .eq("id", userId)
+    .maybeSingle();
 
-  assertRateLimit({
-    scope: "ai-request-get-operator",
-    key: operator.id,
-    limit: config.rateLimits.operatorStatusLimit,
-    windowSeconds: config.rateLimits.windowSeconds,
-  });
+  if (error) {
+    throw aiHttpError(503, AI_ERROR.INTERNAL);
+  }
 
-  logAiEvent("info", "ai_observation_operator_allowed", {
-    requestId,
-    operation: "ai_observation_request_get",
-    status: 200,
-    code: "allowed",
-    durationMs: Date.now() - startedAt,
-  });
+  return data;
+}
 
-  return jsonResponse(200, {
-    allowed: true,
-    enabled: true,
+function skippedResponse(requestId) {
+  return jsonResponse(202, {
+    status: "skipped",
     requestId,
   });
 }
@@ -90,12 +86,13 @@ async function handleGet(request, requestId, startedAt) {
 async function handlePost(request, requestId, startedAt) {
   assertJsonRequest(request);
   const payload = validateObservationRequestPayload(await readStrictJsonBody(request));
-  const config = await readConfigOrThrow();
+  const config = readConfigOrThrow();
   const supabase = createSupabaseAdminClient(config);
-  const operator = await requireAiOperator({ request, supabase, config });
+  const user = await requireAuthenticatedUser({ request, supabase });
+
   assertRateLimit({
-    scope: "ai-request-post-operator",
-    key: operator.id,
+    scope: "ai-auto-post-user",
+    key: user.id,
     limit: config.rateLimits.operatorPostLimit,
     windowSeconds: config.rateLimits.windowSeconds,
   });
@@ -103,9 +100,31 @@ async function handlePost(request, requestId, startedAt) {
     supabase,
     config,
     requestId,
-    operation: "ai_observation_request_post",
+    operation: "ai_observation_auto_request",
   });
-  const { post, mediaRows, mediaSummary } = await validateCurrentPostInput({ supabase, postId: payload.postId });
+
+  const { post, mediaRows } = await loadPostAndMedia(supabase, payload.postId);
+  const profile = await loadRequesterProfile({ supabase, userId: user.id });
+  const eligibility = getAutomaticChiaObservationEligibility({
+    userId: user.id,
+    post,
+    profile,
+    operatorUserIds: config.operatorUserIds,
+  });
+
+  if (!eligibility.eligible) {
+    logAiEvent("info", "ai_observation_auto_skipped", {
+      requestId,
+      operation: "ai_observation_auto_request",
+      status: 202,
+      code: `AUTO_${eligibility.reason.toUpperCase()}`,
+      durationMs: Date.now() - startedAt,
+    });
+    return skippedResponse(requestId);
+  }
+
+  const mediaSummary = validatePostMedia(post, mediaRows);
+
   await assertGlobalProcessingCapacity({
     supabase,
     limit: config.rateLimits.globalProcessingLimit,
@@ -113,7 +132,7 @@ async function handlePost(request, requestId, startedAt) {
   });
   const job = await reserveAiObservationJob({
     supabase,
-    operatorUserId: operator.id,
+    operatorUserId: user.id,
     payload,
     post,
     mediaRows,
@@ -132,10 +151,10 @@ async function handlePost(request, requestId, startedAt) {
     throw error;
   }
 
-  logAiEvent("info", "ai_observation_job_reserved", {
+  logAiEvent("info", "ai_observation_auto_reserved", {
     requestId,
     jobId: job.jobId,
-    operation: "reserve_ai_observation_job",
+    operation: "ai_observation_auto_request",
     status: 202,
     code: "queued",
     durationMs: Date.now() - startedAt,
@@ -156,22 +175,12 @@ export default async function handler(request, context) {
   try {
     const rateLimits = readAiRateLimitConfig();
 
-    if (request.method === "GET") {
-      assertRateLimit({
-        scope: "ai-request-get-ip",
-        key: clientIp,
-        limit: rateLimits.requestGetIpLimit,
-        windowSeconds: rateLimits.windowSeconds,
-      });
-      return await handleGet(request, requestId, startedAt);
-    }
-
     if (request.method !== "POST") {
       throw aiHttpError(405, AI_ERROR.METHOD_NOT_ALLOWED);
     }
 
     assertRateLimit({
-      scope: "ai-request-post-ip",
+      scope: "ai-auto-post-ip",
       key: clientIp,
       limit: rateLimits.requestPostIpLimit,
       windowSeconds: rateLimits.windowSeconds,
@@ -180,9 +189,9 @@ export default async function handler(request, context) {
   } catch (error) {
     const safeError = toSafeError(error);
 
-    logAiEvent(safeError.status >= 500 ? "error" : "warn", "ai_observation_request_failed", {
+    logAiEvent(safeError.status >= 500 ? "error" : "warn", "ai_observation_auto_failed", {
       requestId,
-      operation: "ai_observation_request",
+      operation: "ai_observation_auto_request",
       status: safeError.status,
       code: safeError.code,
       durationMs: Date.now() - startedAt,
@@ -193,6 +202,6 @@ export default async function handler(request, context) {
 }
 
 export const config = {
-  path: "/api/ai-observation-request",
-  method: ["GET", "POST"],
+  path: "/api/ai-observation-auto-request",
+  method: ["POST"],
 };
