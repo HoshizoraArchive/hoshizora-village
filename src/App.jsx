@@ -11,8 +11,10 @@ import {
   getPushNotificationPermission,
   getPushNotificationPermissionLabel,
   isPushNotificationSupported,
+  isPushSubscriptionSupported,
   requestPushNotificationPermission,
   sendPushNotificationTest,
+  subscribeToPushNotifications,
 } from "./pushNotificationSetup";
 
 const bottomNavItems = [
@@ -6603,8 +6605,16 @@ function AvatarPreviewModal({ avatar, onClose }) {
   );
 }
 
-function PushNotificationTestCard() {
+const PUSH_SUBSCRIPTION_STATUS_LABELS = {
+  unregistered: "端末登録: 未登録",
+  registered: "端末登録: 登録済み",
+  failed: "端末登録: 登録に失敗しました",
+  configMissing: "端末登録: VAPID key未設定",
+};
+
+function PushNotificationTestCard({ session }) {
   const [permission, setPermission] = useState(() => getPushNotificationPermission());
+  const [subscriptionStatus, setSubscriptionStatus] = useState("unregistered");
   const [statusMessage, setStatusMessage] = useState(() =>
     isPushNotificationSupported()
       ? ""
@@ -6612,7 +6622,9 @@ function PushNotificationTestCard() {
   );
   const [isWorking, setIsWorking] = useState(false);
   const isSupported = permission !== "unsupported";
+  const isSubscriptionSupported = isPushSubscriptionSupported();
   const permissionLabel = getPushNotificationPermissionLabel(permission);
+  const subscriptionLabel = PUSH_SUBSCRIPTION_STATUS_LABELS[subscriptionStatus] ?? PUSH_SUBSCRIPTION_STATUS_LABELS.unregistered;
 
   useEffect(() => {
     function refreshPermission() {
@@ -6626,6 +6638,10 @@ function PushNotificationTestCard() {
       window.removeEventListener("focus", refreshPermission);
     };
   }, []);
+
+  useEffect(() => {
+    setSubscriptionStatus("unregistered");
+  }, [session?.access_token]);
 
   async function handleRequestPermission() {
     if (!isSupported) {
@@ -6677,6 +6693,43 @@ function PushNotificationTestCard() {
     }
   }
 
+  async function handleRegisterDevice() {
+    if (!isSubscriptionSupported) {
+      setPermission(getPushNotificationPermission());
+      setStatusMessage("この表示環境では端末登録を利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
+      return;
+    }
+
+    if (!session?.access_token) {
+      setSubscriptionStatus("failed");
+      setStatusMessage("ログインすると、この端末をR.Connect通知用に登録できます。");
+      return;
+    }
+
+    if (getPushNotificationPermission() !== "granted") {
+      setPermission(getPushNotificationPermission());
+      setStatusMessage("先に通知を許可してください。");
+      return;
+    }
+
+    setIsWorking(true);
+    setStatusMessage("");
+
+    try {
+      await subscribeToPushNotifications({ accessToken: session.access_token });
+      setPermission(getPushNotificationPermission());
+      setSubscriptionStatus("registered");
+      setStatusMessage("この端末を登録しました。");
+    } catch (error) {
+      setPermission(getPushNotificationPermission());
+      const isConfigMissing = error instanceof Error && error.message === "push-vapid-key-missing";
+      setSubscriptionStatus(isConfigMissing ? "configMissing" : "failed");
+      setStatusMessage(isConfigMissing ? "スマホ通知登録はまだ設定されていません。" : "端末登録に失敗しました。");
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   return (
     <section className="mt-5 rounded-2xl border border-comet/25 bg-comet/10 px-4 py-4 text-comet shadow-[0_0_24px_rgba(125,223,255,0.08)] sm:px-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -6686,6 +6739,7 @@ function PushNotificationTestCard() {
             この端末でR.Connect通知を表示できるか確認します。iPhoneではホーム画面に追加した星空Villageから試してください。
           </p>
           <p className="mt-3 text-xs font-black text-comet">{permissionLabel}</p>
+          <p className="mt-1 text-xs font-black text-comet">{subscriptionLabel}</p>
           {statusMessage ? <p className="mt-2 text-xs leading-5 text-comet/80">{statusMessage}</p> : null}
         </div>
 
@@ -6697,6 +6751,14 @@ function PushNotificationTestCard() {
             type="button"
           >
             通知を許可
+          </button>
+          <button
+            className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!isSubscriptionSupported || isWorking || permission !== "granted" || !session?.access_token}
+            onClick={handleRegisterDevice}
+            type="button"
+          >
+            この端末を登録
           </button>
           <button
             className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
@@ -6719,7 +6781,7 @@ function RConnectScreen({ notifications }) {
         <p className="text-xs font-bold normal-case text-comet">R.Connect</p>
         <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">R.Connect</h2>
         <p className="mt-4 text-sm leading-7 text-slate-300">共鳴・星文・観測通知がここに届きます。</p>
-        <PushNotificationTestCard />
+        <PushNotificationTestCard session={notifications.session} />
 
         {!notifications.session ? (
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">

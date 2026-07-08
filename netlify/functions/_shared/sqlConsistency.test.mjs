@@ -7,12 +7,16 @@ const migrationSql = readFileSync("supabase/migrations/20260703_add_ai_observati
 const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
 const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql", "utf8");
 const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260708_expand_chia_auto_observation.sql", "utf8");
+const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708113000_add_push_subscriptions.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
 const appJsx = readFileSync("src/App.jsx", "utf8");
 const mainJsx = readFileSync("src/main.jsx", "utf8");
 const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "utf8");
+const pushConfigFunction = readFileSync("netlify/functions/push-config.mjs", "utf8");
+const pushRegisterFunction = readFileSync("netlify/functions/push-subscription-register.mjs", "utf8");
+const pushSharedFunction = readFileSync("netlify/functions/_shared/pushNotifications.mjs", "utf8");
 
 function normalizedSql(sql) {
   return sql.replace(/\s+/g, " ");
@@ -460,8 +464,8 @@ test("production post cards do not expose manual AI observation controls", () =>
 
 test("R.Connect renders smartphone notification test card through React instead of DOM injection", () => {
   const requiredAppTokens = [
-    "function PushNotificationTestCard()",
-    "<PushNotificationTestCard />",
+    "function PushNotificationTestCard({ session })",
+    "<PushNotificationTestCard session={notifications.session} />",
     "スマホ通知テスト",
     "この端末でR.Connect通知を表示できるか確認します。",
     "通知を許可",
@@ -480,4 +484,71 @@ test("R.Connect renders smartphone notification test card through React instead 
   assert.equal(pushNotificationSetupJs.includes("insertAdjacentElement"), false);
   assert.equal(pushNotificationSetupJs.includes("navigator.serviceWorker.register(SERVICE_WORKER_PATH)"), true);
   assert.equal(pushNotificationSetupJs.includes('registration.showNotification("星空Village"'), true);
+});
+
+test("Push subscription registration stores subscriptions through service-role-only table access", () => {
+  const tokens = [
+    "create table if not exists public.push_subscriptions",
+    "profile_id uuid not null references public.profiles(id) on delete cascade",
+    "endpoint text not null",
+    "p256dh text not null",
+    "auth text not null",
+    "constraint push_subscriptions_endpoint_key unique (endpoint)",
+    "alter table public.push_subscriptions enable row level security",
+    "revoke all on table public.push_subscriptions from public, anon, authenticated",
+    "grant select, insert, update on table public.push_subscriptions to service_role",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(pushSubscriptionsMigrationSql.includes(token), true, `push subscription migration missing ${token}`);
+  }
+
+  assert.equal(pushSubscriptionsMigrationSql.includes("webpush"), false);
+  assert.equal(pushSubscriptionsMigrationSql.includes("send_notification"), false);
+});
+
+test("Push subscription Functions expose config and authenticated registration only", () => {
+  assert.equal(pushConfigFunction.includes('path: "/api/push-config"'), true);
+  assert.equal(pushConfigFunction.includes("PUSH_VAPID_PUBLIC_KEY"), false);
+  assert.equal(pushSharedFunction.includes('readEnv("PUSH_VAPID_PUBLIC_KEY")'), true);
+  assert.equal(pushConfigFunction.includes("enabled: Boolean(publicKey)"), true);
+
+  assert.equal(pushRegisterFunction.includes('path: "/api/push-subscription-register"'), true);
+  assert.equal(pushRegisterFunction.includes("requireAuthenticatedUser({ request, supabase })"), true);
+  assert.equal(pushRegisterFunction.includes('.from("push_subscriptions")'), true);
+  assert.equal(pushRegisterFunction.includes("onConflict: \"endpoint\""), true);
+  assert.equal(pushRegisterFunction.includes("profile_id: user.id"), true);
+  assert.equal(pushSharedFunction.includes("validateEndpoint(subscription.endpoint)"), true);
+  assert.equal(pushSharedFunction.includes('trimmed.startsWith("https://")'), true);
+});
+
+test("R.Connect notification card can register this device without adding automatic Push delivery", () => {
+  const requiredAppTokens = [
+    "subscribeToPushNotifications",
+    "端末登録: 未登録",
+    "端末登録: 登録済み",
+    "端末登録: 登録に失敗しました",
+    "端末登録: VAPID key未設定",
+    "この端末を登録",
+    "<PushNotificationTestCard session={notifications.session} />",
+  ];
+  const requiredSetupTokens = [
+    "fetchPushNotificationConfig",
+    "subscribeToPushNotifications({ accessToken })",
+    "urlBase64ToUint8Array(publicKey)",
+    "registration.pushManager.subscribe",
+    'fetch(PUSH_SUBSCRIPTION_REGISTER_ENDPOINT',
+    "Authorization: `Bearer ${accessToken}`",
+  ];
+
+  for (const token of requiredAppTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing Push subscription UI token: ${token}`);
+  }
+
+  for (const token of requiredSetupTokens) {
+    assert.equal(pushNotificationSetupJs.includes(token), true, `pushNotificationSetup.js missing ${token}`);
+  }
+
+  assert.equal(pushNotificationSetupJs.includes("webpush"), false);
+  assert.equal(pushRegisterFunction.includes("showNotification"), false);
 });
