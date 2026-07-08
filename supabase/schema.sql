@@ -482,6 +482,97 @@ comment on column public.notifications.actor_id is '通知のきっかけを作�
 comment on column public.notifications.type is '通知タイプ。MVPでは resonance、archive、star_letter を許可する。';
 comment on column public.notifications.is_read is '既読状態。本人だけが更新できる。';
 
+-- push_subscriptions: R.Connect mobile Push subscription registrations.
+-- Registered by authenticated Netlify Functions with service_role only.
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  endpoint text not null,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  disabled_at timestamptz,
+  constraint push_subscriptions_endpoint_key unique (endpoint),
+  constraint push_subscriptions_endpoint_check check (
+    endpoint = btrim(endpoint)
+    and endpoint <> ''
+    and char_length(endpoint) <= 2048
+    and endpoint like 'https://%'
+  ),
+  constraint push_subscriptions_p256dh_check check (
+    p256dh = btrim(p256dh)
+    and p256dh <> ''
+    and char_length(p256dh) <= 512
+  ),
+  constraint push_subscriptions_auth_check check (
+    auth = btrim(auth)
+    and auth <> ''
+    and char_length(auth) <= 256
+  ),
+  constraint push_subscriptions_user_agent_check check (
+    user_agent is null or char_length(user_agent) <= 512
+  )
+);
+
+comment on table public.push_subscriptions is
+'R.ConnectスマホPush通知用の端末購読情報。Netlify Functionのservice_role経由でのみ登録する。';
+comment on column public.push_subscriptions.profile_id is
+'購読端末を登録したプロフィール。ブラウザから直接insert/updateさせず、認証済みNetlify Functionが検証済みaccess tokenから設定する。';
+comment on column public.push_subscriptions.endpoint is
+'Web Push endpoint。端末購読の一意キー。';
+comment on column public.push_subscriptions.disabled_at is
+'送信失敗時に購読を無効化するための時刻。';
+
+-- push_notification_jobs: queued mobile Push deliveries for R.Connect.
+-- Created from public.notifications inserts and claimed by service_role only.
+create table if not exists public.push_notification_jobs (
+  id uuid primary key default gen_random_uuid(),
+  notification_id uuid not null references public.notifications(id) on delete cascade,
+  recipient_id uuid not null references public.profiles(id) on delete cascade,
+  status text not null default 'queued',
+  attempt_count integer not null default 0,
+  max_attempts integer not null default 3,
+  next_attempt_at timestamptz not null default now(),
+  last_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  constraint push_notification_jobs_notification_id_key unique (notification_id),
+  constraint push_notification_jobs_status_check check (
+    status in ('queued', 'processing', 'succeeded', 'failed', 'skipped')
+  ),
+  constraint push_notification_jobs_attempts_check check (
+    attempt_count >= 0
+    and max_attempts between 1 and 10
+    and attempt_count <= max_attempts
+  ),
+  constraint push_notification_jobs_completion_check check (
+    (status in ('succeeded', 'failed', 'skipped') and completed_at is not null)
+    or (status in ('queued', 'processing') and completed_at is null)
+  ),
+  constraint push_notification_jobs_error_code_check check (
+    last_error_code is null
+    or (
+      last_error_code = upper(last_error_code)
+      and last_error_code ~ '^[A-Z0-9_]{2,64}$'
+    )
+  )
+);
+
+comment on table public.push_notification_jobs is
+'R.Connect通知を登録済み端末へWeb Push配信するためのserver-side queue。browser roleからは直接操作させない。';
+comment on column public.push_notification_jobs.notification_id is
+'Push配信対象のpublic.notifications行。1通知につき最大1job。';
+comment on column public.push_notification_jobs.recipient_id is
+'通知受信者。送信Functionはこのprofile_idに紐づく有効なpush_subscriptionsだけへ送信する。';
+comment on column public.push_notification_jobs.status is
+'queued / processing / succeeded / failed / skipped。';
+comment on column public.push_notification_jobs.attempt_count is
+'scheduled Functionがclaimした送信試行回数。Gemini/AI観測とは無関係。';
+
 -- feedbacks: 星の目安箱.
 -- Logged-in beta testers can send and read only their own feedback.
 create table if not exists public.feedbacks (
@@ -1359,6 +1450,87 @@ create trigger star_letters_create_notification
 after insert on public.star_letters
 for each row execute function app_private.create_star_letter_notification();
 
+-- Queue Web Push delivery for every R.Connect notification row.
+create or replace function app_private.enqueue_push_notification_job()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.recipient_id is null then
+    return new;
+  end if;
+
+  insert into public.push_notification_jobs (
+    notification_id,
+    recipient_id
+  )
+  values (
+    new.id,
+    new.recipient_id
+  )
+  on conflict (notification_id) do nothing;
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.enqueue_push_notification_job() from public, anon, authenticated;
+
+drop trigger if exists notifications_enqueue_push_notification_job on public.notifications;
+create trigger notifications_enqueue_push_notification_job
+after insert on public.notifications
+for each row execute function app_private.enqueue_push_notification_job();
+
+create or replace function public.claim_push_notification_jobs(p_limit integer default 20)
+returns table (
+  id uuid,
+  notification_id uuid,
+  recipient_id uuid,
+  attempt_count integer,
+  max_attempts integer
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if p_limit is null or p_limit < 1 or p_limit > 50 then
+    raise exception 'invalid push notification claim limit' using errcode = '22023';
+  end if;
+
+  return query
+  with selected_jobs as (
+    select j.id
+    from public.push_notification_jobs j
+    where j.status = 'queued'
+      and j.next_attempt_at <= now()
+      and j.attempt_count < j.max_attempts
+    order by j.next_attempt_at asc, j.created_at asc, j.id asc
+    for update skip locked
+    limit p_limit
+  )
+  update public.push_notification_jobs j
+  set
+    status = 'processing',
+    attempt_count = j.attempt_count + 1,
+    last_error_code = null,
+    updated_at = now()
+  from selected_jobs s
+  where j.id = s.id
+  returning
+    j.id,
+    j.notification_id,
+    j.recipient_id,
+    j.attempt_count,
+    j.max_attempts;
+end;
+$$;
+
+revoke all on function public.claim_push_notification_jobs(integer) from public, anon, authenticated;
+grant execute on function public.claim_push_notification_jobs(integer) to service_role;
+
 -- Indexes for MVP queries.
 create index if not exists profile_frames_frame_key_idx on public.profile_frames(frame_key);
 create index if not exists profile_frames_is_active_idx on public.profile_frames(is_active);
@@ -1397,6 +1569,24 @@ create index if not exists notifications_post_id_idx on public.notifications(pos
 create unique index if not exists notifications_resonance_once_per_actor_post_idx
 on public.notifications(recipient_id, actor_id, post_id)
 where type = 'resonance';
+create index if not exists push_subscriptions_profile_id_idx
+on public.push_subscriptions(profile_id);
+create index if not exists push_subscriptions_disabled_at_idx
+on public.push_subscriptions(disabled_at);
+create index if not exists push_notification_jobs_recipient_created_at_idx
+on public.push_notification_jobs(recipient_id, created_at desc);
+create index if not exists push_notification_jobs_status_next_attempt_idx
+on public.push_notification_jobs(status, next_attempt_at, created_at);
+create index if not exists push_notification_jobs_notification_id_idx
+on public.push_notification_jobs(notification_id);
+drop trigger if exists push_subscriptions_set_updated_at on public.push_subscriptions;
+create trigger push_subscriptions_set_updated_at
+before update on public.push_subscriptions
+for each row execute function public.set_updated_at();
+drop trigger if exists push_notification_jobs_set_updated_at on public.push_notification_jobs;
+create trigger push_notification_jobs_set_updated_at
+before update on public.push_notification_jobs
+for each row execute function public.set_updated_at();
 create index if not exists feedbacks_user_created_at_idx on public.feedbacks(user_id, created_at desc);
 create index if not exists feedbacks_status_created_at_idx on public.feedbacks(status, created_at desc);
 create index if not exists star_letters_post_id_idx on public.star_letters(post_id);
@@ -1424,6 +1614,8 @@ alter table public.meteor_tags enable row level security;
 alter table public.post_meteor_tags enable row level security;
 alter table public.resonances enable row level security;
 alter table public.notifications enable row level security;
+alter table public.push_subscriptions enable row level security;
+alter table public.push_notification_jobs enable row level security;
 alter table public.feedbacks enable row level security;
 alter table public.star_letters enable row level security;
 alter table public.archives enable row level security;
@@ -1438,6 +1630,10 @@ grant insert, update on table public.posts to authenticated;
 grant insert on table public.resonances to authenticated;
 grant insert, update, delete on table public.star_letters to authenticated;
 grant insert, delete on table public.archives to authenticated;
+revoke all on table public.push_subscriptions from public, anon, authenticated;
+grant select, insert, update on table public.push_subscriptions to service_role;
+revoke all on table public.push_notification_jobs from public, anon, authenticated;
+grant select, insert, update on table public.push_notification_jobs to service_role;
 
 alter default privileges in schema public
 revoke insert, update, delete, truncate on tables from public, anon, authenticated;

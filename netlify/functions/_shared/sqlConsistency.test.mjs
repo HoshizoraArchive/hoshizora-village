@@ -8,15 +8,19 @@ const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_ad
 const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql", "utf8");
 const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260708_expand_chia_auto_observation.sql", "utf8");
 const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708113000_add_push_subscriptions.sql", "utf8");
+const pushNotificationJobsMigrationSql = readFileSync("supabase/migrations/20260708124500_add_push_notification_jobs.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
+const packageJson = readFileSync("package.json", "utf8");
 const appJsx = readFileSync("src/App.jsx", "utf8");
 const mainJsx = readFileSync("src/main.jsx", "utf8");
 const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "utf8");
 const pushConfigFunction = readFileSync("netlify/functions/push-config.mjs", "utf8");
 const pushRegisterFunction = readFileSync("netlify/functions/push-subscription-register.mjs", "utf8");
 const pushSharedFunction = readFileSync("netlify/functions/_shared/pushNotifications.mjs", "utf8");
+const pushDeliverySharedFunction = readFileSync("netlify/functions/_shared/pushDelivery.mjs", "utf8");
+const pushDispatchFunction = readFileSync("netlify/functions/push-notification-dispatch.mjs", "utf8");
 
 function normalizedSql(sql) {
   return sql.replace(/\s+/g, " ");
@@ -522,7 +526,7 @@ test("Push subscription Functions expose config and authenticated registration o
   assert.equal(pushSharedFunction.includes('trimmed.startsWith("https://")'), true);
 });
 
-test("R.Connect notification card can register this device without adding automatic Push delivery", () => {
+test("R.Connect notification card registers this device without client-side Push delivery", () => {
   const requiredAppTokens = [
     "subscribeToPushNotifications",
     "端末登録: 未登録",
@@ -551,4 +555,54 @@ test("R.Connect notification card can register this device without adding automa
 
   assert.equal(pushNotificationSetupJs.includes("webpush"), false);
   assert.equal(pushRegisterFunction.includes("showNotification"), false);
+});
+
+test("R.Connect Push delivery migration queues notifications and keeps jobs server-managed", () => {
+  const tokens = [
+    "create table if not exists public.push_notification_jobs",
+    "notification_id uuid not null references public.notifications(id) on delete cascade",
+    "recipient_id uuid not null references public.profiles(id) on delete cascade",
+    "constraint push_notification_jobs_notification_id_key unique (notification_id)",
+    "status in ('queued', 'processing', 'succeeded', 'failed', 'skipped')",
+    "alter table public.push_notification_jobs enable row level security",
+    "revoke all on table public.push_notification_jobs from public, anon, authenticated",
+    "grant select, insert, update on table public.push_notification_jobs to service_role",
+    "app_private.enqueue_push_notification_job",
+    "after insert on public.notifications",
+    "public.claim_push_notification_jobs",
+    "for update skip locked",
+    "revoke all on function public.claim_push_notification_jobs(integer) from public, anon, authenticated",
+    "grant execute on function public.claim_push_notification_jobs(integer) to service_role",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(pushNotificationJobsMigrationSql.includes(token), true, `push delivery migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing push delivery token ${token}`);
+  }
+
+  assert.equal(pushNotificationJobsMigrationSql.includes("hoshizora_chia"), false);
+  assert.equal(pushNotificationJobsMigrationSql.includes("ai_observation"), false);
+});
+
+test("R.Connect Push delivery Function sends all notification types without exposing secrets", () => {
+  assert.equal(packageJson.includes('"web-push"'), true);
+  assert.equal(pushDispatchFunction.includes('import webPush from "web-push"'), true);
+  assert.equal(pushDispatchFunction.includes('schedule: "*/1 * * * *"'), true);
+  assert.equal(pushDispatchFunction.includes("claim_push_notification_jobs"), true);
+  assert.equal(pushDispatchFunction.includes('.from("notifications")'), true);
+  assert.equal(pushDispatchFunction.includes('.from("push_subscriptions")'), true);
+  assert.equal(pushDispatchFunction.includes("sendNotification"), true);
+  assert.equal(pushDispatchFunction.includes("disabled_at"), true);
+  assert.equal(pushDispatchFunction.includes("PUSH_VAPID_PRIVATE_KEY"), false);
+
+  for (const token of ["resonance", "archive", "star_letter"]) {
+    assert.equal(pushDeliverySharedFunction.includes(token), true, `push delivery fallback missing ${token}`);
+  }
+
+  assert.equal(pushDeliverySharedFunction.includes('readEnv("PUSH_VAPID_PRIVATE_KEY")'), true);
+  assert.equal(pushDeliverySharedFunction.includes("PUSH_DEFAULT_SUBJECT"), true);
+  assert.equal(pushDeliverySharedFunction.includes("PUSH_SUBSCRIPTION_GONE"), true);
+  assert.equal(pushDeliverySharedFunction.includes("status === 404 || status === 410"), true);
+  assert.equal(pushDispatchFunction.includes("ai-observation"), false);
+  assert.equal(pushDispatchFunction.includes("hoshizora_chia"), false);
 });
