@@ -123,8 +123,16 @@ begin
   with selected_jobs as (
     select j.id
     from public.push_notification_jobs j
-    where j.status = 'queued'
-      and j.next_attempt_at <= now()
+    where (
+        (
+          j.status = 'queued'
+          and j.next_attempt_at <= now()
+        )
+        or (
+          j.status = 'processing'
+          and j.updated_at < now() - interval '15 minutes'
+        )
+      )
       and j.attempt_count < j.max_attempts
     order by j.next_attempt_at asc, j.created_at asc, j.id asc
     for update skip locked
