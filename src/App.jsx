@@ -7,6 +7,8 @@ import {
   logSafeError,
 } from "./safeErrors";
 import { supabase } from "./lib/supabaseClient";
+import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw";
+import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import {
   getPushNotificationPermission,
   getPushNotificationPermissionLabel,
@@ -98,6 +100,9 @@ const PROFILE_FRAME_SELECT_COLUMNS =
 const PROFILE_FRAME_OWNERSHIP_SELECT_COLUMNS = "profile_id, frame_id, acquisition_source, granted_at";
 const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
 const VISIBLE_POST_TYPES = ["text", "image", "video", "youtube"];
+const LEGAL_TERMS_VERSION = "2026-07-10";
+const LEGAL_PRIVACY_VERSION = "2026-07-10";
+const LEGAL_CONSENT_REQUIRED_AFTER_MS = Date.parse("2026-07-10T00:00:00.000Z");
 
 const emptyProfileForm = {
   display_name: "",
@@ -1076,11 +1081,24 @@ async function replacePostMeteorTags(postId, tagDrafts, creatorId) {
 }
 
 function getRouteFromLocation() {
+  const legalMatch = window.location.pathname.match(/^\/(privacy|terms)\/?$/);
+
+  if (legalMatch?.[1]) {
+    return {
+      name: "legal",
+      legalPage: legalMatch[1],
+      postId: null,
+      tagName: null,
+      username: null,
+    };
+  }
+
   const meteorMatch = window.location.pathname.match(/^\/meteor\/([^/?#]+)\/?$/);
 
   if (meteorMatch?.[1]) {
     return {
       name: "meteor",
+      legalPage: null,
       postId: decodeURIComponent(meteorMatch[1]),
       tagName: null,
       username: null,
@@ -1092,6 +1110,7 @@ function getRouteFromLocation() {
   if (starMatch?.[1]) {
     return {
       name: "starProfile",
+      legalPage: null,
       postId: null,
       tagName: null,
       username: decodeURIComponent(starMatch[1]).replace(/^@/, ""),
@@ -1103,6 +1122,7 @@ function getRouteFromLocation() {
   if (tagMatch?.[1]) {
     return {
       name: "meteorTag",
+      legalPage: null,
       postId: null,
       tagName: decodeURIComponent(tagMatch[1]).replace(/^#/, ""),
       username: null,
@@ -1111,6 +1131,7 @@ function getRouteFromLocation() {
 
   return {
     name: "home",
+    legalPage: null,
     postId: null,
     tagName: null,
     username: null,
@@ -3019,7 +3040,57 @@ function App() {
     };
   }, [profileFrames]);
 
-  async function handleSignUp(email, password) {
+  function hasCurrentLegalConsentMetadata(user) {
+    const metadata = user?.user_metadata ?? {};
+
+    return (
+      metadata.legal_terms_version === LEGAL_TERMS_VERSION &&
+      metadata.legal_privacy_version === LEGAL_PRIVACY_VERSION &&
+      metadata.legal_age_confirmed === true
+    );
+  }
+
+  function requiresCurrentLegalConsentMetadata(user) {
+    const createdAtMs = Date.parse(user?.created_at ?? "");
+
+    return !Number.isFinite(createdAtMs) || createdAtMs >= LEGAL_CONSENT_REQUIRED_AFTER_MS;
+  }
+
+  async function recordLegalConsentForSession(sessionToRecord) {
+    if (!sessionToRecord?.user?.id) {
+      return null;
+    }
+
+    if (!hasCurrentLegalConsentMetadata(sessionToRecord.user)) {
+      return requiresCurrentLegalConsentMetadata(sessionToRecord.user)
+        ? new Error("legal_consent_metadata_missing")
+        : null;
+    }
+
+    const { data, error } = await supabase.rpc("record_legal_consent", {
+      p_age_confirmed: true,
+      p_privacy_version: LEGAL_PRIVACY_VERSION,
+      p_terms_version: LEGAL_TERMS_VERSION,
+    });
+
+    if (error) {
+      return error;
+    }
+
+    if (data?.outcome !== "recorded") {
+      return new Error("legal_consent_not_recorded");
+    }
+
+    return null;
+  }
+
+  async function handleSignUp(email, password, legalConsent = {}) {
+    if (!legalConsent.acceptedLegal || !legalConsent.confirmedAge) {
+      setAuthMessage("");
+      setAuthError("会員登録には、利用規約・プライバシーポリシーへの同意と18歳以上であることの確認が必要です。");
+      return;
+    }
+
     setAuthLoading(true);
     setAuthMessage("");
     setAuthError("");
@@ -3027,21 +3098,41 @@ function App() {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: {
+        data: {
+          legal_age_confirmed: true,
+          legal_privacy_version: LEGAL_PRIVACY_VERSION,
+          legal_terms_version: LEGAL_TERMS_VERSION,
+        },
+      },
     });
 
-    setAuthLoading(false);
-
     if (error) {
+      setAuthLoading(false);
       setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_UP));
       return;
     }
 
+    if (data.session?.user?.id) {
+      const consentError = await recordLegalConsentForSession(data.session);
+
+      if (consentError) {
+        await supabase.auth.signOut();
+        setAuthLoading(false);
+        setSession(null);
+        setAuthStatus("未ログイン");
+        setAuthError("会員登録は完了しましたが、同意記録の保存に失敗しました。利用開始前にもう一度ログインして同意を記録してください。");
+        return;
+      }
+    }
+
+    setAuthLoading(false);
     setSession(data.session);
     setAuthStatus(data.session ? "ログイン中" : "未ログイン");
     setAuthMessage(
       data.session
         ? "会員登録してログインしました。"
-        : "確認メールを送信しました。メールを確認してからログインしてください。",
+        : "確認メールを送信しました。メールを確認してからログインしてください。同意記録はサーバー側で保存されます。",
     );
   }
 
@@ -3059,6 +3150,17 @@ function App() {
 
     if (error) {
       setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_IN));
+      return;
+    }
+
+    const consentError = await recordLegalConsentForSession(data.session);
+
+    if (consentError) {
+      await supabase.auth.signOut();
+      setAuthLoading(false);
+      setSession(null);
+      setAuthStatus("未ログイン");
+      setAuthError("同意記録の保存に失敗しました。時間をおいてもう一度ログインしてください。");
       return;
     }
 
@@ -5154,7 +5256,7 @@ function App() {
     }
 
     window.history.replaceState({}, "", "/");
-    setRoute({ name: "home", postId: null, tagName: null, username: null });
+    setRoute({ name: "home", legalPage: null, postId: null, tagName: null, username: null });
     setActiveTab("observe");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -5169,7 +5271,7 @@ function App() {
     }
 
     window.history.replaceState({}, "", "/");
-    setRoute({ name: "home", postId: null, tagName: null, username: null });
+    setRoute({ name: "home", legalPage: null, postId: null, tagName: null, username: null });
     setActiveTab("observe");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -5181,7 +5283,7 @@ function App() {
     }
 
     window.history.replaceState({}, "", "/");
-    setRoute({ name: "home", postId: null, tagName: null, username: null });
+    setRoute({ name: "home", legalPage: null, postId: null, tagName: null, username: null });
     setActiveTab("observe");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -5277,7 +5379,7 @@ function App() {
   function handleTabChange(tabId) {
     if (route.name !== "home") {
       window.history.pushState({}, "", "/");
-      setRoute({ name: "home", postId: null, tagName: null, username: null });
+      setRoute({ name: "home", legalPage: null, postId: null, tagName: null, username: null });
     }
 
     setActiveTab(tabId);
@@ -5687,6 +5789,10 @@ function TabContent({
   route,
   starLetters,
 }) {
+  if (route.name === "legal") {
+    return <LegalDocumentScreen page={route.legalPage} />;
+  }
+
   if (route.name === "meteor") {
     return (
       <MeteorDetailScreen
@@ -5780,6 +5886,149 @@ function TabContent({
       starLetters={starLetters}
     />
   );
+}
+
+function LegalDocumentScreen({ page }) {
+  const document =
+    page === "privacy"
+      ? {
+          eyebrow: "privacy",
+          markdown: privacyPolicyMarkdown,
+          title: "プライバシーポリシー",
+        }
+      : {
+          eyebrow: "terms",
+          markdown: termsOfServiceMarkdown,
+          title: "利用規約",
+        };
+
+  return (
+    <main className="mx-auto min-w-0 max-w-3xl pb-10">
+      <Panel eyebrow={document.eyebrow} title={document.title}>
+        <div className="mb-4 flex flex-wrap gap-2">
+          <a
+            className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            href="/"
+          >
+            星空Villageへ戻る
+          </a>
+          <a
+            className="min-h-9 rounded-full border border-comet/20 bg-comet/10 px-3 py-2 text-xs font-black text-comet transition hover:border-comet/35 hover:bg-comet/15 hover:text-white"
+            href={page === "privacy" ? "/terms" : "/privacy"}
+          >
+            {page === "privacy" ? "利用規約を見る" : "プライバシーポリシーを見る"}
+          </a>
+        </div>
+        <MarkdownDocument markdown={document.markdown} />
+      </Panel>
+    </main>
+  );
+}
+
+function MarkdownDocument({ markdown }) {
+  const elements = [];
+  let paragraphLines = [];
+  let listItems = [];
+
+  function flushParagraph() {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+
+    const lines = paragraphLines;
+    const key = `p-${elements.length}`;
+
+    elements.push(
+      <p className="text-sm leading-7 text-slate-300" key={key}>
+        {lines.map((line, index) => (
+          <span key={`${key}-${index}`}>
+            {index > 0 && <br />}
+            {line}
+          </span>
+        ))}
+      </p>,
+    );
+    paragraphLines = [];
+  }
+
+  function flushList() {
+    if (listItems.length === 0) {
+      return;
+    }
+
+    const key = `ul-${elements.length}`;
+
+    elements.push(
+      <ul className="list-disc space-y-1 pl-5 text-sm leading-7 text-slate-300" key={key}>
+        {listItems.map((item, index) => (
+          <li key={`${key}-${index}`}>{item}</li>
+        ))}
+      </ul>,
+    );
+    listItems = [];
+  }
+
+  for (const rawLine of String(markdown ?? "").split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    const trimmedLine = line.trim();
+
+    if (!trimmedLine) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    if (/^-{3,}$/.test(trimmedLine)) {
+      flushParagraph();
+      flushList();
+      elements.push(<hr className="border-white/10" key={`hr-${elements.length}`} />);
+      continue;
+    }
+
+    const headingMatch = trimmedLine.match(/^(#{1,3})\s+(.+)$/);
+
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      const level = headingMatch[1].length;
+      const headingText = headingMatch[2];
+
+      if (level === 1) {
+        elements.push(
+          <h1 className="text-xl font-black leading-8 text-white" key={`h1-${elements.length}`}>
+            {headingText}
+          </h1>,
+        );
+      } else if (level === 2) {
+        elements.push(
+          <h2 className="pt-2 text-base font-black leading-7 text-white" key={`h2-${elements.length}`}>
+            {headingText}
+          </h2>,
+        );
+      } else {
+        elements.push(
+          <h3 className="text-sm font-black leading-7 text-comet" key={`h3-${elements.length}`}>
+            {headingText}
+          </h3>,
+        );
+      }
+      continue;
+    }
+
+    if (trimmedLine.startsWith("- ")) {
+      flushParagraph();
+      listItems.push(trimmedLine.slice(2));
+      continue;
+    }
+
+    flushList();
+    paragraphLines.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return <div className="space-y-4">{elements}</div>;
 }
 
 function ObserveScreen({
@@ -7146,6 +7395,32 @@ function SettingsPanel({ auth, onBack, profile }) {
             不具合、感想、改善案を星空Villageへ送れます。
           </span>
         </button>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+          <p className="text-xs font-black text-comet">法務・お問い合わせ</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <a
+              className="rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+              href="/terms"
+            >
+              利用規約
+            </a>
+            <a
+              className="rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+              href="/privacy"
+            >
+              プライバシーポリシー
+            </a>
+            <a
+              className="rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+              href="mailto:akaibuhoshizora@gmail.com"
+            >
+              お問い合わせ
+            </a>
+          </div>
+          <p className="mt-3 text-xs leading-6 text-slate-500">
+            お問い合わせは星空Village公式X、または akaibuhoshizora@gmail.com までお願いします。
+          </p>
+        </div>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           <p className="text-xs font-black text-comet">ログイン状態</p>
           <p className="mt-1 text-slate-300">{auth.status}</p>
@@ -8433,14 +8708,20 @@ function AuthPanel({ auth }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
+  const [confirmedAge, setConfirmedAge] = useState(false);
   const isSignUp = mode === "signup";
   const userEmail = auth.session?.user?.email;
+  const signUpConsentReady = acceptedLegal && confirmedAge;
 
   async function handleSubmit(event) {
     event.preventDefault();
 
     if (isSignUp) {
-      await auth.onSignUp(email, password);
+      await auth.onSignUp(email, password, {
+        acceptedLegal,
+        confirmedAge,
+      });
       return;
     }
 
@@ -8523,9 +8804,41 @@ function AuthPanel({ auth }) {
             />
           </label>
 
+          {isSignUp && (
+            <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
+              <label className="flex items-start gap-3">
+                <input
+                  checked={acceptedLegal}
+                  className="mt-1 h-5 w-5 rounded border-white/20 bg-night-950 text-comet focus:ring-comet/30"
+                  onChange={(event) => setAcceptedLegal(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <a className="font-black text-comet underline-offset-4 hover:underline" href="/terms">
+                    利用規約
+                  </a>
+                  <span>と</span>
+                  <a className="font-black text-comet underline-offset-4 hover:underline" href="/privacy">
+                    プライバシーポリシー
+                  </a>
+                  <span>を確認し、同意します</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-3">
+                <input
+                  checked={confirmedAge}
+                  className="mt-1 h-5 w-5 rounded border-white/20 bg-night-950 text-comet focus:ring-comet/30"
+                  onChange={(event) => setConfirmedAge(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>私は18歳以上であることを確認します</span>
+              </label>
+            </div>
+          )}
+
           <button
             className="min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={auth.loading}
+            disabled={auth.loading || (isSignUp && !signUpConsentReady)}
             type="submit"
           >
             {auth.loading ? "処理中..." : isSignUp ? "会員登録する" : "ログインする"}
@@ -8542,6 +8855,12 @@ function AuthPanel({ auth }) {
           {auth.error || auth.message}
         </p>
       )}
+
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-bold text-slate-500">
+        <a className="transition hover:text-comet" href="/terms">利用規約</a>
+        <a className="transition hover:text-comet" href="/privacy">プライバシーポリシー</a>
+        <a className="transition hover:text-comet" href="mailto:akaibuhoshizora@gmail.com">お問い合わせ</a>
+      </div>
     </section>
   );
 }
