@@ -9,6 +9,7 @@ const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707_rec
 const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260708_expand_chia_auto_observation.sql", "utf8");
 const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708113000_add_push_subscriptions.sql", "utf8");
 const pushNotificationJobsMigrationSql = readFileSync("supabase/migrations/20260708124500_add_push_notification_jobs.sql", "utf8");
+const legalConsentsMigrationSql = readFileSync("supabase/migrations/20260710120000_add_legal_consents.sql", "utf8");
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
@@ -21,6 +22,8 @@ const pushRegisterFunction = readFileSync("netlify/functions/push-subscription-r
 const pushSharedFunction = readFileSync("netlify/functions/_shared/pushNotifications.mjs", "utf8");
 const pushDeliverySharedFunction = readFileSync("netlify/functions/_shared/pushDelivery.mjs", "utf8");
 const pushDispatchFunction = readFileSync("netlify/functions/push-notification-dispatch.mjs", "utf8");
+const privacyPolicyMarkdown = readFileSync("src/legal/privacy-policy.md", "utf8");
+const termsOfServiceMarkdown = readFileSync("src/legal/terms-of-service.md", "utf8");
 
 function normalizedSql(sql) {
   return sql.replace(/\s+/g, " ");
@@ -610,4 +613,74 @@ test("R.Connect Push delivery Function sends all notification types without expo
   assert.equal(pushDeliverySharedFunction.includes("status === 404 || status === 410"), true);
   assert.equal(pushDispatchFunction.includes("ai-observation"), false);
   assert.equal(pushDispatchFunction.includes("hoshizora_chia"), false);
+});
+
+test("Legal documents are stored as exact public markdown routes", () => {
+  assert.equal(privacyPolicyMarkdown.startsWith("# 星空Village プライバシーポリシー"), true);
+  assert.equal(privacyPolicyMarkdown.includes("制定日：2026年7月10日"), true);
+  assert.equal(privacyPolicyMarkdown.includes("Google Gemini APIの無償提供枠"), true);
+  assert.equal(privacyPolicyMarkdown.trimEnd().endsWith("以上"), true);
+
+  assert.equal(termsOfServiceMarkdown.startsWith("# 星空Village 利用規約"), true);
+  assert.equal(termsOfServiceMarkdown.includes("ユーザーは、本サービスへの登録時に、本規約および別途定めるプライバシーポリシーを確認し、同意したうえで本サービスを利用するものとします。"), true);
+  assert.equal(termsOfServiceMarkdown.includes("18歳未満の方は、本サービスを利用できません。"), true);
+  assert.equal(termsOfServiceMarkdown.trimEnd().endsWith("以上"), true);
+
+  for (const token of [
+    'import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw"',
+    'import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw"',
+    'window.location.pathname.match(/^\\/(privacy|terms)\\/?$/)',
+    "LegalDocumentScreen",
+    "MarkdownDocument",
+    'href="/privacy"',
+    'href="/terms"',
+  ]) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing legal route token: ${token}`);
+  }
+});
+
+test("Signup requires legal consent and age confirmation before registration", () => {
+  const tokens = [
+    "LEGAL_TERMS_VERSION = \"2026-07-10\"",
+    "LEGAL_PRIVACY_VERSION = \"2026-07-10\"",
+    "acceptedLegal",
+    "confirmedAge",
+    "会員登録には、利用規約・プライバシーポリシーへの同意と18歳以上であることの確認が必要です。",
+    "利用規約",
+    "プライバシーポリシー",
+    "私は18歳以上であることを確認します",
+    ".from(\"legal_consents\").insert",
+    "PENDING_LEGAL_CONSENT_KEY",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing signup consent token: ${token}`);
+  }
+});
+
+test("Legal consent migration and schema keep consent records owner-scoped", () => {
+  const tokens = [
+    "create table if not exists public.legal_consents",
+    "user_id uuid not null references auth.users(id) on delete cascade",
+    "terms_version text not null",
+    "privacy_version text not null",
+    "accepted_at timestamptz not null default now()",
+    "constraint legal_consents_user_versions_key unique (user_id, terms_version, privacy_version)",
+    "alter table public.legal_consents enable row level security",
+    "revoke all on table public.legal_consents from public, anon, authenticated",
+    "grant select, insert on table public.legal_consents to authenticated",
+    "grant select, insert on table public.legal_consents to service_role",
+    "create policy legal_consents_select_own on public.legal_consents",
+    "using (user_id = (select auth.uid()))",
+    "create policy legal_consents_insert_own on public.legal_consents",
+    "with check (user_id = (select auth.uid()))",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(legalConsentsMigrationSql.includes(token), true, `legal consent migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing legal consent token ${token}`);
+  }
+
+  assert.equal(legalConsentsMigrationSql.includes("grant update"), false);
+  assert.equal(legalConsentsMigrationSql.includes("grant delete"), false);
 });

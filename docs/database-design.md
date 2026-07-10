@@ -17,6 +17,7 @@ MVPでは `auth.users.id` と `public.profiles.id` を1対1でつなぎ、ログ
 Databaseには以下を保存します。
 
 - `profiles`: ユーザープロフィール
+- `legal_consents`: 利用規約・プライバシーポリシーへの同意記録
 - `profile_frames`: プロフィールアイコンフレームのカタログ
 - `profile_frame_ownerships`: プロフィールごとのアイコンフレーム所持情報
 - `posts`: 流星便
@@ -80,6 +81,7 @@ Storage policy方針:
 - `supabase/migrations/20260702_security_hardening.sql`
 - `supabase/migrations/20260702_add_profile_icon_frames.sql`
 - `supabase/migrations/20260703_add_ai_observation_security_foundation.sql`
+- `supabase/migrations/20260710120000_add_legal_consents.sql`
 
 ### 将来の拡張
 
@@ -117,6 +119,37 @@ RLS方針:
 - `notify_authors_when_i_archive` はデフォルトONです。OFFの場合、自分が誰かの流星便をArchiveしても相手にR.Connect通知を作りません。
 - `notify_authors_when_i_resonate` はデフォルトONです。OFFの場合、自分が誰かの流星便に共鳴しても相手にR.Connect通知を作りません。
 - `active_frame_id` はDB triggerで `profile_frame_ownerships` による所持確認を行い、所持していないフレームIDを直接送っても保存できません。
+
+### legal_consents
+
+利用規約とプライバシーポリシーへの同意記録を保存します。
+
+主なカラム:
+
+- `id`: 同意記録ID
+- `user_id`: Supabase AuthのユーザーID
+- `terms_version`: 同意した利用規約の版。MVPでは `2026-07-10`
+- `privacy_version`: 同意したプライバシーポリシーの版。MVPでは `2026-07-10`
+- `accepted_at`: 同意を記録した時刻
+- `created_at`: レコード作成日時
+
+制約:
+
+- `user_id + terms_version + privacy_version` は重複不可
+- versionは空文字を禁止し、最大32文字
+
+RLS方針:
+
+- `anon` は権限なし
+- `authenticated` は本人の同意記録だけselect / insert可能
+- `service_role` は運用確認用にselect / insertのみ許可
+- 他ユーザーの同意記録はブラウザから読めない
+
+補足:
+
+- 既存ユーザーへの強制再同意は今回実装しません。
+- メール確認型の会員登録でセッションが即時発行されない場合、同じ端末では次回ログイン時に保留中の同意記録を本人権限で保存します。
+- 本番Supabaseには、レビュー後に `supabase/migrations/20260710120000_add_legal_consents.sql` を適用します。
 
 ### profile_frames
 

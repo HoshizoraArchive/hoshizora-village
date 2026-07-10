@@ -239,6 +239,36 @@ comment on column public.profiles.active_frame_id is '現在装着中のプロ�
 comment on column public.profiles.notify_authors_when_i_archive is '自分が誰かの流星便をArchiveした時、相手にR.Connect通知を送るかどうか。デフォルトON。';
 comment on column public.profiles.notify_authors_when_i_resonate is '自分が誰かの流星便に共鳴した時、相手にR.Connect通知を送るかどうか。デフォルトON。';
 
+-- legal_consents: Terms and Privacy Policy acceptance records.
+create table if not exists public.legal_consents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  terms_version text not null,
+  privacy_version text not null,
+  accepted_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  constraint legal_consents_versions_check check (
+    terms_version = btrim(terms_version)
+    and privacy_version = btrim(privacy_version)
+    and terms_version <> ''
+    and privacy_version <> ''
+    and char_length(terms_version) <= 32
+    and char_length(privacy_version) <= 32
+  ),
+  constraint legal_consents_user_versions_key unique (user_id, terms_version, privacy_version)
+);
+
+comment on table public.legal_consents is
+'利用規約とプライバシーポリシーへの同意記録。2026-07-10版から記録する。';
+comment on column public.legal_consents.user_id is
+'同意したSupabase Authユーザー。ブラウザからは本人分のみinsert/select可能。';
+comment on column public.legal_consents.terms_version is
+'同意した利用規約の版。MVPでは2026-07-10。';
+comment on column public.legal_consents.privacy_version is
+'同意したプライバシーポリシーの版。MVPでは2026-07-10。';
+comment on column public.legal_consents.accepted_at is
+'同意を記録した時刻。';
+
 -- profile_frame_ownerships: owned profile icon frames.
 create table if not exists public.profile_frame_ownerships (
   id uuid primary key default gen_random_uuid(),
@@ -1543,6 +1573,7 @@ grant execute on function public.claim_push_notification_jobs(integer) to servic
 create index if not exists profile_frames_frame_key_idx on public.profile_frames(frame_key);
 create index if not exists profile_frames_is_active_idx on public.profile_frames(is_active);
 create index if not exists profiles_active_frame_id_idx on public.profiles(active_frame_id);
+create index if not exists legal_consents_user_id_idx on public.legal_consents(user_id);
 create index if not exists profile_frame_ownerships_profile_id_idx on public.profile_frame_ownerships(profile_id);
 create index if not exists profile_frame_ownerships_frame_id_idx on public.profile_frame_ownerships(frame_id);
 create index if not exists profiles_username_idx on public.profiles(username);
@@ -1614,6 +1645,7 @@ create index if not exists observations_archive_tags_gin_idx on public.observati
 alter table public.profile_frames enable row level security;
 alter table public.profile_frame_ownerships enable row level security;
 alter table public.profiles enable row level security;
+alter table public.legal_consents enable row level security;
 alter table public.posts enable row level security;
 alter table public.post_media enable row level security;
 alter table public.profile_tags enable row level security;
@@ -1634,6 +1666,9 @@ revoke insert, update, delete, truncate on all tables in schema public from publ
 grant select on table public.profile_frames to anon, authenticated;
 grant select on table public.profile_frame_ownerships to authenticated;
 grant insert, update on table public.profiles to authenticated;
+revoke all on table public.legal_consents from public, anon, authenticated;
+grant select, insert on table public.legal_consents to authenticated;
+grant select, insert on table public.legal_consents to service_role;
 grant insert, update on table public.posts to authenticated;
 grant insert on table public.resonances to authenticated;
 grant insert, update, delete on table public.star_letters to authenticated;
@@ -1716,6 +1751,20 @@ for update using (auth.uid() = id) with check (auth.uid() = id);
 drop policy if exists profiles_delete_own on public.profiles;
 create policy profiles_delete_own on public.profiles
 for delete using (auth.uid() = id);
+
+-- legal_consents:
+-- Users can read and insert only their own legal consent records.
+drop policy if exists legal_consents_select_own on public.legal_consents;
+create policy legal_consents_select_own on public.legal_consents
+for select
+to authenticated
+using (user_id = (select auth.uid()));
+
+drop policy if exists legal_consents_insert_own on public.legal_consents;
+create policy legal_consents_insert_own on public.legal_consents
+for insert
+to authenticated
+with check (user_id = (select auth.uid()));
 
 -- posts:
 -- Public posts are readable by anyone; private posts only by author.
