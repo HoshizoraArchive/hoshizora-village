@@ -16,6 +16,8 @@
 
 UIのdisabledだけでなく、`handleSignUp` 側でも未同意・年齢未確認を拒否します。
 
+会員登録時には、同意した版と18歳以上確認をSupabase Auth metadataへ渡します。このmetadataは認可判定には使わず、`auth.users` 作成時triggerが同意記録を作るための入力としてだけ扱います。
+
 ## 同意記録
 
 未適用migration:
@@ -26,14 +28,21 @@ UIのdisabledだけでなく、`handleSignUp` 側でも未同意・年齢未確�
 
 - `terms_version`: `2026-07-10`
 - `privacy_version`: `2026-07-10`
+- `age_confirmed_at`: 18歳以上であることを確認した時刻
 
 RLS方針:
 
 - `anon`: 権限なし
-- `authenticated`: 本人の同意記録だけ `select` / `insert`
+- `authenticated`: 本人の同意記録だけ `select`
+- `authenticated`: `public.record_legal_consent(...)` RPCのみ実行可能
 - `service_role`: 運用確認用に `select` / `insert`
 
-メール確認型の会員登録でセッションが即時発行されない場合、同じ端末では次回ログイン時に保留中の同意記録を本人権限で保存します。
+記録経路:
+
+- メール確認型でセッションが即時発行されない場合: `auth.users` のinsert triggerがAuth metadataを確認し、DBサーバー時刻で `legal_consents` を作成します。
+- サインアップ直後にセッションがある場合: アプリが `public.record_legal_consent(...)` RPCを呼び、DBサーバー時刻で `legal_consents` を作成します。
+- ログイン時: current versionのAuth metadataを持つユーザーについては、RPCで同意記録の存在を補完します。記録できない場合は利用開始させずサインアウトします。
+- ブラウザから `legal_consents` へ直接insertする権限は付与しません。
 
 ## 本番適用前確認
 
@@ -50,4 +59,4 @@ where table_schema = 'public'
 
 既にテーブルが存在する場合は、既存定義とmigrationの差分を確認してから適用してください。
 
-適用後は、会員登録した本人の `auth.uid()` と一致する `user_id` のみinsert/selectでき、他ユーザーの記録が読めないことを確認してください。
+適用後は、会員登録した本人の `auth.uid()` と一致する `user_id` のみselectでき、テーブルへの直接insertが拒否されること、`public.record_legal_consent(...)` RPCだけが本人の同意記録を作れること、他ユーザーの記録が読めないことを確認してください。

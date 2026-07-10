@@ -246,6 +246,7 @@ create table if not exists public.legal_consents (
   terms_version text not null,
   privacy_version text not null,
   accepted_at timestamptz not null default now(),
+  age_confirmed_at timestamptz not null,
   created_at timestamptz not null default now(),
   constraint legal_consents_versions_check check (
     terms_version = btrim(terms_version)
@@ -268,6 +269,8 @@ comment on column public.legal_consents.privacy_version is
 '同意したプライバシーポリシーの版。MVPでは2026-07-10。';
 comment on column public.legal_consents.accepted_at is
 '同意を記録した時刻。';
+comment on column public.legal_consents.age_confirmed_at is
+'18歳以上であることを確認した時刻。';
 
 -- profile_frame_ownerships: owned profile icon frames.
 create table if not exists public.profile_frame_ownerships (
@@ -1667,7 +1670,6 @@ grant select on table public.profile_frames to anon, authenticated;
 grant select on table public.profile_frame_ownerships to authenticated;
 grant insert, update on table public.profiles to authenticated;
 revoke all on table public.legal_consents from public, anon, authenticated;
-grant select, insert on table public.legal_consents to authenticated;
 grant select, insert on table public.legal_consents to service_role;
 grant insert, update on table public.posts to authenticated;
 grant insert on table public.resonances to authenticated;
@@ -1760,11 +1762,97 @@ for select
 to authenticated
 using (user_id = (select auth.uid()));
 
-drop policy if exists legal_consents_insert_own on public.legal_consents;
-create policy legal_consents_insert_own on public.legal_consents
-for insert
-to authenticated
-with check (user_id = (select auth.uid()));
+create or replace function public.record_legal_consent(
+  p_terms_version text,
+  p_privacy_version text,
+  p_age_confirmed boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_now timestamptz := now();
+begin
+  if v_user_id is null then
+    return jsonb_build_object('outcome', 'not_authenticated');
+  end if;
+
+  if p_terms_version <> '2026-07-10'
+    or p_privacy_version <> '2026-07-10'
+    or p_age_confirmed is not true
+  then
+    return jsonb_build_object('outcome', 'invalid_consent');
+  end if;
+
+  insert into public.legal_consents (
+    user_id,
+    terms_version,
+    privacy_version,
+    accepted_at,
+    age_confirmed_at
+  )
+  values (
+    v_user_id,
+    '2026-07-10',
+    '2026-07-10',
+    v_now,
+    v_now
+  )
+  on conflict (user_id, terms_version, privacy_version) do nothing;
+
+  return jsonb_build_object('outcome', 'recorded');
+end;
+$$;
+
+revoke all on function public.record_legal_consent(text, text, boolean) from public, anon, authenticated;
+grant execute on function public.record_legal_consent(text, text, boolean) to authenticated;
+
+create or replace function app_private.record_legal_consent_from_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_terms_version text := new.raw_user_meta_data ->> 'legal_terms_version';
+  v_privacy_version text := new.raw_user_meta_data ->> 'legal_privacy_version';
+  v_age_confirmed boolean := lower(coalesce(new.raw_user_meta_data ->> 'legal_age_confirmed', 'false')) = 'true';
+  v_now timestamptz := now();
+begin
+  if v_terms_version = '2026-07-10'
+    and v_privacy_version = '2026-07-10'
+    and v_age_confirmed is true
+  then
+    insert into public.legal_consents (
+      user_id,
+      terms_version,
+      privacy_version,
+      accepted_at,
+      age_confirmed_at
+    )
+    values (
+      new.id,
+      '2026-07-10',
+      '2026-07-10',
+      v_now,
+      v_now
+    )
+    on conflict (user_id, terms_version, privacy_version) do nothing;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.record_legal_consent_from_auth_user() from public, anon, authenticated;
+
+drop trigger if exists auth_users_record_legal_consent on auth.users;
+create trigger auth_users_record_legal_consent
+after insert on auth.users
+for each row execute function app_private.record_legal_consent_from_auth_user();
 
 -- posts:
 -- Public posts are readable by anyone; private posts only by author.

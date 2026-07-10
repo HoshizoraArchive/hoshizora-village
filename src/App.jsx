@@ -102,7 +102,6 @@ const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
 const VISIBLE_POST_TYPES = ["text", "image", "video", "youtube"];
 const LEGAL_TERMS_VERSION = "2026-07-10";
 const LEGAL_PRIVACY_VERSION = "2026-07-10";
-const PENDING_LEGAL_CONSENT_KEY = "hoshizora-village:pending-legal-consent:v1";
 
 const emptyProfileForm = {
   display_name: "",
@@ -1775,35 +1774,6 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
-    const pendingConsent = readPendingLegalConsent();
-
-    if (!session?.user?.id || !pendingConsent || pendingConsent.userId !== session.user.id) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function flushPendingLegalConsent() {
-      const consentError = await recordLegalConsentForUser(session.user.id);
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (!consentError) {
-        clearPendingLegalConsent();
-      }
-    }
-
-    flushPendingLegalConsent();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [session?.user?.id]);
-
-  useEffect(() => {
-    let isMounted = true;
     const postIds = postIdsKey ? postIdsKey.split("|") : [];
 
     if (postIds.length === 0) {
@@ -3069,69 +3039,36 @@ function App() {
     };
   }, [profileFrames]);
 
-  function readPendingLegalConsent() {
-    try {
-      const rawValue = window.localStorage.getItem(PENDING_LEGAL_CONSENT_KEY);
+  function hasCurrentLegalConsentMetadata(user) {
+    const metadata = user?.user_metadata ?? {};
 
-      if (!rawValue) {
-        return null;
-      }
+    return (
+      metadata.legal_terms_version === LEGAL_TERMS_VERSION &&
+      metadata.legal_privacy_version === LEGAL_PRIVACY_VERSION &&
+      metadata.legal_age_confirmed === true
+    );
+  }
 
-      const parsedValue = JSON.parse(rawValue);
-
-      if (
-        parsedValue?.termsVersion === LEGAL_TERMS_VERSION &&
-        parsedValue?.privacyVersion === LEGAL_PRIVACY_VERSION &&
-        typeof parsedValue?.userId === "string"
-      ) {
-        return parsedValue;
-      }
-    } catch (_error) {
+  async function recordLegalConsentForSession(sessionToRecord) {
+    if (!sessionToRecord?.user?.id || !hasCurrentLegalConsentMetadata(sessionToRecord.user)) {
       return null;
+    }
+
+    const { data, error } = await supabase.rpc("record_legal_consent", {
+      p_age_confirmed: true,
+      p_privacy_version: LEGAL_PRIVACY_VERSION,
+      p_terms_version: LEGAL_TERMS_VERSION,
+    });
+
+    if (error) {
+      return error;
+    }
+
+    if (data?.outcome !== "recorded") {
+      return new Error("legal_consent_not_recorded");
     }
 
     return null;
-  }
-
-  function writePendingLegalConsent(userId) {
-    try {
-      window.localStorage.setItem(
-        PENDING_LEGAL_CONSENT_KEY,
-        JSON.stringify({
-          privacyVersion: LEGAL_PRIVACY_VERSION,
-          termsVersion: LEGAL_TERMS_VERSION,
-          userId,
-        }),
-      );
-    } catch (_error) {
-      // 同意自体は登録時に確認済み。保存失敗時はログイン後の再保存ができないだけなのでUIで補足します。
-    }
-  }
-
-  function clearPendingLegalConsent() {
-    try {
-      window.localStorage.removeItem(PENDING_LEGAL_CONSENT_KEY);
-    } catch (_error) {
-      // localStorageが使えない環境では何もしない。
-    }
-  }
-
-  async function recordLegalConsentForUser(userId) {
-    if (!userId) {
-      return new Error("missing_user_id");
-    }
-
-    const { error } = await supabase.from("legal_consents").insert({
-      privacy_version: LEGAL_PRIVACY_VERSION,
-      terms_version: LEGAL_TERMS_VERSION,
-      user_id: userId,
-    });
-
-    if (error?.code === "23505") {
-      return null;
-    }
-
-    return error ?? null;
   }
 
   async function handleSignUp(email, password, legalConsent = {}) {
@@ -3148,6 +3085,13 @@ function App() {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: {
+        data: {
+          legal_age_confirmed: true,
+          legal_privacy_version: LEGAL_PRIVACY_VERSION,
+          legal_terms_version: LEGAL_TERMS_VERSION,
+        },
+      },
     });
 
     if (error) {
@@ -3156,16 +3100,17 @@ function App() {
       return;
     }
 
-    let consentWarning = "";
-
     if (data.session?.user?.id) {
-      const consentError = await recordLegalConsentForUser(data.session.user.id);
+      const consentError = await recordLegalConsentForSession(data.session);
 
       if (consentError) {
-        consentWarning = "会員登録は完了しましたが、同意記録の保存に失敗しました。ログイン後に再確認してください。";
+        await supabase.auth.signOut();
+        setAuthLoading(false);
+        setSession(null);
+        setAuthStatus("未ログイン");
+        setAuthError("会員登録は完了しましたが、同意記録の保存に失敗しました。利用開始前にもう一度ログインして同意を記録してください。");
+        return;
       }
-    } else if (data.user?.id) {
-      writePendingLegalConsent(data.user.id);
     }
 
     setAuthLoading(false);
@@ -3174,12 +3119,8 @@ function App() {
     setAuthMessage(
       data.session
         ? "会員登録してログインしました。"
-        : "確認メールを送信しました。メールを確認してからログインしてください。",
+        : "確認メールを送信しました。メールを確認してからログインしてください。同意記録はサーバー側で保存されます。",
     );
-
-    if (consentWarning) {
-      setAuthError(consentWarning);
-    }
   }
 
   async function handleLogin(email, password) {
@@ -3196,6 +3137,17 @@ function App() {
 
     if (error) {
       setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_IN));
+      return;
+    }
+
+    const consentError = await recordLegalConsentForSession(data.session);
+
+    if (consentError) {
+      await supabase.auth.signOut();
+      setAuthLoading(false);
+      setSession(null);
+      setAuthStatus("未ログイン");
+      setAuthError("同意記録の保存に失敗しました。時間をおいてもう一度ログインしてください。");
       return;
     }
 

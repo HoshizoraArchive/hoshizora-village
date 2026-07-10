@@ -131,6 +131,7 @@ RLS方針:
 - `terms_version`: 同意した利用規約の版。MVPでは `2026-07-10`
 - `privacy_version`: 同意したプライバシーポリシーの版。MVPでは `2026-07-10`
 - `accepted_at`: 同意を記録した時刻
+- `age_confirmed_at`: 18歳以上であることを確認した時刻
 - `created_at`: レコード作成日時
 
 制約:
@@ -141,14 +142,17 @@ RLS方針:
 RLS方針:
 
 - `anon` は権限なし
-- `authenticated` は本人の同意記録だけselect / insert可能
+- `authenticated` は本人の同意記録だけselect可能
+- `authenticated` は `public.record_legal_consent(...)` RPCからのみ本人の同意記録を作成可能
 - `service_role` は運用確認用にselect / insertのみ許可
 - 他ユーザーの同意記録はブラウザから読めない
 
 補足:
 
 - 既存ユーザーへの強制再同意は今回実装しません。
-- メール確認型の会員登録でセッションが即時発行されない場合、同じ端末では次回ログイン時に保留中の同意記録を本人権限で保存します。
+- 会員登録時は同意版と18歳以上確認をAuth metadataへ渡し、`auth.users` 作成triggerがDBサーバー時刻で `legal_consents` を作成します。
+- サインアップ直後にセッションがある場合とログイン時の補完では、`public.record_legal_consent(...)` RPCが `auth.uid()` とDBサーバー時刻で記録します。
+- ブラウザから `legal_consents` へ直接insertする権限は付与しません。
 - 本番Supabaseには、レビュー後に `supabase/migrations/20260710120000_add_legal_consents.sql` を適用します。
 
 ### profile_frames

@@ -649,13 +649,19 @@ test("Signup requires legal consent and age confirmation before registration", (
     "利用規約",
     "プライバシーポリシー",
     "私は18歳以上であることを確認します",
-    ".from(\"legal_consents\").insert",
-    "PENDING_LEGAL_CONSENT_KEY",
+    "legal_age_confirmed: true",
+    "legal_privacy_version: LEGAL_PRIVACY_VERSION",
+    "legal_terms_version: LEGAL_TERMS_VERSION",
+    "supabase.rpc(\"record_legal_consent\"",
+    "recordLegalConsentForSession(data.session)",
   ];
 
   for (const token of tokens) {
     assert.equal(appJsx.includes(token), true, `App.jsx missing signup consent token: ${token}`);
   }
+
+  assert.equal(appJsx.includes('.from("legal_consents").insert'), false);
+  assert.equal(appJsx.includes("localStorage"), false);
 });
 
 test("Legal consent migration and schema keep consent records owner-scoped", () => {
@@ -665,15 +671,24 @@ test("Legal consent migration and schema keep consent records owner-scoped", () 
     "terms_version text not null",
     "privacy_version text not null",
     "accepted_at timestamptz not null default now()",
+    "age_confirmed_at timestamptz not null",
     "constraint legal_consents_user_versions_key unique (user_id, terms_version, privacy_version)",
     "alter table public.legal_consents enable row level security",
     "revoke all on table public.legal_consents from public, anon, authenticated",
-    "grant select, insert on table public.legal_consents to authenticated",
     "grant select, insert on table public.legal_consents to service_role",
     "create policy legal_consents_select_own on public.legal_consents",
     "using (user_id = (select auth.uid()))",
-    "create policy legal_consents_insert_own on public.legal_consents",
-    "with check (user_id = (select auth.uid()))",
+    "public.record_legal_consent",
+    "security definer",
+    "v_user_id uuid := auth.uid()",
+    "app_private.record_legal_consent_from_auth_user",
+    "new.raw_user_meta_data ->> 'legal_terms_version'",
+    "new.raw_user_meta_data ->> 'legal_privacy_version'",
+    "new.raw_user_meta_data ->> 'legal_age_confirmed'",
+    "create trigger auth_users_record_legal_consent",
+    "after insert on auth.users",
+    "revoke all on function public.record_legal_consent(text, text, boolean) from public, anon, authenticated",
+    "grant execute on function public.record_legal_consent(text, text, boolean) to authenticated",
   ];
 
   for (const token of tokens) {
@@ -681,6 +696,10 @@ test("Legal consent migration and schema keep consent records owner-scoped", () 
     assert.equal(schemaSql.includes(token), true, `schema.sql missing legal consent token ${token}`);
   }
 
+  assert.equal(legalConsentsMigrationSql.includes("grant select, insert on table public.legal_consents to authenticated"), false);
+  assert.equal(schemaSql.includes("grant select, insert on table public.legal_consents to authenticated"), false);
+  assert.equal(legalConsentsMigrationSql.includes("legal_consents_insert_own"), false);
+  assert.equal(schemaSql.includes("legal_consents_insert_own"), false);
   assert.equal(legalConsentsMigrationSql.includes("grant update"), false);
   assert.equal(legalConsentsMigrationSql.includes("grant delete"), false);
 });
