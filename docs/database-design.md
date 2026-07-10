@@ -151,9 +151,11 @@ RLS方針:
 
 - 既存ユーザーへの強制再同意は今回実装しません。
 - 会員登録時は同意版と18歳以上確認をAuth metadataへ渡し、`auth.users` 作成triggerがDBサーバー時刻で `legal_consents` を作成します。
+- Auth metadataに現行versionまたは18歳以上確認が無い新規 `auth.users` insertは、triggerが `LEGAL_CONSENT_REQUIRED` でロールバックします。
 - サインアップ直後にセッションがある場合とログイン時の補完では、`public.record_legal_consent(...)` RPCが `auth.uid()` とDBサーバー時刻で記録します。
 - ブラウザから `legal_consents` へ直接insertする権限は付与しません。
 - 本番Supabaseには、レビュー後に `supabase/migrations/20260710120000_add_legal_consents.sql` を適用します。
+- 適用後は `docs/legal-consent-verification.sql` でgrant、RLS、RPC定義、Auth trigger定義を確認します。
 
 ### profile_frames
 

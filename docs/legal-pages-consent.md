@@ -40,8 +40,9 @@ RLS方針:
 記録経路:
 
 - メール確認型でセッションが即時発行されない場合: `auth.users` のinsert triggerがAuth metadataを確認し、DBサーバー時刻で `legal_consents` を作成します。
+- Auth metadataに現行versionまたは18歳以上確認が無い場合、`auth.users` insert triggerは `LEGAL_CONSENT_REQUIRED` でアカウント作成をロールバックします。
 - サインアップ直後にセッションがある場合: アプリが `public.record_legal_consent(...)` RPCを呼び、DBサーバー時刻で `legal_consents` を作成します。
-- ログイン時: current versionのAuth metadataを持つユーザーについては、RPCで同意記録の存在を補完します。記録できない場合は利用開始させずサインアウトします。
+- ログイン時: current versionのAuth metadataを持つユーザーについては、RPCで同意記録の存在を補完します。2026-07-10以降に作られたユーザーでmetadataが無い場合、利用開始させずサインアウトします。
 - ブラウザから `legal_consents` へ直接insertする権限は付与しません。
 
 ## 本番適用前確認
@@ -60,3 +61,14 @@ where table_schema = 'public'
 既にテーブルが存在する場合は、既存定義とmigrationの差分を確認してから適用してください。
 
 適用後は、会員登録した本人の `auth.uid()` と一致する `user_id` のみselectでき、テーブルへの直接insertが拒否されること、`public.record_legal_consent(...)` RPCだけが本人の同意記録を作れること、他ユーザーの記録が読めないことを確認してください。
+
+適用後検証SQL:
+
+- `docs/legal-consent-verification.sql`
+
+このSQLは読み取り専用です。以下を確認します。
+
+- `authenticated` は `legal_consents` にSELECTのみ持つ
+- `authenticated` はINSERT/UPDATE/DELETE/TRUNCATEを持たない
+- `record_legal_consent` は `IS DISTINCT FROM` でNULL安全にversionと年齢確認を検証する
+- `auth.users` triggerはmetadata欠落、旧version、`age=false` を `LEGAL_CONSENT_REQUIRED` で拒否する定義になっている

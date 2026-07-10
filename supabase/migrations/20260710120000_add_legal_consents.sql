@@ -25,7 +25,7 @@ create table if not exists public.legal_consents (
 comment on table public.legal_consents is
 '利用規約とプライバシーポリシーへの同意記録。2026-07-10版から記録する。';
 comment on column public.legal_consents.user_id is
-'同意したSupabase Authユーザー。ブラウザからは本人分のみinsert/select可能。';
+'同意したSupabase Authユーザー。ブラウザからは本人分のみselect可能。記録はauth.users triggerまたはrecord_legal_consent RPCで行う。';
 comment on column public.legal_consents.terms_version is
 '同意した利用規約の版。MVPでは2026-07-10。';
 comment on column public.legal_consents.privacy_version is
@@ -41,6 +41,7 @@ on public.legal_consents(user_id);
 alter table public.legal_consents enable row level security;
 
 revoke all on table public.legal_consents from public, anon, authenticated;
+grant select on table public.legal_consents to authenticated;
 grant select, insert on table public.legal_consents to service_role;
 
 drop policy if exists legal_consents_select_own on public.legal_consents;
@@ -67,9 +68,9 @@ begin
     return jsonb_build_object('outcome', 'not_authenticated');
   end if;
 
-  if p_terms_version <> '2026-07-10'
-    or p_privacy_version <> '2026-07-10'
-    or p_age_confirmed is not true
+  if p_terms_version is distinct from '2026-07-10'
+    or p_privacy_version is distinct from '2026-07-10'
+    or p_age_confirmed is distinct from true
   then
     return jsonb_build_object('outcome', 'invalid_consent');
   end if;
@@ -109,26 +110,29 @@ declare
   v_age_confirmed boolean := lower(coalesce(new.raw_user_meta_data ->> 'legal_age_confirmed', 'false')) = 'true';
   v_now timestamptz := now();
 begin
-  if v_terms_version = '2026-07-10'
-    and v_privacy_version = '2026-07-10'
-    and v_age_confirmed is true
+  if v_terms_version is distinct from '2026-07-10'
+    or v_privacy_version is distinct from '2026-07-10'
+    or v_age_confirmed is distinct from true
   then
-    insert into public.legal_consents (
-      user_id,
-      terms_version,
-      privacy_version,
-      accepted_at,
-      age_confirmed_at
-    )
-    values (
-      new.id,
-      '2026-07-10',
-      '2026-07-10',
-      v_now,
-      v_now
-    )
-    on conflict (user_id, terms_version, privacy_version) do nothing;
+    raise exception 'LEGAL_CONSENT_REQUIRED'
+      using errcode = '23514';
   end if;
+
+  insert into public.legal_consents (
+    user_id,
+    terms_version,
+    privacy_version,
+    accepted_at,
+    age_confirmed_at
+  )
+  values (
+    new.id,
+    '2026-07-10',
+    '2026-07-10',
+    v_now,
+    v_now
+  )
+  on conflict (user_id, terms_version, privacy_version) do nothing;
 
   return new;
 end;

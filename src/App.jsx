@@ -102,6 +102,7 @@ const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
 const VISIBLE_POST_TYPES = ["text", "image", "video", "youtube"];
 const LEGAL_TERMS_VERSION = "2026-07-10";
 const LEGAL_PRIVACY_VERSION = "2026-07-10";
+const LEGAL_CONSENT_REQUIRED_AFTER_MS = Date.parse("2026-07-10T00:00:00.000Z");
 
 const emptyProfileForm = {
   display_name: "",
@@ -3049,9 +3050,21 @@ function App() {
     );
   }
 
+  function requiresCurrentLegalConsentMetadata(user) {
+    const createdAtMs = Date.parse(user?.created_at ?? "");
+
+    return !Number.isFinite(createdAtMs) || createdAtMs >= LEGAL_CONSENT_REQUIRED_AFTER_MS;
+  }
+
   async function recordLegalConsentForSession(sessionToRecord) {
-    if (!sessionToRecord?.user?.id || !hasCurrentLegalConsentMetadata(sessionToRecord.user)) {
+    if (!sessionToRecord?.user?.id) {
       return null;
+    }
+
+    if (!hasCurrentLegalConsentMetadata(sessionToRecord.user)) {
+      return requiresCurrentLegalConsentMetadata(sessionToRecord.user)
+        ? new Error("legal_consent_metadata_missing")
+        : null;
     }
 
     const { data, error } = await supabase.rpc("record_legal_consent", {

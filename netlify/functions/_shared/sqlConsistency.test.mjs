@@ -13,6 +13,7 @@ const legalConsentsMigrationSql = readFileSync("supabase/migrations/202607101200
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
+const legalConsentVerificationSql = readFileSync("docs/legal-consent-verification.sql", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
 const appJsx = readFileSync("src/App.jsx", "utf8");
 const mainJsx = readFileSync("src/main.jsx", "utf8");
@@ -654,6 +655,8 @@ test("Signup requires legal consent and age confirmation before registration", (
     "legal_terms_version: LEGAL_TERMS_VERSION",
     "supabase.rpc(\"record_legal_consent\"",
     "recordLegalConsentForSession(data.session)",
+    "LEGAL_CONSENT_REQUIRED_AFTER_MS",
+    "legal_consent_metadata_missing",
   ];
 
   for (const token of tokens) {
@@ -675,16 +678,25 @@ test("Legal consent migration and schema keep consent records owner-scoped", () 
     "constraint legal_consents_user_versions_key unique (user_id, terms_version, privacy_version)",
     "alter table public.legal_consents enable row level security",
     "revoke all on table public.legal_consents from public, anon, authenticated",
+    "grant select on table public.legal_consents to authenticated",
     "grant select, insert on table public.legal_consents to service_role",
     "create policy legal_consents_select_own on public.legal_consents",
     "using (user_id = (select auth.uid()))",
     "public.record_legal_consent",
     "security definer",
     "v_user_id uuid := auth.uid()",
+    "p_terms_version is distinct from '2026-07-10'",
+    "p_privacy_version is distinct from '2026-07-10'",
+    "p_age_confirmed is distinct from true",
+    "return jsonb_build_object('outcome', 'invalid_consent')",
     "app_private.record_legal_consent_from_auth_user",
     "new.raw_user_meta_data ->> 'legal_terms_version'",
     "new.raw_user_meta_data ->> 'legal_privacy_version'",
     "new.raw_user_meta_data ->> 'legal_age_confirmed'",
+    "v_terms_version is distinct from '2026-07-10'",
+    "v_privacy_version is distinct from '2026-07-10'",
+    "v_age_confirmed is distinct from true",
+    "raise exception 'LEGAL_CONSENT_REQUIRED'",
     "create trigger auth_users_record_legal_consent",
     "after insert on auth.users",
     "revoke all on function public.record_legal_consent(text, text, boolean) from public, anon, authenticated",
@@ -698,8 +710,37 @@ test("Legal consent migration and schema keep consent records owner-scoped", () 
 
   assert.equal(legalConsentsMigrationSql.includes("grant select, insert on table public.legal_consents to authenticated"), false);
   assert.equal(schemaSql.includes("grant select, insert on table public.legal_consents to authenticated"), false);
+  assert.equal(legalConsentsMigrationSql.includes("grant insert on table public.legal_consents to authenticated"), false);
+  assert.equal(schemaSql.includes("grant insert on table public.legal_consents to authenticated"), false);
   assert.equal(legalConsentsMigrationSql.includes("legal_consents_insert_own"), false);
   assert.equal(schemaSql.includes("legal_consents_insert_own"), false);
   assert.equal(legalConsentsMigrationSql.includes("grant update"), false);
   assert.equal(legalConsentsMigrationSql.includes("grant delete"), false);
+});
+
+test("Legal consent verification SQL checks grants, null-safe RPC, and rejecting signup metadata", () => {
+  const tokens = [
+    "legal_consents",
+    "age_confirmed_at",
+    "02_table_privileges",
+    "04_record_rpc_definition_checks",
+    "05_auth_trigger_definition_checks",
+    "p_terms_version is distinct from",
+    "p_privacy_version is distinct from",
+    "p_age_confirmed is distinct from true",
+    "v_terms_version is distinct from",
+    "v_privacy_version is distinct from",
+    "v_age_confirmed is distinct from true",
+    "LEGAL_CONSENT_REQUIRED",
+    "06_function_execute_privileges",
+    "aclexplode",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(legalConsentVerificationSql.includes(token), true, `legal verification SQL missing ${token}`);
+  }
+
+  assert.equal(legalConsentVerificationSql.includes("insert into"), false);
+  assert.equal(legalConsentVerificationSql.includes("update public"), false);
+  assert.equal(legalConsentVerificationSql.includes("delete from"), false);
 });
