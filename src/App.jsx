@@ -103,6 +103,7 @@ const VISIBLE_POST_TYPES = ["text", "image", "video", "youtube"];
 const LEGAL_TERMS_VERSION = "2026-07-10";
 const LEGAL_PRIVACY_VERSION = "2026-07-10";
 const LEGAL_CONSENT_REQUIRED_AFTER_MS = Date.parse("2026-07-10T00:00:00.000Z");
+const OFFICIAL_X_URL = "https://x.com/hoshizorarchive";
 
 const emptyProfileForm = {
   display_name: "",
@@ -7397,28 +7398,46 @@ function SettingsPanel({ auth, onBack, profile }) {
         </button>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
           <p className="text-xs font-black text-comet">法務・お問い合わせ</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            <a
-              className="rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
-              href="/terms"
-            >
-              利用規約
-            </a>
-            <a
-              className="rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
-              href="/privacy"
-            >
-              プライバシーポリシー
-            </a>
-            <a
-              className="rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
-              href="mailto:akaibuhoshizora@gmail.com"
-            >
-              お問い合わせ
-            </a>
+          <div className="mt-3 space-y-4">
+            <div>
+              <p className="text-[11px] font-bold text-slate-500">法務</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <a
+                  className="min-h-11 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+                  href="/terms"
+                >
+                  利用規約
+                </a>
+                <a
+                  className="min-h-11 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+                  href="/privacy"
+                >
+                  プライバシーポリシー
+                </a>
+              </div>
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-slate-500">お問い合わせ</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <a
+                  className="min-h-11 rounded-2xl border border-comet/20 bg-comet/10 px-3 py-3 text-xs font-black text-comet transition hover:border-comet/35 hover:bg-comet/15 hover:text-white"
+                  href={OFFICIAL_X_URL}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  星空Village公式X
+                </a>
+                <a
+                  className="min-h-11 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+                  href="mailto:akaibuhoshizora@gmail.com"
+                >
+                  メールでお問い合わせ
+                </a>
+              </div>
+            </div>
           </div>
           <p className="mt-3 text-xs leading-6 text-slate-500">
-            お問い合わせは星空Village公式X、または akaibuhoshizora@gmail.com までお願いします。
+            公式X、またはメールからお問い合わせいただけます。
           </p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
@@ -8903,7 +8922,8 @@ function AuthPanel({ auth }) {
       <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-bold text-slate-500">
         <a className="transition hover:text-comet" href="/terms">利用規約</a>
         <a className="transition hover:text-comet" href="/privacy">プライバシーポリシー</a>
-        <a className="transition hover:text-comet" href="mailto:akaibuhoshizora@gmail.com">お問い合わせ</a>
+        <a className="transition hover:text-comet" href={OFFICIAL_X_URL} rel="noopener noreferrer" target="_blank">公式X</a>
+        <a className="transition hover:text-comet" href="mailto:akaibuhoshizora@gmail.com">メール</a>
       </div>
 
       {legalDocument && (
