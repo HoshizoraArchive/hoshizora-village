@@ -702,6 +702,30 @@ test("Signup legal links use an in-place modal without replacing AuthPanel state
   );
 });
 
+test("Legal and contact links distinguish official X from email", () => {
+  const legalContactStart = appJsx.indexOf("法務・お問い合わせ");
+  const legalContactEnd = appJsx.indexOf("ログイン状態", legalContactStart);
+  const legalContactSource = appJsx.slice(legalContactStart, legalContactEnd);
+  const authPanelStart = appJsx.indexOf("function AuthPanel");
+  const authPanelEnd = appJsx.indexOf("function LegalDocumentModal", authPanelStart);
+  const authPanelSource = appJsx.slice(authPanelStart, authPanelEnd);
+
+  for (const token of [
+    'const OFFICIAL_X_URL = "https://x.com/hoshizorarchive"',
+    "星空Village公式X",
+    "メールでお問い合わせ",
+    'href="mailto:akaibuhoshizora@gmail.com"',
+    'target="_blank"',
+    'rel="noopener noreferrer"',
+  ]) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing contact link token: ${token}`);
+  }
+
+  assert.equal(legalContactSource.includes(">お問い合わせ</a>"), false);
+  assert.equal(authPanelSource.includes(">公式X</a>"), true);
+  assert.equal(authPanelSource.includes(">メール</a>"), true);
+});
+
 test("Legal consent migration and schema keep consent records owner-scoped", () => {
   const tokens = [
     "create table if not exists public.legal_consents",
