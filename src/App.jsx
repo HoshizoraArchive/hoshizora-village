@@ -8710,9 +8710,44 @@ function AuthPanel({ auth }) {
   const [password, setPassword] = useState("");
   const [acceptedLegal, setAcceptedLegal] = useState(false);
   const [confirmedAge, setConfirmedAge] = useState(false);
+  const [legalDocument, setLegalDocument] = useState(null);
+  const legalDialogRef = useRef(null);
+  const legalLinkReturnFocusRef = useRef(null);
   const isSignUp = mode === "signup";
   const userEmail = auth.session?.user?.email;
   const signUpConsentReady = acceptedLegal && confirmedAge;
+  const isLegalDialogOpen = Boolean(legalDocument);
+
+  useEffect(() => {
+    if (!isLegalDialogOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setLegalDocument(null);
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    legalDialogRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+      legalLinkReturnFocusRef.current?.focus();
+    };
+  }, [isLegalDialogOpen]);
+
+  function openLegalDocument(documentType, event) {
+    event.preventDefault();
+    event.stopPropagation();
+    legalLinkReturnFocusRef.current = event.currentTarget;
+    setLegalDocument(documentType);
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -8806,24 +8841,33 @@ function AuthPanel({ auth }) {
 
           {isSignUp && (
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
-              <label className="flex items-start gap-3">
+              <div className="flex items-start gap-3">
                 <input
+                  aria-label="利用規約とプライバシーポリシーに同意する"
                   checked={acceptedLegal}
                   className="mt-1 h-5 w-5 rounded border-white/20 bg-night-950 text-comet focus:ring-comet/30"
                   onChange={(event) => setAcceptedLegal(event.target.checked)}
                   type="checkbox"
                 />
                 <span>
-                  <a className="font-black text-comet underline-offset-4 hover:underline" href="/terms">
+                  <button
+                    className="font-black text-comet underline-offset-4 hover:underline"
+                    onClick={(event) => openLegalDocument("terms", event)}
+                    type="button"
+                  >
                     利用規約
-                  </a>
+                  </button>
                   <span>と</span>
-                  <a className="font-black text-comet underline-offset-4 hover:underline" href="/privacy">
+                  <button
+                    className="font-black text-comet underline-offset-4 hover:underline"
+                    onClick={(event) => openLegalDocument("privacy", event)}
+                    type="button"
+                  >
                     プライバシーポリシー
-                  </a>
+                  </button>
                   <span>を確認し、同意します</span>
                 </span>
-              </label>
+              </div>
               <label className="flex items-start gap-3">
                 <input
                   checked={confirmedAge}
@@ -8861,7 +8905,102 @@ function AuthPanel({ auth }) {
         <a className="transition hover:text-comet" href="/privacy">プライバシーポリシー</a>
         <a className="transition hover:text-comet" href="mailto:akaibuhoshizora@gmail.com">お問い合わせ</a>
       </div>
+
+      {legalDocument && (
+        <LegalDocumentModal
+          documentType={legalDocument}
+          dialogRef={legalDialogRef}
+          onClose={() => setLegalDocument(null)}
+          onSelectDocument={setLegalDocument}
+        />
+      )}
     </section>
+  );
+}
+
+function LegalDocumentModal({ documentType, dialogRef, onClose, onSelectDocument }) {
+  const document =
+    documentType === "privacy"
+      ? {
+          markdown: privacyPolicyMarkdown,
+          title: "プライバシーポリシー",
+        }
+      : {
+          markdown: termsOfServiceMarkdown,
+          title: "利用規約",
+        };
+  const titleId = "signup-legal-document-title";
+
+  return (
+    <div
+      aria-labelledby={titleId}
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-night-950/90 px-3 py-4 backdrop-blur-xl"
+      onClick={onClose}
+      role="dialog"
+    >
+      <section
+        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-night-950 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        tabIndex={-1}
+      >
+        <div className="z-10 flex shrink-0 items-start justify-between gap-3 border-b border-white/10 bg-night-950 px-4 py-4 sm:px-5">
+          <div>
+            <p className="text-[11px] font-bold normal-case text-comet">legal</p>
+            <h2 className="mt-1 text-base font-black text-white" id={titleId}>
+              {document.title}
+            </h2>
+          </div>
+          <button
+            aria-label="法務文書を閉じる"
+            className="min-h-10 shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            閉じる
+          </button>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2 border-b border-white/10 px-4 py-3 sm:px-5">
+          <button
+            aria-pressed={documentType === "terms"}
+            className={`min-h-9 rounded-full border px-3 py-2 text-xs font-black transition ${
+              documentType === "terms"
+                ? "border-comet/35 bg-comet/15 text-white"
+                : "border-white/10 bg-white/5 text-slate-300 hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            }`}
+            onClick={() => onSelectDocument("terms")}
+            type="button"
+          >
+            利用規約
+          </button>
+          <button
+            aria-pressed={documentType === "privacy"}
+            className={`min-h-9 rounded-full border px-3 py-2 text-xs font-black transition ${
+              documentType === "privacy"
+                ? "border-comet/35 bg-comet/15 text-white"
+                : "border-white/10 bg-white/5 text-slate-300 hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            }`}
+            onClick={() => onSelectDocument("privacy")}
+            type="button"
+          >
+            プライバシーポリシー
+          </button>
+        </div>
+
+        <div className="min-h-0 overflow-y-auto px-4 py-5 sm:px-5">
+          <MarkdownDocument markdown={document.markdown} />
+          <button
+            className="mt-8 min-h-12 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-sm font-black text-night-950 shadow-glow transition hover:scale-[1.01]"
+            onClick={onClose}
+            type="button"
+          >
+            確認して会員登録に戻る
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
