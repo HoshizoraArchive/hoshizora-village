@@ -671,6 +671,9 @@ test("Signup legal links use an in-place modal without replacing AuthPanel state
   const signUpConsentStart = appJsx.indexOf("{isSignUp && (");
   const signUpSubmitStart = appJsx.indexOf('className="min-h-10 w-full rounded-2xl bg-gradient-to-r', signUpConsentStart);
   const signUpConsentBlock = appJsx.slice(signUpConsentStart, signUpSubmitStart);
+  const legalModalStart = appJsx.indexOf("function LegalDocumentModal");
+  const legalModalEnd = appJsx.indexOf("function LinkedText", legalModalStart);
+  const legalModalSource = appJsx.slice(legalModalStart, legalModalEnd);
 
   for (const token of [
     "const [legalDocument, setLegalDocument] = useState(null)",
@@ -682,6 +685,9 @@ test("Signup legal links use an in-place modal without replacing AuthPanel state
     "aria-modal=\"true\"",
     "role=\"dialog\"",
     "<MarkdownDocument markdown={document.markdown} />",
+    "確認して会員登録に戻る",
+    "onClick={onClose}",
+    "min-h-0 overflow-y-auto",
   ]) {
     assert.equal(appJsx.includes(token), true, `App.jsx missing signup legal modal token: ${token}`);
   }
@@ -690,6 +696,10 @@ test("Signup legal links use an in-place modal without replacing AuthPanel state
   assert.equal(signUpConsentBlock.includes('href="/privacy"'), false);
   assert.equal(signUpConsentBlock.includes('openLegalDocument("terms", event)'), true);
   assert.equal(signUpConsentBlock.includes('openLegalDocument("privacy", event)'), true);
+  assert.equal(
+    legalModalSource.indexOf("確認して会員登録に戻る") > legalModalSource.indexOf("<MarkdownDocument markdown={document.markdown} />"),
+    true,
+  );
 });
 
 test("Legal consent migration and schema keep consent records owner-scoped", () => {

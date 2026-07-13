@@ -8945,7 +8945,7 @@ function LegalDocumentModal({ documentType, dialogRef, onClose, onSelectDocument
         ref={dialogRef}
         tabIndex={-1}
       >
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-4 sm:px-5">
+        <div className="z-10 flex shrink-0 items-start justify-between gap-3 border-b border-white/10 bg-night-950 px-4 py-4 sm:px-5">
           <div>
             <p className="text-[11px] font-bold normal-case text-comet">legal</p>
             <h2 className="mt-1 text-base font-black text-white" id={titleId}>
@@ -8991,6 +8991,13 @@ function LegalDocumentModal({ documentType, dialogRef, onClose, onSelectDocument
 
         <div className="min-h-0 overflow-y-auto px-4 py-5 sm:px-5">
           <MarkdownDocument markdown={document.markdown} />
+          <button
+            className="mt-8 min-h-12 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-sm font-black text-night-950 shadow-glow transition hover:scale-[1.01]"
+            onClick={onClose}
+            type="button"
+          >
+            確認して会員登録に戻る
+          </button>
         </div>
       </section>
     </div>
