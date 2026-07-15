@@ -20,6 +20,7 @@ const mainJsx = readFileSync("src/main.jsx", "utf8");
 const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "utf8");
 const pushConfigFunction = readFileSync("netlify/functions/push-config.mjs", "utf8");
 const pushRegisterFunction = readFileSync("netlify/functions/push-subscription-register.mjs", "utf8");
+const pushStatusFunction = readFileSync("netlify/functions/push-subscription-status.mjs", "utf8");
 const pushSharedFunction = readFileSync("netlify/functions/_shared/pushNotifications.mjs", "utf8");
 const pushDeliverySharedFunction = readFileSync("netlify/functions/_shared/pushDelivery.mjs", "utf8");
 const pushDispatchFunction = readFileSync("netlify/functions/push-notification-dispatch.mjs", "utf8");
@@ -524,8 +525,9 @@ test("Push subscription Functions expose config and authenticated registration o
   assert.equal(pushRegisterFunction.includes('path: "/api/push-subscription-register"'), true);
   assert.equal(pushRegisterFunction.includes("requireAuthenticatedUser({ request, supabase })"), true);
   assert.equal(pushRegisterFunction.includes('.from("push_subscriptions")'), true);
-  assert.equal(pushRegisterFunction.includes("onConflict: \"endpoint\""), true);
   assert.equal(pushRegisterFunction.includes("profile_id: user.id"), true);
+  assert.equal(pushRegisterFunction.includes("existingSubscription.profile_id !== user.id"), true);
+  assert.equal(pushRegisterFunction.includes("PUSH_SUBSCRIPTION_ACCOUNT_MISMATCH"), true);
   assert.equal(pushSharedFunction.includes("validateEndpoint(subscription.endpoint)"), true);
   assert.equal(pushSharedFunction.includes('trimmed.startsWith("https://")'), true);
 });
@@ -545,6 +547,9 @@ test("R.Connect notification card registers this device without client-side Push
     "subscribeToPushNotifications({ accessToken })",
     "urlBase64ToUint8Array(publicKey)",
     "registration.pushManager.subscribe",
+    "navigator.serviceWorker.ready",
+    "getPushSubscriptionRegistrationStatus",
+    "PUSH_SUBSCRIPTION_STATUS_ENDPOINT",
     'fetch(PUSH_SUBSCRIPTION_REGISTER_ENDPOINT',
     "Authorization: `Bearer ${accessToken}`",
   ];
@@ -559,6 +564,31 @@ test("R.Connect notification card registers this device without client-side Push
 
   assert.equal(pushNotificationSetupJs.includes("webpush"), false);
   assert.equal(pushRegisterFunction.includes("showNotification"), false);
+});
+
+test("R.Connect reconciles an existing Push subscription with the authenticated server record", () => {
+  const appTokens = [
+    'checking: "端末登録: 確認中"',
+    "getPushSubscriptionRegistrationStatus({",
+    "registrationStatus.hasSubscription",
+    "registrationStatus.canRegister",
+    "subscriptionStatus === \"checking\"",
+  ];
+  const statusTokens = [
+    'path: "/api/push-subscription-status"',
+    "requireAuthenticatedUser({ request, supabase })",
+    '.from("push_subscriptions")',
+    '.select("profile_id, disabled_at")',
+    "canRegister: !data || belongsToCurrentUser",
+  ];
+
+  for (const token of appTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing Push reconciliation token: ${token}`);
+  }
+
+  for (const token of statusTokens) {
+    assert.equal(pushStatusFunction.includes(token), true, `Push status Function missing token: ${token}`);
+  }
 });
 
 test("R.Connect Push delivery migration queues notifications and keeps jobs server-managed", () => {

@@ -12,6 +12,7 @@ import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import {
   getPushNotificationPermission,
   getPushNotificationPermissionLabel,
+  getPushSubscriptionRegistrationStatus,
   isPushNotificationSupported,
   isPushSubscriptionSupported,
   requestPushNotificationPermission,
@@ -6856,15 +6857,18 @@ function AvatarPreviewModal({ avatar, onClose }) {
 }
 
 const PUSH_SUBSCRIPTION_STATUS_LABELS = {
+  checking: "端末登録: 確認中",
   unregistered: "端末登録: 未登録",
   registered: "端末登録: 登録済み",
   failed: "端末登録: 登録に失敗しました",
   configMissing: "端末登録: VAPID key未設定",
+  unsupported: "端末登録: この表示環境では未対応",
 };
 
 function PushNotificationTestCard({ session }) {
   const [permission, setPermission] = useState(() => getPushNotificationPermission());
-  const [subscriptionStatus, setSubscriptionStatus] = useState("unregistered");
+  const [subscriptionStatus, setSubscriptionStatus] = useState("checking");
+  const [subscriptionCheckVersion, setSubscriptionCheckVersion] = useState(0);
   const [statusMessage, setStatusMessage] = useState(() =>
     isPushNotificationSupported()
       ? ""
@@ -6890,8 +6894,64 @@ function PushNotificationTestCard({ session }) {
   }, []);
 
   useEffect(() => {
-    setSubscriptionStatus("unregistered");
-  }, [session?.access_token]);
+    let cancelled = false;
+
+    async function refreshSubscriptionStatus() {
+      setPermission(getPushNotificationPermission());
+
+      if (!isPushSubscriptionSupported()) {
+        if (!cancelled) {
+          setSubscriptionStatus("unsupported");
+        }
+        return;
+      }
+
+      setSubscriptionStatus("checking");
+
+      try {
+        const registrationStatus = await getPushSubscriptionRegistrationStatus({
+          accessToken: session?.access_token,
+        });
+
+        if (
+          session?.access_token &&
+          registrationStatus.status === "unregistered" &&
+          registrationStatus.hasSubscription &&
+          registrationStatus.canRegister
+        ) {
+          await subscribeToPushNotifications({ accessToken: session.access_token });
+          const refreshedStatus = await getPushSubscriptionRegistrationStatus({
+            accessToken: session.access_token,
+          });
+
+          if (!cancelled) {
+            setSubscriptionStatus(refreshedStatus.status);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setSubscriptionStatus(registrationStatus.status);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSubscriptionStatus("failed");
+          const isAccountMismatch = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_ACCOUNT_MISMATCH");
+          setStatusMessage(
+            isAccountMismatch
+              ? "この端末は別のアカウントに登録されています。"
+              : "端末登録状態を確認できませんでした。",
+          );
+        }
+      }
+    }
+
+    refreshSubscriptionStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token, subscriptionCheckVersion]);
 
   async function handleRequestPermission() {
     if (!isSupported) {
@@ -6907,6 +6967,7 @@ function PushNotificationTestCard({ session }) {
       const nextPermission = await requestPushNotificationPermission();
       setPermission(getPushNotificationPermission());
       setStatusMessage(nextPermission === "granted" ? "通知を許可しました。" : "通知許可は完了していません。");
+      setSubscriptionCheckVersion((version) => version + 1);
     } catch {
       setPermission(getPushNotificationPermission());
       setStatusMessage("通知許可の準備に失敗しました。");
@@ -7004,7 +7065,14 @@ function PushNotificationTestCard({ session }) {
           </button>
           <button
             className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!isSubscriptionSupported || isWorking || permission !== "granted" || !session?.access_token}
+            disabled={
+              !isSubscriptionSupported ||
+              isWorking ||
+              permission !== "granted" ||
+              !session?.access_token ||
+              subscriptionStatus === "checking" ||
+              subscriptionStatus === "registered"
+            }
             onClick={handleRegisterDevice}
             type="button"
           >

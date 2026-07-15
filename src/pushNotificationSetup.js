@@ -1,6 +1,7 @@
 const SERVICE_WORKER_PATH = "/sw.js";
 const PUSH_CONFIG_ENDPOINT = "/api/push-config";
 const PUSH_SUBSCRIPTION_REGISTER_ENDPOINT = "/api/push-subscription-register";
+const PUSH_SUBSCRIPTION_STATUS_ENDPOINT = "/api/push-subscription-status";
 const TEST_NOTIFICATION_OPTIONS = {
   body: "R.Connect通知のテストです。",
   icon: "/images/icons/hoshizora-village-icon-192.png",
@@ -62,6 +63,16 @@ export async function registerPushNotificationServiceWorker() {
   return registrationPromise;
 }
 
+export async function getReadyPushNotificationServiceWorker() {
+  const registration = await registerPushNotificationServiceWorker();
+
+  if (!registration) {
+    return null;
+  }
+
+  return navigator.serviceWorker.ready;
+}
+
 export async function requestPushNotificationPermission() {
   if (!isPushNotificationSupported()) {
     return "unsupported";
@@ -80,7 +91,7 @@ export async function sendPushNotificationTest() {
     throw new Error("push-notification-permission-required");
   }
 
-  const registration = await registerPushNotificationServiceWorker();
+  const registration = await getReadyPushNotificationServiceWorker();
   await registration.showNotification("星空Village", TEST_NOTIFICATION_OPTIONS);
 }
 
@@ -125,6 +136,56 @@ function normalizeSubscriptionPayload(subscription) {
   };
 }
 
+async function readPushApiErrorCode(response) {
+  const payload = await response.json().catch(() => null);
+  const code = payload?.error?.code;
+
+  return typeof code === "string" ? code : "PUSH_REQUEST_FAILED";
+}
+
+export async function getPushSubscriptionRegistrationStatus({ accessToken }) {
+  if (!isPushSubscriptionSupported()) {
+    return {
+      canRegister: false,
+      hasSubscription: false,
+      status: "unsupported",
+    };
+  }
+
+  const registration = await getReadyPushNotificationServiceWorker();
+  const subscription = await registration.pushManager.getSubscription();
+
+  if (!subscription || !accessToken) {
+    return {
+      canRegister: Boolean(subscription && accessToken),
+      hasSubscription: Boolean(subscription),
+      status: "unregistered",
+    };
+  }
+
+  const response = await fetch(PUSH_SUBSCRIPTION_STATUS_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(normalizeSubscriptionPayload(subscription)),
+  });
+
+  if (!response.ok) {
+    throw new Error(`push-subscription-status-${await readPushApiErrorCode(response)}`);
+  }
+
+  const payload = await response.json();
+
+  return {
+    canRegister: payload?.canRegister === true,
+    hasSubscription: true,
+    status: payload?.status === "registered" ? "registered" : "unregistered",
+  };
+}
+
 export async function subscribeToPushNotifications({ accessToken }) {
   if (!isPushSubscriptionSupported()) {
     throw new Error("push-subscription-unsupported");
@@ -144,7 +205,7 @@ export async function subscribeToPushNotifications({ accessToken }) {
     throw new Error("push-vapid-key-missing");
   }
 
-  const registration = await registerPushNotificationServiceWorker();
+  const registration = await getReadyPushNotificationServiceWorker();
   const existingSubscription = await registration.pushManager.getSubscription();
   const subscription =
     existingSubscription ??
