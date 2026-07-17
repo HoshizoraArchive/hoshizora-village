@@ -254,7 +254,8 @@ export async function subscribeToPushNotifications({ accessToken }) {
     throw new Error("push-vapid-key-missing");
   }
 
-  const existingSubscription = await getExistingPushSubscription();
+  const registration = await getReadyPushNotificationServiceWorker();
+  const existingSubscription = await registration.pushManager.getSubscription();
   const subscription =
     existingSubscription ??
     (await registration.pushManager.subscribe({

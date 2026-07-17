@@ -599,6 +599,18 @@ test("R.Connect reconciles an existing Push subscription with the authenticated 
   }
 });
 
+test("new Push devices use the ready Service Worker registration for subscription creation", () => {
+  const requiredTokens = [
+    "const registration = await getReadyPushNotificationServiceWorker();",
+    "const existingSubscription = await registration.pushManager.getSubscription();",
+    "await registration.pushManager.subscribe({",
+  ];
+
+  for (const token of requiredTokens) {
+    assert.equal(pushNotificationSetupJs.includes(token), true, `pushNotificationSetup.js missing new-device subscription token: ${token}`);
+  }
+});
+
 test("Push account switching and server test delivery require the current endpoint and Push keys", () => {
   const appTokens = [
     "この端末は別のアカウントに通知登録されています",
