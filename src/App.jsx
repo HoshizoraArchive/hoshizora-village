@@ -7009,12 +7009,21 @@ function PushNotificationTestCard({ session }) {
       setPermission(getPushNotificationPermission());
       const isNotRegistered = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_NOT_REGISTERED");
       const isGone = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_GONE");
+      const isVapidKeyMismatch = error instanceof Error && error.message.includes("PUSH_VAPID_KEY_MISMATCH");
+      const isPushAuthFailed = error instanceof Error && error.message.includes("PUSH_AUTH_FAILED");
+      const isPushTemporarilyUnavailable = error instanceof Error && error.message.includes("PUSH_SEND_TEMPORARY_FAILURE");
       setStatusMessage(
         isNotRegistered
           ? "先にこの端末を現在のアカウントへ登録してください。"
           : isGone
             ? "この端末の通知登録が無効になりました。もう一度登録してください。"
-            : "サーバーからテスト通知を送信できませんでした。",
+            : isVapidKeyMismatch
+              ? "通知配信用の公開鍵と秘密鍵が一致していません"
+              : isPushAuthFailed
+                ? "通知サービスの認証に失敗しました"
+                : isPushTemporarilyUnavailable
+                  ? "通知サービスが一時的に利用できません"
+                  : "サーバーからテスト通知を送信できませんでした。",
       );
     } finally {
       setIsWorking(false);

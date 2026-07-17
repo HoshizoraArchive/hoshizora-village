@@ -1,7 +1,9 @@
 import {
   PUSH_DEFAULT_BADGE,
   PUSH_DEFAULT_ICON,
+  getPushErrorCode,
   isGonePushSubscriptionError,
+  logPushDeliveryFailure,
   toWebPushSubscription,
 } from "./pushDelivery.mjs";
 import { pushHttpError } from "./pushNotifications.mjs";
@@ -41,6 +43,13 @@ export async function sendPushSubscriptionTest({ profileId, subscription, supaba
   try {
     await webPushClient.sendNotification(toWebPushSubscription(data), buildPushSubscriptionTestPayload());
   } catch (error) {
+    const errorCode = getPushErrorCode(error);
+    logPushDeliveryFailure({
+      code: errorCode,
+      error,
+      endpoint: data.endpoint,
+    });
+
     if (isGonePushSubscriptionError(error)) {
       const now = new Date().toISOString();
       const { error: disableError } = await supabase
@@ -59,6 +68,14 @@ export async function sendPushSubscriptionTest({ profileId, subscription, supaba
       throw pushHttpError(410, "PUSH_SUBSCRIPTION_GONE", "この端末の通知登録は無効になりました。もう一度登録してください。");
     }
 
-    throw pushHttpError(503, "PUSH_TEST_DELIVERY_FAILED", "テスト通知を送信できませんでした。");
+    if (errorCode === "PUSH_AUTH_FAILED") {
+      throw pushHttpError(502, errorCode, "通知サービスの認証に失敗しました。");
+    }
+
+    if (errorCode === "PUSH_SEND_TEMPORARY_FAILURE") {
+      throw pushHttpError(503, errorCode, "通知サービスが一時的に利用できません。");
+    }
+
+    throw pushHttpError(502, errorCode, "テスト通知を送信できませんでした。");
   }
 }

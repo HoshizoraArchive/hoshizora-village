@@ -8,6 +8,7 @@ import {
   getPushErrorCode,
   isGonePushSubscriptionError,
   isTransientPushError,
+  logPushDeliveryFailure,
   readPushDeliveryConfig,
   toWebPushSubscription,
 } from "./_shared/pushDelivery.mjs";
@@ -136,6 +137,12 @@ export async function processPushNotificationJob({ supabase, webPushClient, job 
       await webPushClient.sendNotification(toWebPushSubscription(subscription), payload);
       sent += 1;
     } catch (error) {
+      logPushDeliveryFailure({
+        code: getPushErrorCode(error),
+        error,
+        endpoint: subscription.endpoint,
+      });
+
       if (isGonePushSubscriptionError(error)) {
         disabled += 1;
         await disableSubscription(supabase, subscription.id, nowIso);

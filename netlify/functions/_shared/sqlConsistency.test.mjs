@@ -654,6 +654,35 @@ test("Push account switching and server test delivery require the current endpoi
   assert.equal(pushSubscriptionTestSharedFunction.includes("push_notification_jobs"), false);
 });
 
+test("Push test delivery validates VAPID pairs and returns only safe delivery error codes", () => {
+  const deliveryTokens = [
+    'createECDH("prime256v1")',
+    "timingSafeEqual",
+    "PUSH_VAPID_KEY_MISMATCH",
+    "PUSH_AUTH_FAILED",
+    "PUSH_SEND_TEMPORARY_FAILURE",
+    "PUSH_SEND_FAILED",
+    "deployContext",
+    "pushService",
+  ];
+  const testTokens = [
+    "getPushErrorCode",
+    "logPushDeliveryFailure",
+    "PUSH_AUTH_FAILED",
+    "PUSH_SEND_TEMPORARY_FAILURE",
+  ];
+
+  for (const token of deliveryTokens) {
+    assert.equal(pushDeliverySharedFunction.includes(token), true, `Push delivery helper missing ${token}`);
+  }
+
+  for (const token of testTokens) {
+    assert.equal(pushSubscriptionTestSharedFunction.includes(token), true, `Push test helper missing ${token}`);
+  }
+
+  assert.equal(pushSubscriptionTestSharedFunction.includes("console.warn"), false);
+});
+
 test("R.Connect Push delivery migration queues notifications and keeps jobs server-managed", () => {
   const tokens = [
     "create table if not exists public.push_notification_jobs",
@@ -696,6 +725,7 @@ test("R.Connect Push delivery Function sends all notification types without expo
   assert.equal(pushDispatchFunction.includes("sendNotification"), true);
   assert.equal(pushDispatchFunction.includes("disabled_at"), true);
   assert.equal(pushDispatchFunction.includes("PUSH_VAPID_PRIVATE_KEY"), false);
+  assert.equal(pushDispatchFunction.includes("logPushDeliveryFailure"), true);
 
   for (const token of ["resonance", "archive", "star_letter"]) {
     assert.equal(pushDeliverySharedFunction.includes(token), true, `push delivery fallback missing ${token}`);

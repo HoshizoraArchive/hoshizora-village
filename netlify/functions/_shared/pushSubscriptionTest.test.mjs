@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { pushErrorResponse } from "./pushNotifications.mjs";
 import { buildPushSubscriptionTestPayload, sendPushSubscriptionTest } from "./pushSubscriptionTest.mjs";
 
 function createTestSupabase({ data, error = null }) {
   const filters = [];
+  const updates = [];
   const query = {
     select() {
+      return query;
+    },
+    update(values) {
+      updates.push(values);
       return query;
     },
     eq(column, value) {
@@ -19,10 +25,14 @@ function createTestSupabase({ data, error = null }) {
     async maybeSingle() {
       return { data, error };
     },
+    then(resolve, reject) {
+      return Promise.resolve({ error: null }).then(resolve, reject);
+    },
   };
 
   return {
     filters,
+    updates,
     supabase: {
       from(table) {
         assert.equal(table, "push_subscriptions");
@@ -89,6 +99,55 @@ test("server Push test refuses an old-account or key-mismatched record without s
   );
   assert.equal(sent, false);
 });
+
+for (const [statusCode, expectedCode] of [
+  [401, "PUSH_AUTH_FAILED"],
+  [403, "PUSH_AUTH_FAILED"],
+  [404, "PUSH_SUBSCRIPTION_GONE"],
+  [410, "PUSH_SUBSCRIPTION_GONE"],
+  [429, "PUSH_SEND_TEMPORARY_FAILURE"],
+  [500, "PUSH_SEND_TEMPORARY_FAILURE"],
+]) {
+  test(`server Push test returns ${expectedCode} for Push service status ${statusCode}`, async () => {
+    const mock = createTestSupabase({
+      data: {
+        id: "current-subscription-id",
+        ...subscription,
+      },
+    });
+
+    const providerSecret = "provider-response-must-not-be-exposed";
+    const originalWarn = console.warn;
+    let receivedError;
+
+    try {
+      console.warn = () => {};
+      await assert.rejects(
+        sendPushSubscriptionTest({
+          profileId: "current-profile-id",
+          subscription,
+          supabase: mock.supabase,
+          webPushClient: {
+            async sendNotification() {
+              const error = new Error(providerSecret);
+              error.statusCode = statusCode;
+              throw error;
+            },
+          },
+        }),
+        (error) => {
+          receivedError = error;
+          return error?.code === expectedCode;
+        },
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(receivedError.message.includes(providerSecret), false);
+    assert.equal((await pushErrorResponse(receivedError).text()).includes(providerSecret), false);
+  });
+}
 
 test("server Push test payload contains only the fixed test message", () => {
   const payload = JSON.parse(buildPushSubscriptionTestPayload());
