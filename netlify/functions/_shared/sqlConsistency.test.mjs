@@ -21,8 +21,12 @@ const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "ut
 const pushConfigFunction = readFileSync("netlify/functions/push-config.mjs", "utf8");
 const pushRegisterFunction = readFileSync("netlify/functions/push-subscription-register.mjs", "utf8");
 const pushStatusFunction = readFileSync("netlify/functions/push-subscription-status.mjs", "utf8");
+const pushTestFunction = readFileSync("netlify/functions/push-subscription-test.mjs", "utf8");
+const pushTransferFunction = readFileSync("netlify/functions/push-subscription-transfer.mjs", "utf8");
 const pushSharedFunction = readFileSync("netlify/functions/_shared/pushNotifications.mjs", "utf8");
 const pushDeliverySharedFunction = readFileSync("netlify/functions/_shared/pushDelivery.mjs", "utf8");
+const pushSubscriptionTestSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionTest.mjs", "utf8");
+const pushSubscriptionTransferSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionTransfer.mjs", "utf8");
 const pushDispatchFunction = readFileSync("netlify/functions/push-notification-dispatch.mjs", "utf8");
 const privacyPolicyMarkdown = readFileSync("src/legal/privacy-policy.md", "utf8");
 const termsOfServiceMarkdown = readFileSync("src/legal/terms-of-service.md", "utf8");
@@ -492,7 +496,7 @@ test("R.Connect renders smartphone notification test card through React instead 
   assert.equal(pushNotificationSetupJs.includes("createElement"), false);
   assert.equal(pushNotificationSetupJs.includes("insertAdjacentElement"), false);
   assert.equal(pushNotificationSetupJs.includes("navigator.serviceWorker.register(SERVICE_WORKER_PATH)"), true);
-  assert.equal(pushNotificationSetupJs.includes('registration.showNotification("星空Village"'), true);
+  assert.equal(pushNotificationSetupJs.includes("registration.showNotification"), false);
 });
 
 test("Push subscription registration stores subscriptions through service-role-only table access", () => {
@@ -537,6 +541,7 @@ test("R.Connect notification card registers this device without client-side Push
     "subscribeToPushNotifications",
     "端末登録: 未登録",
     "端末登録: 登録済み",
+    "端末登録: 別のアカウントに登録済み",
     "端末登録: 登録に失敗しました",
     "端末登録: VAPID key未設定",
     "この端末を登録",
@@ -550,7 +555,9 @@ test("R.Connect notification card registers this device without client-side Push
     "navigator.serviceWorker.ready",
     "getPushSubscriptionRegistrationStatus",
     "PUSH_SUBSCRIPTION_STATUS_ENDPOINT",
-    'fetch(PUSH_SUBSCRIPTION_REGISTER_ENDPOINT',
+    "PUSH_SUBSCRIPTION_TEST_ENDPOINT",
+    "PUSH_SUBSCRIPTION_TRANSFER_ENDPOINT",
+    "endpoint: PUSH_SUBSCRIPTION_REGISTER_ENDPOINT",
     "Authorization: `Bearer ${accessToken}`",
   ];
 
@@ -578,8 +585,9 @@ test("R.Connect reconciles an existing Push subscription with the authenticated 
     'path: "/api/push-subscription-status"',
     "requireAuthenticatedUser({ request, supabase })",
     '.from("push_subscriptions")',
-    '.select("profile_id, disabled_at")',
-    "canRegister: !data || belongsToCurrentUser",
+    '.select("profile_id, p256dh, auth, disabled_at")',
+    "status: isRegistered ? \"registered\" : isAccountMismatch ? \"account_mismatch\" : \"unregistered\"",
+    "canTransfer: isAccountMismatch",
   ];
 
   for (const token of appTokens) {
@@ -589,6 +597,49 @@ test("R.Connect reconciles an existing Push subscription with the authenticated 
   for (const token of statusTokens) {
     assert.equal(pushStatusFunction.includes(token), true, `Push status Function missing token: ${token}`);
   }
+});
+
+test("Push account switching and server test delivery require the current endpoint and Push keys", () => {
+  const appTokens = [
+    "この端末は別のアカウントに通知登録されています",
+    "この端末の通知先を現在のアカウントへ切り替える",
+    "transferPushSubscriptionToCurrentAccount",
+    "sendPushNotificationTest({ accessToken: session?.access_token })",
+  ];
+  const transferTokens = [
+    'path: "/api/push-subscription-transfer"',
+    "transferPushSubscription({",
+    ".eq(\"endpoint\", subscription.endpoint)",
+    ".eq(\"p256dh\", subscription.p256dh)",
+    ".eq(\"auth\", subscription.auth)",
+    ".neq(\"profile_id\", profileId)",
+  ];
+  const testTokens = [
+    'path: "/api/push-subscription-test"',
+    "sendPushSubscriptionTest({",
+    "readPushDeliveryConfig",
+    "configureWebPush",
+    '.eq("profile_id", profileId)',
+    '.eq("endpoint", subscription.endpoint)',
+    '.eq("p256dh", subscription.p256dh)',
+    '.eq("auth", subscription.auth)',
+    "R.Connect通知のテストです。",
+  ];
+
+  for (const token of appTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing account-switch or server-test token: ${token}`);
+  }
+
+  for (const token of transferTokens) {
+    assert.equal(pushTransferFunction.includes(token) || pushSubscriptionTransferSharedFunction.includes(token), true, `Push transfer missing token: ${token}`);
+  }
+
+  for (const token of testTokens) {
+    assert.equal(pushTestFunction.includes(token) || pushSubscriptionTestSharedFunction.includes(token), true, `Push test missing token: ${token}`);
+  }
+
+  assert.equal(pushTestFunction.includes("PUSH_VAPID_PRIVATE_KEY"), false);
+  assert.equal(pushSubscriptionTestSharedFunction.includes("push_notification_jobs"), false);
 });
 
 test("R.Connect Push delivery migration queues notifications and keeps jobs server-managed", () => {

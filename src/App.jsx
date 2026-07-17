@@ -18,6 +18,7 @@ import {
   requestPushNotificationPermission,
   sendPushNotificationTest,
   subscribeToPushNotifications,
+  transferPushSubscriptionToCurrentAccount,
 } from "./pushNotificationSetup";
 
 const bottomNavItems = [
@@ -6860,6 +6861,7 @@ const PUSH_SUBSCRIPTION_STATUS_LABELS = {
   checking: "端末登録: 確認中",
   unregistered: "端末登録: 未登録",
   registered: "端末登録: 登録済み",
+  account_mismatch: "端末登録: 別のアカウントに登録済み",
   failed: "端末登録: 登録に失敗しました",
   configMissing: "端末登録: VAPID key未設定",
   unsupported: "端末登録: この表示環境では未対応",
@@ -6898,6 +6900,7 @@ function PushNotificationTestCard({ session }) {
 
     async function refreshSubscriptionStatus() {
       setPermission(getPushNotificationPermission());
+      setStatusMessage("");
 
       if (!isPushSubscriptionSupported()) {
         if (!cancelled) {
@@ -6926,12 +6929,18 @@ function PushNotificationTestCard({ session }) {
 
           if (!cancelled) {
             setSubscriptionStatus(refreshedStatus.status);
+            if (refreshedStatus.status === "account_mismatch") {
+              setStatusMessage("この端末は別のアカウントに通知登録されています");
+            }
           }
           return;
         }
 
         if (!cancelled) {
           setSubscriptionStatus(registrationStatus.status);
+          if (registrationStatus.status === "account_mismatch") {
+            setStatusMessage("この端末は別のアカウントに通知登録されています");
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -6993,12 +7002,20 @@ function PushNotificationTestCard({ session }) {
     setStatusMessage("");
 
     try {
-      await sendPushNotificationTest();
+      await sendPushNotificationTest({ accessToken: session?.access_token });
       setPermission(getPushNotificationPermission());
-      setStatusMessage("テスト通知を送りました。");
-    } catch {
+      setStatusMessage("サーバーからこの端末へテスト通知を送りました。");
+    } catch (error) {
       setPermission(getPushNotificationPermission());
-      setStatusMessage("テスト通知に失敗しました。");
+      const isNotRegistered = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_NOT_REGISTERED");
+      const isGone = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_GONE");
+      setStatusMessage(
+        isNotRegistered
+          ? "先にこの端末を現在のアカウントへ登録してください。"
+          : isGone
+            ? "この端末の通知登録が無効になりました。もう一度登録してください。"
+            : "サーバーからテスト通知を送信できませんでした。",
+      );
     } finally {
       setIsWorking(false);
     }
@@ -7034,8 +7051,42 @@ function PushNotificationTestCard({ session }) {
     } catch (error) {
       setPermission(getPushNotificationPermission());
       const isConfigMissing = error instanceof Error && error.message === "push-vapid-key-missing";
-      setSubscriptionStatus(isConfigMissing ? "configMissing" : "failed");
-      setStatusMessage(isConfigMissing ? "スマホ通知登録はまだ設定されていません。" : "端末登録に失敗しました。");
+      const isAccountMismatch = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_ACCOUNT_MISMATCH");
+      setSubscriptionStatus(isConfigMissing ? "configMissing" : isAccountMismatch ? "account_mismatch" : "failed");
+      setStatusMessage(
+        isConfigMissing
+          ? "スマホ通知登録はまだ設定されていません。"
+          : isAccountMismatch
+            ? "この端末は別のアカウントに通知登録されています"
+            : "端末登録に失敗しました。",
+      );
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function handleTransferDevice() {
+    if (!session?.access_token || subscriptionStatus !== "account_mismatch") {
+      return;
+    }
+
+    setIsWorking(true);
+    setStatusMessage("");
+
+    try {
+      await transferPushSubscriptionToCurrentAccount({ accessToken: session.access_token });
+      setPermission(getPushNotificationPermission());
+      setSubscriptionStatus("registered");
+      setStatusMessage("この端末の通知先を現在のアカウントへ切り替えました。");
+      setSubscriptionCheckVersion((version) => version + 1);
+    } catch (error) {
+      setPermission(getPushNotificationPermission());
+      const isMismatch = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_MISMATCH");
+      setStatusMessage(
+        isMismatch
+          ? "この端末の通知登録を確認できませんでした。画面を開き直してもう一度お試しください。"
+          : "端末の通知先を切り替えられませんでした。",
+      );
     } finally {
       setIsWorking(false);
     }
@@ -7071,16 +7122,33 @@ function PushNotificationTestCard({ session }) {
               permission !== "granted" ||
               !session?.access_token ||
               subscriptionStatus === "checking" ||
-              subscriptionStatus === "registered"
+              subscriptionStatus === "registered" ||
+              subscriptionStatus === "account_mismatch"
             }
             onClick={handleRegisterDevice}
             type="button"
           >
             この端末を登録
           </button>
+          {subscriptionStatus === "account_mismatch" ? (
+            <button
+              className="min-h-10 rounded-2xl border border-sakura/40 bg-sakura/10 px-4 text-xs font-black text-sakura transition hover:bg-sakura/15 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!session?.access_token || isWorking}
+              onClick={handleTransferDevice}
+              type="button"
+            >
+              この端末の通知先を現在のアカウントへ切り替える
+            </button>
+          ) : null}
           <button
             className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
-            disabled={!isSupported || isWorking || permission !== "granted"}
+            disabled={
+              !isSubscriptionSupported ||
+              isWorking ||
+              permission !== "granted" ||
+              !session?.access_token ||
+              subscriptionStatus !== "registered"
+            }
             onClick={handleSendTestNotification}
             type="button"
           >

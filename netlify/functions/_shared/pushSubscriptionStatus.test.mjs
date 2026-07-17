@@ -77,6 +77,7 @@ test("existing Push subscription waits for the ready Service Worker and confirms
 
   assert.deepEqual(result, {
     canRegister: true,
+    canTransfer: false,
     hasSubscription: true,
     status: "registered",
   });
@@ -96,8 +97,25 @@ test("an existing subscription without a server record remains unregistered but 
 
   assert.deepEqual(result, {
     canRegister: true,
+    canTransfer: false,
     hasSubscription: true,
     status: "unregistered",
+  });
+  assert.equal(calls.fetch.length, 1);
+});
+
+test("a matching subscription owned by another account is surfaced as an explicit account mismatch", async () => {
+  const calls = installPushBrowserMock({
+    responsePayload: { canRegister: false, canTransfer: true, status: "account_mismatch" },
+  });
+
+  const result = await getPushSubscriptionRegistrationStatus({ accessToken: "session-token" });
+
+  assert.deepEqual(result, {
+    canRegister: false,
+    canTransfer: true,
+    hasSubscription: true,
+    status: "account_mismatch",
   });
   assert.equal(calls.fetch.length, 1);
 });

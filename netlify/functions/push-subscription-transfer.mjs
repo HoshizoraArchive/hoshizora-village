@@ -1,5 +1,6 @@
 import { requireAuthenticatedUser } from "./_shared/aiAuth.mjs";
 import { AiHttpError } from "./_shared/aiErrors.mjs";
+import { transferPushSubscription } from "./_shared/pushSubscriptionTransfer.mjs";
 import {
   PushHttpError,
   pushErrorResponse,
@@ -23,7 +24,7 @@ function toSafeError(error) {
     return pushHttpError(error.status, error.code, error.message);
   }
 
-  return pushHttpError(503, "PUSH_STATUS_FAILED", "端末登録状態を確認できませんでした。時間をおいてもう一度お試しください。");
+  return pushHttpError(503, "PUSH_TRANSFER_FAILED", "端末の通知先を切り替えられませんでした。時間をおいてもう一度お試しください。");
 }
 
 export default async function handler(request) {
@@ -36,32 +37,19 @@ export default async function handler(request) {
     const supabase = createSupabaseAdminClient(config);
     const user = await requireAuthenticatedUser({ request, supabase });
     const subscription = await readPushSubscriptionPayload(request);
-    const { data, error } = await supabase
-      .from("push_subscriptions")
-      .select("profile_id, p256dh, auth, disabled_at")
-      .eq("endpoint", subscription.endpoint)
-      .maybeSingle();
-
-    if (error) {
-      throw pushHttpError(503, "PUSH_STATUS_FAILED", "端末登録状態を確認できませんでした。時間をおいてもう一度お試しください。");
-    }
-
-    const keysMatchCurrentSubscription = data?.p256dh === subscription.p256dh && data?.auth === subscription.auth;
-    const belongsToCurrentUser = data?.profile_id === user.id;
-    const isRegistered = belongsToCurrentUser && keysMatchCurrentSubscription && data.disabled_at === null;
-    const isAccountMismatch = Boolean(data) && keysMatchCurrentSubscription && !belongsToCurrentUser;
-
-    return pushJsonResponse(200, {
-      canRegister: !data || (belongsToCurrentUser && keysMatchCurrentSubscription),
-      canTransfer: isAccountMismatch,
-      status: isRegistered ? "registered" : isAccountMismatch ? "account_mismatch" : "unregistered",
+    await transferPushSubscription({
+      profileId: user.id,
+      subscription,
+      supabase,
     });
+
+    return pushJsonResponse(200, { status: "transferred" });
   } catch (error) {
     return pushErrorResponse(toSafeError(error));
   }
 }
 
 export const config = {
-  path: "/api/push-subscription-status",
+  path: "/api/push-subscription-transfer",
   method: ["POST"],
 };

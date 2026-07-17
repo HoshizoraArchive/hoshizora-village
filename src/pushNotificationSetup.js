@@ -2,12 +2,8 @@ const SERVICE_WORKER_PATH = "/sw.js";
 const PUSH_CONFIG_ENDPOINT = "/api/push-config";
 const PUSH_SUBSCRIPTION_REGISTER_ENDPOINT = "/api/push-subscription-register";
 const PUSH_SUBSCRIPTION_STATUS_ENDPOINT = "/api/push-subscription-status";
-const TEST_NOTIFICATION_OPTIONS = {
-  body: "R.Connect通知のテストです。",
-  icon: "/images/icons/hoshizora-village-icon-192.png",
-  badge: "/images/icons/favicon-32.png",
-  data: { url: "/" },
-};
+const PUSH_SUBSCRIPTION_TEST_ENDPOINT = "/api/push-subscription-test";
+const PUSH_SUBSCRIPTION_TRANSFER_ENDPOINT = "/api/push-subscription-transfer";
 
 let registrationPromise = null;
 
@@ -82,17 +78,54 @@ export async function requestPushNotificationPermission() {
   return Notification.requestPermission();
 }
 
-export async function sendPushNotificationTest() {
-  if (!isPushNotificationSupported()) {
+async function getExistingPushSubscription() {
+  const registration = await getReadyPushNotificationServiceWorker();
+  return registration.pushManager.getSubscription();
+}
+
+async function postPushSubscription({ accessToken, endpoint, errorPrefix, subscription }) {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(normalizeSubscriptionPayload(subscription)),
+  });
+
+  if (!response.ok) {
+    throw new Error(`${errorPrefix}-${await readPushApiErrorCode(response)}`);
+  }
+
+  return response.json();
+}
+
+export async function sendPushNotificationTest({ accessToken }) {
+  if (!isPushSubscriptionSupported()) {
     throw new Error("push-notification-unsupported");
+  }
+
+  if (!accessToken) {
+    throw new Error("push-subscription-login-required");
   }
 
   if (Notification.permission !== "granted") {
     throw new Error("push-notification-permission-required");
   }
 
-  const registration = await getReadyPushNotificationServiceWorker();
-  await registration.showNotification("星空Village", TEST_NOTIFICATION_OPTIONS);
+  const subscription = await getExistingPushSubscription();
+
+  if (!subscription) {
+    throw new Error("push-subscription-not-registered");
+  }
+
+  await postPushSubscription({
+    accessToken,
+    endpoint: PUSH_SUBSCRIPTION_TEST_ENDPOINT,
+    errorPrefix: "push-subscription-test",
+    subscription,
+  });
 }
 
 export async function fetchPushNotificationConfig() {
@@ -147,43 +180,59 @@ export async function getPushSubscriptionRegistrationStatus({ accessToken }) {
   if (!isPushSubscriptionSupported()) {
     return {
       canRegister: false,
+      canTransfer: false,
       hasSubscription: false,
       status: "unsupported",
     };
   }
 
-  const registration = await getReadyPushNotificationServiceWorker();
-  const subscription = await registration.pushManager.getSubscription();
+  const subscription = await getExistingPushSubscription();
 
   if (!subscription || !accessToken) {
     return {
       canRegister: Boolean(subscription && accessToken),
+      canTransfer: false,
       hasSubscription: Boolean(subscription),
       status: "unregistered",
     };
   }
 
-  const response = await fetch(PUSH_SUBSCRIPTION_STATUS_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(normalizeSubscriptionPayload(subscription)),
+  const payload = await postPushSubscription({
+    accessToken,
+    endpoint: PUSH_SUBSCRIPTION_STATUS_ENDPOINT,
+    errorPrefix: "push-subscription-status",
+    subscription,
   });
-
-  if (!response.ok) {
-    throw new Error(`push-subscription-status-${await readPushApiErrorCode(response)}`);
-  }
-
-  const payload = await response.json();
 
   return {
     canRegister: payload?.canRegister === true,
+    canTransfer: payload?.canTransfer === true,
     hasSubscription: true,
-    status: payload?.status === "registered" ? "registered" : "unregistered",
+    status: ["registered", "account_mismatch"].includes(payload?.status) ? payload.status : "unregistered",
   };
+}
+
+export async function transferPushSubscriptionToCurrentAccount({ accessToken }) {
+  if (!isPushSubscriptionSupported()) {
+    throw new Error("push-subscription-unsupported");
+  }
+
+  if (!accessToken) {
+    throw new Error("push-subscription-login-required");
+  }
+
+  const subscription = await getExistingPushSubscription();
+
+  if (!subscription) {
+    throw new Error("push-subscription-not-registered");
+  }
+
+  await postPushSubscription({
+    accessToken,
+    endpoint: PUSH_SUBSCRIPTION_TRANSFER_ENDPOINT,
+    errorPrefix: "push-subscription-transfer",
+    subscription,
+  });
 }
 
 export async function subscribeToPushNotifications({ accessToken }) {
@@ -205,8 +254,7 @@ export async function subscribeToPushNotifications({ accessToken }) {
     throw new Error("push-vapid-key-missing");
   }
 
-  const registration = await getReadyPushNotificationServiceWorker();
-  const existingSubscription = await registration.pushManager.getSubscription();
+  const existingSubscription = await getExistingPushSubscription();
   const subscription =
     existingSubscription ??
     (await registration.pushManager.subscribe({
@@ -214,19 +262,12 @@ export async function subscribeToPushNotifications({ accessToken }) {
       applicationServerKey: urlBase64ToUint8Array(config.publicKey),
     }));
 
-  const response = await fetch(PUSH_SUBSCRIPTION_REGISTER_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(normalizeSubscriptionPayload(subscription)),
+  await postPushSubscription({
+    accessToken,
+    endpoint: PUSH_SUBSCRIPTION_REGISTER_ENDPOINT,
+    errorPrefix: "push-subscription-register",
+    subscription,
   });
-
-  if (!response.ok) {
-    throw new Error("push-subscription-register-failed");
-  }
 
   return {
     status: "registered",
