@@ -15,6 +15,7 @@ import {
   getPushSubscriptionRegistrationStatus,
   isPushNotificationSupported,
   isPushSubscriptionSupported,
+  reRegisterPushNotifications,
   requestPushNotificationPermission,
   sendPushNotificationTest,
   subscribeToPushNotifications,
@@ -6916,30 +6917,12 @@ function PushNotificationTestCard({ session }) {
           accessToken: session?.access_token,
         });
 
-        if (
-          session?.access_token &&
-          registrationStatus.status === "unregistered" &&
-          registrationStatus.hasSubscription &&
-          registrationStatus.canRegister
-        ) {
-          await subscribeToPushNotifications({ accessToken: session.access_token });
-          const refreshedStatus = await getPushSubscriptionRegistrationStatus({
-            accessToken: session.access_token,
-          });
-
-          if (!cancelled) {
-            setSubscriptionStatus(refreshedStatus.status);
-            if (refreshedStatus.status === "account_mismatch") {
-              setStatusMessage("この端末は別のアカウントに通知登録されています");
-            }
-          }
-          return;
-        }
-
         if (!cancelled) {
           setSubscriptionStatus(registrationStatus.status);
           if (registrationStatus.status === "account_mismatch") {
             setStatusMessage("この端末は別のアカウントに通知登録されています");
+          } else if (registrationStatus.status === "unregistered" && registrationStatus.hasSubscription) {
+            setStatusMessage("この端末には以前の通知購読があります。通知端末を再登録してください。");
           }
         }
       } catch (error) {
@@ -7061,14 +7044,50 @@ function PushNotificationTestCard({ session }) {
       setPermission(getPushNotificationPermission());
       const isConfigMissing = error instanceof Error && error.message === "push-vapid-key-missing";
       const isAccountMismatch = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_ACCOUNT_MISMATCH");
-      setSubscriptionStatus(isConfigMissing ? "configMissing" : isAccountMismatch ? "account_mismatch" : "failed");
+      const requiresReRegistration = error instanceof Error && error.message === "push-subscription-reregister-required";
+      setSubscriptionStatus(isConfigMissing ? "configMissing" : isAccountMismatch ? "account_mismatch" : requiresReRegistration ? "unregistered" : "failed");
       setStatusMessage(
         isConfigMissing
           ? "スマホ通知登録はまだ設定されていません。"
           : isAccountMismatch
             ? "この端末は別のアカウントに通知登録されています"
-            : "端末登録に失敗しました。",
+            : requiresReRegistration
+              ? "この端末には以前の通知購読があります。通知端末を再登録してください。"
+              : "端末登録に失敗しました。",
       );
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function handleReRegisterDevice() {
+    if (!isSubscriptionSupported || !session?.access_token || getPushNotificationPermission() !== "granted") {
+      return;
+    }
+
+    setIsWorking(true);
+    setStatusMessage("");
+
+    try {
+      await reRegisterPushNotifications({ accessToken: session.access_token });
+      setPermission(getPushNotificationPermission());
+      setSubscriptionStatus("registered");
+      setStatusMessage("通知端末を再登録しました。");
+      setSubscriptionCheckVersion((version) => version + 1);
+    } catch (error) {
+      setPermission(getPushNotificationPermission());
+      const code = error instanceof Error ? error.message : "PUSH_REREGISTER_FAILED";
+      const messages = {
+        PUSH_REREGISTER_DISABLE_FAILED: "既存の通知登録を無効化できませんでした。",
+        PUSH_REREGISTER_UNSUBSCRIBE_FAILED: "現在の通知購読を解除できませんでした。",
+        PUSH_REREGISTER_CONFIG_FAILED: "新しい通知設定を取得できませんでした。",
+        PUSH_REREGISTER_SUBSCRIBE_FAILED: "新しい通知購読を作成できませんでした。",
+        PUSH_REREGISTER_REGISTER_FAILED: "新しい通知端末を登録できませんでした。",
+        PUSH_REREGISTER_STATUS_FAILED: "新しい通知登録を確認できませんでした。",
+        PUSH_REREGISTER_SERVICE_WORKER_FAILED: "通知用のService Workerを準備できませんでした。",
+      };
+      setSubscriptionStatus("failed");
+      setStatusMessage(`${messages[code] ?? "通知端末を再登録できませんでした。"}（${code}）`);
     } finally {
       setIsWorking(false);
     }
@@ -7138,6 +7157,21 @@ function PushNotificationTestCard({ session }) {
             type="button"
           >
             この端末を登録
+          </button>
+          <button
+            className="min-h-10 rounded-2xl border border-aurora/40 bg-aurora/10 px-4 text-xs font-black text-aurora transition hover:bg-aurora/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={
+              !isSubscriptionSupported ||
+              isWorking ||
+              permission !== "granted" ||
+              !session?.access_token ||
+              subscriptionStatus === "checking" ||
+              subscriptionStatus === "account_mismatch"
+            }
+            onClick={handleReRegisterDevice}
+            type="button"
+          >
+            通知端末を再登録
           </button>
           {subscriptionStatus === "account_mismatch" ? (
             <button

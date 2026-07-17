@@ -23,10 +23,12 @@ const pushRegisterFunction = readFileSync("netlify/functions/push-subscription-r
 const pushStatusFunction = readFileSync("netlify/functions/push-subscription-status.mjs", "utf8");
 const pushTestFunction = readFileSync("netlify/functions/push-subscription-test.mjs", "utf8");
 const pushTransferFunction = readFileSync("netlify/functions/push-subscription-transfer.mjs", "utf8");
+const pushDisableFunction = readFileSync("netlify/functions/push-subscription-disable.mjs", "utf8");
 const pushSharedFunction = readFileSync("netlify/functions/_shared/pushNotifications.mjs", "utf8");
 const pushDeliverySharedFunction = readFileSync("netlify/functions/_shared/pushDelivery.mjs", "utf8");
 const pushSubscriptionTestSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionTest.mjs", "utf8");
 const pushSubscriptionTransferSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionTransfer.mjs", "utf8");
+const pushSubscriptionDisableSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionDisable.mjs", "utf8");
 const pushDispatchFunction = readFileSync("netlify/functions/push-notification-dispatch.mjs", "utf8");
 const privacyPolicyMarkdown = readFileSync("src/legal/privacy-policy.md", "utf8");
 const termsOfServiceMarkdown = readFileSync("src/legal/terms-of-service.md", "utf8");
@@ -557,6 +559,7 @@ test("R.Connect notification card registers this device without client-side Push
     "PUSH_SUBSCRIPTION_STATUS_ENDPOINT",
     "PUSH_SUBSCRIPTION_TEST_ENDPOINT",
     "PUSH_SUBSCRIPTION_TRANSFER_ENDPOINT",
+    "PUSH_SUBSCRIPTION_DISABLE_ENDPOINT",
     "endpoint: PUSH_SUBSCRIPTION_REGISTER_ENDPOINT",
     "Authorization: `Bearer ${accessToken}`",
   ];
@@ -578,7 +581,7 @@ test("R.Connect reconciles an existing Push subscription with the authenticated 
     'checking: "端末登録: 確認中"',
     "getPushSubscriptionRegistrationStatus({",
     "registrationStatus.hasSubscription",
-    "registrationStatus.canRegister",
+    "通知端末を再登録してください",
     "subscriptionStatus === \"checking\"",
   ];
   const statusTokens = [
@@ -609,6 +612,53 @@ test("new Push devices use the ready Service Worker registration for subscriptio
   for (const token of requiredTokens) {
     assert.equal(pushNotificationSetupJs.includes(token), true, `pushNotificationSetup.js missing new-device subscription token: ${token}`);
   }
+});
+
+test("Push subscription re-registration disables only the matching current-account record before replacing the browser subscription", () => {
+  const appTokens = [
+    "reRegisterPushNotifications",
+    "通知端末を再登録",
+    "PUSH_REREGISTER_DISABLE_FAILED",
+    "PUSH_REREGISTER_UNSUBSCRIBE_FAILED",
+  ];
+  const setupTokens = [
+    "PUSH_SUBSCRIPTION_DISABLE_ENDPOINT",
+    "existingSubscription.unsubscribe()",
+    "push-subscription-reregister-disable",
+    "PUSH_REREGISTER_SUBSCRIBE_FAILED",
+    "PUSH_REREGISTER_STATUS_FAILED",
+    "push-subscription-reregister-required",
+  ];
+  const disableTokens = [
+    'path: "/api/push-subscription-disable"',
+    "requireAuthenticatedUser({ request, supabase })",
+    "disablePushSubscription({",
+    ".eq(\"profile_id\", profileId)",
+    ".eq(\"endpoint\", subscription.endpoint)",
+    ".eq(\"p256dh\", subscription.p256dh)",
+    ".eq(\"auth\", subscription.auth)",
+    "disabled_at: now",
+    "PUSH_SUBSCRIPTION_NOT_OWNED",
+  ];
+
+  for (const token of appTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing re-registration token: ${token}`);
+  }
+
+  for (const token of setupTokens) {
+    assert.equal(pushNotificationSetupJs.includes(token), true, `pushNotificationSetup.js missing re-registration token: ${token}`);
+  }
+
+  for (const token of disableTokens) {
+    assert.equal(
+      pushDisableFunction.includes(token) || pushSubscriptionDisableSharedFunction.includes(token),
+      true,
+      `Push disable Function missing ${token}`,
+    );
+  }
+
+  assert.equal(pushSubscriptionDisableSharedFunction.includes("profile_id:"), false);
+  assert.equal(pushSubscriptionDisableSharedFunction.includes(".neq(\"profile_id\""), false);
 });
 
 test("Push account switching and server test delivery require the current endpoint and Push keys", () => {

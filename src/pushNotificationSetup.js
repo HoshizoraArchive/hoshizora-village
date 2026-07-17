@@ -4,6 +4,7 @@ const PUSH_SUBSCRIPTION_REGISTER_ENDPOINT = "/api/push-subscription-register";
 const PUSH_SUBSCRIPTION_STATUS_ENDPOINT = "/api/push-subscription-status";
 const PUSH_SUBSCRIPTION_TEST_ENDPOINT = "/api/push-subscription-test";
 const PUSH_SUBSCRIPTION_TRANSFER_ENDPOINT = "/api/push-subscription-transfer";
+const PUSH_SUBSCRIPTION_DISABLE_ENDPOINT = "/api/push-subscription-disable";
 
 let registrationPromise = null;
 
@@ -78,9 +79,9 @@ export async function requestPushNotificationPermission() {
   return Notification.requestPermission();
 }
 
-async function getExistingPushSubscription() {
-  const registration = await getReadyPushNotificationServiceWorker();
-  return registration.pushManager.getSubscription();
+async function getExistingPushSubscription(registration) {
+  const readyRegistration = registration ?? (await getReadyPushNotificationServiceWorker());
+  return readyRegistration?.pushManager?.getSubscription?.() ?? null;
 }
 
 async function postPushSubscription({ accessToken, endpoint, errorPrefix, subscription }) {
@@ -235,6 +236,103 @@ export async function transferPushSubscriptionToCurrentAccount({ accessToken }) 
   });
 }
 
+function reRegistrationError(code) {
+  return new Error(code);
+}
+
+export async function reRegisterPushNotifications({ accessToken }) {
+  if (!isPushSubscriptionSupported()) {
+    throw reRegistrationError("PUSH_REREGISTER_UNSUPPORTED");
+  }
+
+  if (!accessToken) {
+    throw reRegistrationError("PUSH_REREGISTER_LOGIN_REQUIRED");
+  }
+
+  if (Notification.permission !== "granted") {
+    throw reRegistrationError("PUSH_REREGISTER_PERMISSION_REQUIRED");
+  }
+
+  const registration = await getReadyPushNotificationServiceWorker();
+
+  if (!registration) {
+    throw reRegistrationError("PUSH_REREGISTER_SERVICE_WORKER_FAILED");
+  }
+
+  const existingSubscription = await getExistingPushSubscription(registration);
+
+  if (existingSubscription) {
+    try {
+      await postPushSubscription({
+        accessToken,
+        endpoint: PUSH_SUBSCRIPTION_DISABLE_ENDPOINT,
+        errorPrefix: "push-subscription-reregister-disable",
+        subscription: existingSubscription,
+      });
+    } catch {
+      throw reRegistrationError("PUSH_REREGISTER_DISABLE_FAILED");
+    }
+
+    try {
+      const unsubscribed = await existingSubscription.unsubscribe();
+
+      if (!unsubscribed) {
+        throw new Error("unsubscribe-returned-false");
+      }
+    } catch {
+      throw reRegistrationError("PUSH_REREGISTER_UNSUBSCRIBE_FAILED");
+    }
+  }
+
+  let config;
+
+  try {
+    config = await fetchPushNotificationConfig();
+  } catch {
+    throw reRegistrationError("PUSH_REREGISTER_CONFIG_FAILED");
+  }
+
+  if (!config.enabled || !config.publicKey) {
+    throw reRegistrationError("PUSH_REREGISTER_CONFIG_FAILED");
+  }
+
+  let subscription;
+
+  try {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(config.publicKey),
+    });
+  } catch {
+    throw reRegistrationError("PUSH_REREGISTER_SUBSCRIBE_FAILED");
+  }
+
+  try {
+    await postPushSubscription({
+      accessToken,
+      endpoint: PUSH_SUBSCRIPTION_REGISTER_ENDPOINT,
+      errorPrefix: "push-subscription-reregister-register",
+      subscription,
+    });
+  } catch {
+    throw reRegistrationError("PUSH_REREGISTER_REGISTER_FAILED");
+  }
+
+  let registrationStatus;
+
+  try {
+    registrationStatus = await getPushSubscriptionRegistrationStatus({ accessToken });
+  } catch {
+    throw reRegistrationError("PUSH_REREGISTER_STATUS_FAILED");
+  }
+
+  if (registrationStatus.status !== "registered") {
+    throw reRegistrationError("PUSH_REREGISTER_STATUS_FAILED");
+  }
+
+  return { status: "registered" };
+}
+
 export async function subscribeToPushNotifications({ accessToken }) {
   if (!isPushSubscriptionSupported()) {
     throw new Error("push-subscription-unsupported");
@@ -248,20 +346,23 @@ export async function subscribeToPushNotifications({ accessToken }) {
     throw new Error("push-subscription-permission-required");
   }
 
+  const registration = await getReadyPushNotificationServiceWorker();
+  const existingSubscription = await registration.pushManager.getSubscription();
+
+  if (existingSubscription) {
+    throw new Error("push-subscription-reregister-required");
+  }
+
   const config = await fetchPushNotificationConfig();
 
   if (!config.enabled || !config.publicKey) {
     throw new Error("push-vapid-key-missing");
   }
 
-  const registration = await getReadyPushNotificationServiceWorker();
-  const existingSubscription = await registration.pushManager.getSubscription();
-  const subscription =
-    existingSubscription ??
-    (await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(config.publicKey),
-    }));
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(config.publicKey),
+  });
 
   await postPushSubscription({
     accessToken,
