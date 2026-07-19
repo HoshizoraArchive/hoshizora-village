@@ -31,8 +31,9 @@ function logSafeDisableFailure(error) {
   const code = typeof error?.code === "string" ? error.code : "PUSH_REREGISTER_DISABLE_FAILED";
   const stage = typeof error?.safeLogStage === "string" ? error.safeLogStage : "unknown";
   const status = Number.isInteger(error?.status) ? error.status : 503;
+  const databaseCode = typeof error?.safeLogDatabaseCode === "string" ? error.safeLogDatabaseCode : "unknown";
 
-  console.error(JSON.stringify({ event: "push_subscription_disable_failed", code, stage, status }));
+  console.error(JSON.stringify({ event: "push_subscription_disable_failed", code, stage, status, databaseCode }));
 }
 
 export default async function handler(request) {

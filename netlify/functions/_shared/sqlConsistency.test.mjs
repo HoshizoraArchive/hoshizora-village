@@ -619,12 +619,16 @@ test("Push subscription re-registration disables only the matching current-accou
     "reRegisterPushNotifications",
     "通知端末を再登録",
     "PUSH_REREGISTER_DISABLE_FAILED",
+    "PUSH_SUBSCRIPTION_NOT_OWNED",
+    "PUSH_CONFIGURATION_ERROR",
+    "INVALID_TOKEN",
     "PUSH_REREGISTER_UNSUBSCRIBE_FAILED",
   ];
   const setupTokens = [
     "PUSH_SUBSCRIPTION_DISABLE_ENDPOINT",
     "existingSubscription.unsubscribe()",
     "push-subscription-reregister-disable",
+    "code.startsWith(errorPrefix)",
     "PUSH_REREGISTER_SUBSCRIBE_FAILED",
     "PUSH_REREGISTER_STATUS_FAILED",
     "push-subscription-reregister-required",
@@ -665,6 +669,8 @@ test("Push subscription re-registration disables only the matching current-accou
   assert.equal(pushSubscriptionDisableSharedFunction.includes(".maybeSingle()"), false);
   assert.equal(pushDisableFunction.includes("push_subscription_disable_failed"), true);
   assert.equal(pushDisableFunction.includes("safeLogStage"), true);
+  assert.equal(pushDisableFunction.includes("databaseCode"), true);
+  assert.equal(pushSubscriptionDisableSharedFunction.includes("safeLogDatabaseCode"), true);
 });
 
 test("Push account switching and server test delivery require the current endpoint and Push keys", () => {

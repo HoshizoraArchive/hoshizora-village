@@ -7078,6 +7078,9 @@ function PushNotificationTestCard({ session }) {
       setPermission(getPushNotificationPermission());
       const code = error instanceof Error ? error.message : "PUSH_REREGISTER_FAILED";
       const messages = {
+        INVALID_TOKEN: "ログイン情報を確認できませんでした。再度ログインしてからお試しください。",
+        PUSH_CONFIGURATION_ERROR: "スマホ通知登録は現在利用できません。",
+        PUSH_SUBSCRIPTION_NOT_OWNED: "この端末の通知登録を確認できませんでした。別アカウントの登録は変更していません。",
         PUSH_REREGISTER_DISABLE_FAILED: "既存の通知登録を無効化できませんでした。",
         PUSH_REREGISTER_UNSUBSCRIBE_FAILED: "現在の通知購読を解除できませんでした。",
         PUSH_REREGISTER_CONFIG_FAILED: "新しい通知設定を取得できませんでした。",

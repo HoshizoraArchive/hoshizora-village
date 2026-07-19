@@ -133,6 +133,20 @@ test("re-registration surfaces a safe update-stage failure without subscription 
     (error) =>
       error?.code === "PUSH_REREGISTER_DISABLE_FAILED" &&
       error?.safeLogStage === "update" &&
+      error?.safeLogDatabaseCode === "database_error" &&
       !error.message.includes(subscription.endpoint),
+  );
+});
+
+test("re-registration logs only a safe database code when a database error code is unsafe", async () => {
+  const mock = createDisableSupabase({ data: [], error: { code: "PGRST116\nendpoint=secret" } });
+
+  await assert.rejects(
+    disablePushSubscription({
+      profileId: "current-profile-id",
+      subscription,
+      supabase: mock.supabase,
+    }),
+    (error) => error?.safeLogDatabaseCode === "unknown" && !error.message.includes(subscription.endpoint),
   );
 });

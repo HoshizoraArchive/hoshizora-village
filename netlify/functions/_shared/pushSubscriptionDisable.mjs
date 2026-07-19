@@ -1,8 +1,15 @@
 import { pushHttpError } from "./pushNotifications.mjs";
 
-function disableFailure(stage) {
+function safeDatabaseCode(error) {
+  const code = typeof error?.code === "string" ? error.code : "";
+
+  return /^[A-Za-z0-9_]{1,64}$/.test(code) ? code : "unknown";
+}
+
+function disableFailure(stage, databaseError) {
   const error = pushHttpError(503, "PUSH_REREGISTER_DISABLE_FAILED", "通知端末の再登録を開始できませんでした。");
   error.safeLogStage = stage;
+  error.safeLogDatabaseCode = safeDatabaseCode(databaseError);
   return error;
 }
 
@@ -19,7 +26,7 @@ export async function disablePushSubscription({ profileId, subscription, supabas
     .select("id");
 
   if (error) {
-    throw disableFailure("update");
+    throw disableFailure("update", error);
   }
 
   if (Array.isArray(disabledRecords) && disabledRecords.length > 0) {
@@ -33,7 +40,7 @@ export async function disablePushSubscription({ profileId, subscription, supabas
     .limit(1);
 
   if (existingEndpointError) {
-    throw disableFailure("endpoint_lookup");
+    throw disableFailure("endpoint_lookup", existingEndpointError);
   }
 
   if (Array.isArray(existingEndpointRecords) && existingEndpointRecords.length > 0) {

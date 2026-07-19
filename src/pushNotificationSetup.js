@@ -269,7 +269,14 @@ export async function reRegisterPushNotifications({ accessToken }) {
         errorPrefix: "push-subscription-reregister-disable",
         subscription: existingSubscription,
       });
-    } catch {
+    } catch (error) {
+      const errorPrefix = "push-subscription-reregister-disable-";
+      const code = error instanceof Error ? error.message : "";
+
+      if (code.startsWith(errorPrefix)) {
+        throw reRegistrationError(code.slice(errorPrefix.length));
+      }
+
       throw reRegistrationError("PUSH_REREGISTER_DISABLE_FAILED");
     }
 

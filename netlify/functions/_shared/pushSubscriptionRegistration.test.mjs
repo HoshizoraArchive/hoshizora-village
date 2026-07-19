@@ -17,7 +17,7 @@ function createSubscription(endpoint) {
   };
 }
 
-function installPushBrowserMock({ disablePayload, existingSubscription = null, subscribeError, unsubscribeError } = {}) {
+function installPushBrowserMock({ disablePayload, disableStatus = 200, existingSubscription = null, subscribeError, unsubscribeError } = {}) {
   const createdSubscription = createSubscription("https://push.example.test/new-subscription");
   let currentSubscription = existingSubscription;
   const calls = {
@@ -101,7 +101,7 @@ function installPushBrowserMock({ disablePayload, existingSubscription = null, s
     }
 
     if (url === "/api/push-subscription-disable") {
-      return new Response(JSON.stringify(disablePayload ?? { status: "disabled" }), { status: 200 });
+      return new Response(JSON.stringify(disablePayload ?? { status: "disabled" }), { status: disableStatus });
     }
 
     return new Response(JSON.stringify({ status: "registered" }), { status: 200 });
@@ -209,6 +209,30 @@ test("re-registration stops before creating a new subscription when unsubscribe 
   assert.equal(calls.subscribe.length, 0);
   assert.deepEqual(calls.fetch.map((call) => call.url), ["/api/push-subscription-disable"]);
 });
+
+for (const { code, status } of [
+  { code: "PUSH_SUBSCRIPTION_NOT_OWNED", status: 409 },
+  { code: "INVALID_TOKEN", status: 401 },
+  { code: "PUSH_CONFIGURATION_ERROR", status: 503 },
+  { code: "PUSH_REREGISTER_DISABLE_FAILED", status: 503 },
+]) {
+  test(`re-registration preserves the safe disable API error code: ${code}`, async () => {
+    const existingSubscription = createSubscription("https://push.example.test/old-subscription");
+    const { calls } = installPushBrowserMock({
+      disablePayload: { error: { code, message: "safe server message" } },
+      disableStatus: status,
+      existingSubscription,
+    });
+    const { reRegisterPushNotifications } = await loadPushNotificationSetup();
+
+    await assert.rejects(
+      reRegisterPushNotifications({ accessToken: "session-token" }),
+      (error) => error?.message === code && !error.message.includes(existingSubscription.endpoint),
+    );
+    assert.equal(calls.unsubscribe, 0);
+    assert.equal(calls.subscribe.length, 0);
+  });
+}
 
 test("re-registration stops before registration when new subscription creation fails", async () => {
   const { calls } = installPushBrowserMock({ subscribeError: new Error("browser-subscribe-failure") });
