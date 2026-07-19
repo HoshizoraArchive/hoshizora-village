@@ -212,7 +212,7 @@ test("uploaded Gemini files and local tmp files are cleaned after ACTIVE wait ti
   assert.deepEqual(deletedFiles, ["files/test-video"]);
 });
 
-test("SDK 400 errors are mapped without becoming retryable 503 errors", async () => {
+test("text generation 400 errors are not misclassified as unavailable media", async () => {
   await assert.rejects(
     () => runGeminiObservation({
       client: {
@@ -240,8 +240,45 @@ test("SDK 400 errors are mapped without becoming retryable 503 errors", async ()
       storageRequirements: [],
       supabase: {},
     }),
-    (error) => error?.status === 422 && error?.code === AI_ERROR.MEDIA_UNAVAILABLE[0],
+    (error) => error?.status === 422 && error?.code === AI_ERROR.GEMINI_REQUEST_FAILED[0],
   );
+});
+
+test("text generation connection and service errors use provider-specific codes", async () => {
+  for (const [providerError, expectedCode] of [
+    [Object.assign(new TypeError("fetch failed"), { code: "ECONNRESET" }), AI_ERROR.GEMINI_CONNECTION_FAILED[0]],
+    [{ status: 503 }, AI_ERROR.GEMINI_SERVICE_UNAVAILABLE[0]],
+  ]) {
+    await assert.rejects(
+      () => runGeminiObservation({
+        client: {
+          interactions: {
+            create() {
+              return Promise.reject(providerError);
+            },
+          },
+          files: {
+            delete() {
+              return Promise.resolve({});
+            },
+          },
+        },
+        config: {
+          model: "gemini-3.5-flash",
+          observationTimeoutMs: 100,
+        },
+        post: {
+          id: "22222222-2222-4222-8222-222222222222",
+          type: "text",
+          body: "本文",
+        },
+        mediaRows: [],
+        storageRequirements: [],
+        supabase: {},
+      }),
+      (error) => error?.code === expectedCode && error?.code !== AI_ERROR.MEDIA_UNAVAILABLE[0],
+    );
+  }
 });
 
 test("Interactions create disables SDK retry and receives timeout options and AbortSignal", async () => {

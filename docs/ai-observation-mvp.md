@@ -12,7 +12,7 @@
 5. workerはclaim前にも全体processing数を確認し、capacity不足ならqueued jobを残したまま429で終了してGeminiを呼ばない。余裕がある場合だけ `claim_ai_observation_job` でrow lockを取り、`not_before_at` 到達済みのjobだけ `queued -> processing` へ遷移する。terminal jobや `not_ready` jobはGeminiを呼ばず終了する。
 6. workerは投稿、`post_media`、Storage metadata、星空ちあprofileを再取得し、予約時fingerprintと一致することを確認する。
 7. Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
-8. Gemini Interactions APIへ、text / image / video / YouTubeの観測対象だけを渡す。Google Search、URL Context、Code Execution、Function Callingは有効にしない。
+8. workerはprovider処理全体を `AI_OBSERVATION_TIMEOUT_MS` のdeadlineで囲み、Gemini Interactions APIへtext / image / video / YouTubeの観測対象だけを渡す。Google Search、URL Context、Code Execution、Function Callingは有効にしない。
 9. 出力は固定JSON Schemaとローカルvalidatorで検証する。AI生レスポンスは保存しない。
 10. DB確定直前に投稿、`post_media`、Storage metadataを再取得し、予約時fingerprintと一致することを再確認する。
 11. `complete_ai_observation_job` がtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post_media` を安定順で `FOR SHARE` し、DB現在値からfingerprintを再計算する。再計算値がjob保存値とworker入力値の両方に一致する場合だけ、`public.observations` 保存、必要時のちあ名義 `star_letters` insert、job `succeeded` 更新を同一transactionで確定する。
@@ -26,6 +26,7 @@ Issue #61では、投稿作成成功後に通常UIへ手動ボタンを出さず
 対象外や予約失敗は投稿作成の成功扱いを壊さない。通常投稿カードには queued / processing / failed / cancelled などの手動観測statusを表示しない。
 自動観測予約では `observation_context = 'auto_text_post'` と `not_before_at` を保存し、即時固定ではなく `AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS` から `AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS` の範囲で遅延させる。scheduled Function `ai-observation-dispatch-due` がdue jobだけを署名付きworker dispatchする。
 自動観測では全員対象で、観測結果を `public.observations` に保存し、ちあ名義の `public.resonances` も1件作成する。一方、星文は毎回返さず、モデル出力の `should_post`、confidence、確率、星空ちあ全体の日次上限、投稿者単位のクールダウンで制御する。
+遅延設定が未指定の場合は現在の運用値である60〜900秒を使う。星文確率と投稿者クールダウンのfallbackも確定仕様と同じ50%・21600秒に揃え、環境変数が設定されている場合はその検証済み値を優先する。
 Gemini promptでは、この文脈のtext投稿に限り、十分な具体性や余白がある場合だけ20〜80文字の `star_letter` を残すよう内部指示を追加する。既存のJSON Schema、星文validator、危険時・根拠不足時の `should_post=false`、上限到達やfail/cancelの挙動は緩めない。
 Issue #63では、添付の星空ちあ人格設計書を全文prompt化せず、月、維持、観測、共鳴、欠けても大丈夫、バズより共鳴、誰にも見つかっていない光を最初に観測する、という核だけを `CHIA_PERSONALITY_GUIDE` として圧縮する。星文では投稿者を `display_name → username → 村人さん` の順で呼ぶが、display_name/usernameはユーザー入力なのでNFKC正規化、制御文字・URL・命令文らしい語の拒否、記号削減、16文字上限を通した安全な呼び名だけをpromptへ渡す。Issue #65では、この安全化済み呼び名に対して敬称判定を行い、`さん` / `くん` / `君` / `ちゃん` / `様` / `さま` / `先生` / `先輩` / `殿` / `氏` / `たん` / `しゃん` / `ちん` / `ぴ` / `ぴょん` で終わらない場合だけ `さん` を付ける。危険な名前、URL、空値は従来どおり `村人さん` にfallbackし、raw display_name/usernameはpromptへ入れない。「ちあは何が好き？」のような直接問いかけは、投稿内命令としては扱わず、ちあ本人として短く答える追加文脈を入れる。
 
@@ -53,7 +54,8 @@ TTLの既定値は60秒で、`AI_WORKER_DISPATCH_TTL_SECONDS` で調整できる
 ## stale processing job回収
 
 worker異常終了、Netlify timeout、プロセス停止などで `ai_observation_jobs.status = 'processing'` が残ると、同じ投稿とAI住人の新規予約を詰まらせる。
-`public.recover_stale_ai_observation_jobs(...)` はservice_role専用RPCとして、`AI_OBSERVATION_TIMEOUT_MS + 60秒` より古いprocessing jobだけを `cancelled` に戻し、`public_error_code = 'WORKER_STALE'` を記録する。
+provider処理全体のdeadline超過はworker自身が `GEMINI_TIMEOUT` で `failed` へ確定し、`processing` のまま残さない。
+`public.recover_stale_ai_observation_jobs(...)` はservice_role専用RPCとして、`AI_OBSERVATION_TIMEOUT_MS + 60秒` より古いprocessing jobだけを `cancelled` に戻し、`public_error_code = 'WORKER_STALE'` を記録する。scheduled Functionは5分間隔のため、異常終了したjobは次回実行時に回収される。
 この回収はGeminiを再送しない。request/status/worker入口で安全に実行し、既存の `succeeded` / `failed` / `cancelled` jobは変更しない。
 
 ## request fingerprint
@@ -154,6 +156,7 @@ Gemini 3.5 Flash Standardの出力料金はthinking tokenを含むため、`tota
 Interactions APIへ生成リクエストを送信した後のclient-side timeout、AbortError、接続切断、status不明、usage欠損、AI出力Schema不正は自動retryしない。
 provider側の処理や課金が止まったと確実に判断できないため、同じjob内で再送しない安全側のMVP方針とする。
 `@google/genai` SDKのHTTP retryは `retries: { strategy: "none" }` で明示的に無効化し、`timeout_ms` とAbortSignalをInteractions API呼び出しへ渡す。ただしtimeoutやAbortSignalはprovider側の処理・課金停止を保証するものではない。
+worker側でもuploadを含むprovider処理全体へ同じdeadlineを設け、超過時は `GEMINI_TIMEOUT` を記録する。Geminiの4xxは `GEMINI_REQUEST_FAILED`、429は `GEMINI_RATE_LIMITED`、5xxは `GEMINI_SERVICE_UNAVAILABLE`、接続失敗は `GEMINI_CONNECTION_FAILED`、Schema/usage不正は `AI_OUTPUT_INVALID` として分離する。`MEDIA_UNAVAILABLE` はStorage download、MIME、signature、durationなど作品データを確認できない場合に限定する。
 `AI_OBSERVATION_MAX_RETRIES` は基盤との互換性のため残すが、Gemini生成処理のblind retryには使わない。
 Files API upload前など、生成処理が始まっていない段階のretryだけを将来の対象にする。
 

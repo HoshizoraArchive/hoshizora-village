@@ -89,6 +89,7 @@ limit 5;
 
 `is_due = false` の場合、まだscheduled Functionが拾う時間ではありません。
 `ai-observation-dispatch-due` は5分ごとの実行なので、`not_before_at` 到達から数分遅れることがあります。
+遅延環境変数が未設定の場合の実効範囲は60〜900秒です。scheduled Function、通常Function、Background Functionはいずれも同じ `readAiObservationConfig()` とFunctions scopeを使用します。
 
 ### 自動共鳴の確認
 
@@ -165,6 +166,19 @@ UIはリアルタイム購読ではないため、DBに共鳴や通知が入っ�
 - 投稿者単位クールダウン中。
 
 そのため、星文が0でも、`observations` と `silent` 共鳴が作成されていれば正常です。
+
+### 4. providerエラーの見分け方
+
+- `GEMINI_TIMEOUT`: provider処理全体が設定時間を超え、workerが失敗確定した。
+- `GEMINI_CONNECTION_FAILED`: Geminiへ接続できなかった。
+- `GEMINI_REQUEST_FAILED`: Geminiが生成リクエストを拒否した。
+- `GEMINI_RATE_LIMITED`: Geminiの429。
+- `GEMINI_SERVICE_UNAVAILABLE`: Geminiの一時的な5xx。
+- `AI_OUTPUT_INVALID`: JSON Schema、ローカルvalidator、usage検証のいずれかを通らなかった。
+- `MEDIA_UNAVAILABLE`: Storage上の作品データ、MIME、signature、durationなどを確認できなかった。
+- `WORKER_STALE`: worker異常終了などで通常のtimeout失敗確定ができず、最終保険の回収RPCが処理した。
+
+text投稿の生成API失敗は `MEDIA_UNAVAILABLE` へ分類しません。失敗jobは自動で再実行せず、既存の観測結果・共鳴・星文もbackfillしません。
 
 ## 本番で触らないもの
 
