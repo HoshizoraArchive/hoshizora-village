@@ -11,6 +11,7 @@ import { loadAuthorProfile, loadChiaProfile, validateCurrentPostInput } from "./
 import { assertGlobalProcessingCapacity } from "./aiRateLimit.mjs";
 import { normalizeAiObservationContext } from "./aiObservationContext.mjs";
 import { applyAutoStarLetterGate } from "./aiStarLetterGate.mjs";
+import { withTimeout } from "./aiLimits.mjs";
 
 const OBSERVATION_SUMMARY_MAX_LENGTH = 1200;
 
@@ -84,6 +85,24 @@ function mapSafeErrorToStatus(error) {
   return 503;
 }
 
+async function runProviderWithDeadline({ runProvider, timeoutMs, providerArgs }) {
+  try {
+    return await withTimeout(
+      (signal) => runProvider({
+        ...providerArgs,
+        signal,
+      }),
+      timeoutMs,
+    );
+  } catch (error) {
+    if (error?.name === "AbortError" || Number(error?.status) === 408) {
+      throw aiHttpError(503, AI_ERROR.GEMINI_TIMEOUT);
+    }
+
+    throw error;
+  }
+}
+
 export async function runAiObservationJob({
   jobId,
   requestId,
@@ -153,15 +172,19 @@ export async function runAiObservationJob({
 
     await startAiObservationAttempt({ supabase, jobId });
 
-    const { output, usage } = await runProvider({
-      client: geminiClient,
-      config,
-      post,
-      mediaRows,
-      storageRequirements,
-      supabase,
-      observationContext: effectiveObservationContext,
-      authorProfile,
+    const { output, usage } = await runProviderWithDeadline({
+      runProvider,
+      timeoutMs: config.observationTimeoutMs,
+      providerArgs: {
+        client: geminiClient,
+        config,
+        post,
+        mediaRows,
+        storageRequirements,
+        supabase,
+        observationContext: effectiveObservationContext,
+        authorProfile,
+      },
     });
     providerUsage = usage;
 
@@ -194,7 +217,7 @@ export async function runAiObservationJob({
       observation,
       usage,
       autoStarLetterDailyLimit: config.autoObservation?.starLetterDailyLimit ?? 20,
-      autoStarLetterAuthorCooldownSeconds: config.autoObservation?.starLetterAuthorCooldownSeconds ?? 86400,
+      autoStarLetterAuthorCooldownSeconds: config.autoObservation?.starLetterAuthorCooldownSeconds ?? 21600,
     });
 
     logAiEvent("info", "ai_observation_worker_completed", {

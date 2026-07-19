@@ -31,7 +31,7 @@ export function shouldAllowAutoStarLetter({
     return { allowed: false, reason: "low_confidence" };
   }
 
-  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 20);
+  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 50);
 
   if (!Number.isSafeInteger(probabilityPercent) || probabilityPercent <= 0) {
     return { allowed: false, reason: "probability_zero" };

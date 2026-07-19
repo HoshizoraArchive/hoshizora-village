@@ -64,14 +64,17 @@ export async function withTimeout(task, timeoutMs) {
   let timeout;
 
   try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        reject(Object.assign(new Error("AI operation timed out"), { name: "AbortError", status: 408 }));
+      }, timeoutMs);
+    });
+    const taskPromise = Promise.resolve().then(() => task(controller.signal));
+
     return await Promise.race([
-      task(controller.signal),
-      new Promise((_, reject) => {
-        timeout = setTimeout(() => {
-          controller.abort();
-          reject(Object.assign(new Error("AI operation timed out"), { name: "AbortError", status: 408 }));
-        }, timeoutMs);
-      }),
+      taskPromise,
+      timeoutPromise,
     ]);
   } finally {
     if (timeout) {

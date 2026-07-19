@@ -253,6 +253,26 @@ test("AI automatic observation expansion keeps old Netlify RPC wrappers deploy-o
   }
 });
 
+test("automatic completion creates one resonance independently from optional star letters", () => {
+  for (const sql of [autoObservationExpansionMigrationSql, schemaSql]) {
+    const compact = normalizedSql(sql);
+    const alreadySucceededIndex = compact.indexOf("if v_job.status = 'succeeded' then");
+    const resonanceIndex = compact.indexOf(
+      "if v_job.observation_context = 'auto_text_post' then insert into public.resonances",
+    );
+    const starLetterIndex = compact.indexOf("if v_should_post then insert into public.star_letters");
+    const completedIndex = compact.indexOf("outcome := 'completed'", resonanceIndex);
+
+    assert.notEqual(alreadySucceededIndex, -1, "completion must short-circuit an already succeeded job");
+    assert.notEqual(resonanceIndex, -1, "automatic completion must insert a resonance");
+    assert.notEqual(starLetterIndex, -1, "completion must retain the optional star-letter branch");
+    assert.notEqual(completedIndex, -1, "completion must finish the same transaction");
+    assert.equal(alreadySucceededIndex < resonanceIndex, true, "redispatch must exit before inserting another resonance");
+    assert.equal(resonanceIndex < starLetterIndex, true, "resonance must not depend on the star-letter branch");
+    assert.equal(starLetterIndex < completedIndex, true, "resonance, optional star letter, and job success stay atomic");
+  }
+});
+
 test("AI observation MVP current fingerprint helper locks and hashes current post and media rows", () => {
   const tokens = [
     "app_private.ai_observation_current_request_fingerprint",

@@ -132,7 +132,7 @@ function mapProviderError(error) {
     return error;
   }
 
-  if (error?.name === "AbortError") {
+  if (error?.name === "AbortError" || Number(error?.status) === 408) {
     return aiHttpError(503, AI_ERROR.GEMINI_TIMEOUT);
   }
 
@@ -143,11 +143,18 @@ function mapProviderError(error) {
   }
 
   if (status >= 500 && status <= 599) {
-    return aiHttpError(503, AI_ERROR.MEDIA_UNAVAILABLE);
+    return aiHttpError(503, AI_ERROR.GEMINI_SERVICE_UNAVAILABLE);
   }
 
   if (status >= 400 && status <= 499) {
-    return aiHttpError(422, AI_ERROR.MEDIA_UNAVAILABLE);
+    return aiHttpError(422, AI_ERROR.GEMINI_REQUEST_FAILED);
+  }
+
+  if (
+    error?.name === "TypeError" ||
+    ["ECONNABORTED", "ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "ENOTFOUND", "ETIMEDOUT"].includes(error?.code)
+  ) {
+    return aiHttpError(503, AI_ERROR.GEMINI_CONNECTION_FAILED);
   }
 
   return aiHttpError(503, AI_ERROR.INTERNAL);
@@ -338,6 +345,7 @@ export async function runGeminiObservation({
   supabase,
   observationContext,
   authorProfile,
+  signal,
 }) {
   const mediaUpload = await uploadMediaFiles({
     client,
@@ -347,34 +355,34 @@ export async function runGeminiObservation({
   });
 
   try {
-    const interaction = await withTimeout(
-      (signal) => client.interactions.create(
-        {
-          model: config.model,
-          system_instruction: SYSTEM_INSTRUCTION,
-          input: buildGeminiInput({
-            post,
-            mediaRows,
-            uploadedFiles: mediaUpload.uploadedFiles,
-            observationContext,
-            authorProfile,
-          }),
-          response_format: {
-            type: "text",
-            mime_type: "application/json",
-            schema: AI_OBSERVATION_OUTPUT_JSON_SCHEMA,
-          },
-          tools: [],
-          store: false,
+    const createInteraction = (requestSignal) => client.interactions.create(
+      {
+        model: config.model,
+        system_instruction: SYSTEM_INSTRUCTION,
+        input: buildGeminiInput({
+          post,
+          mediaRows,
+          uploadedFiles: mediaUpload.uploadedFiles,
+          observationContext,
+          authorProfile,
+        }),
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: AI_OBSERVATION_OUTPUT_JSON_SCHEMA,
         },
-        {
-          retries: { strategy: "none" },
-          timeout_ms: config.observationTimeoutMs,
-          signal,
-        },
-      ),
-      config.observationTimeoutMs,
+        tools: [],
+        store: false,
+      },
+      {
+        retries: { strategy: "none" },
+        timeout_ms: config.observationTimeoutMs,
+        signal: requestSignal,
+      },
     );
+    const interaction = signal
+      ? await createInteraction(signal)
+      : await withTimeout(createInteraction, config.observationTimeoutMs);
     const parsed = parseAiObservationOutput(interaction?.output_text ?? interaction?.outputText, {
       expectedMediaType: post.type,
     });

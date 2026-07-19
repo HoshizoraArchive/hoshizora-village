@@ -7,7 +7,7 @@ Issue #56対応として、本番ON前にFunction入口rate limit、worker dispa
 POST予約はIP単位とoperator user id単位で厳しめに制限し、GET権限確認とstatus pollingは通常利用を妨げない範囲で制限する。
 worker入口もIP単位で制限し、DB上の全体processing数が `AI_GLOBAL_PROCESSING_LIMIT` を超える場合はGemini呼び出し前にfail closedする。
 capacity不足は一時的な混雑として扱い、provider未実行・attempt開始前のjobを永続 `failed` にしない。予約前なら429でjobを作らず、worker到達後ならqueued jobを残し、次回のdue dispatchで再試行できる状態にする。
-worker timeoutなどで古い `processing` jobが残った場合は、service_role専用の `recover_stale_ai_observation_jobs` RPCで `cancelled` + `WORKER_STALE` に戻す。Geminiのblind retryは行わない。
+provider処理全体のdeadline超過はworkerが `GEMINI_TIMEOUT` で `failed` へ確定する。worker異常終了などで古い `processing` jobが残った場合だけ、service_role専用の `recover_stale_ai_observation_jobs` RPCで `cancelled` + `WORKER_STALE` に戻す。Geminiのblind retryは行わない。
 これらはDBの日次/月次回数・料金上限とは別の、間接乱打と過剰pollingを抑えるための入口制御である。
 
 ## 処理フロー
@@ -24,7 +24,7 @@ worker timeoutなどで古い `processing` jobが残った場合は、service_ro
 8. 画像・動画ではStorage APIで対象オブジェクトのメタデータも取得し、DB上のMIME・サイズと一致することを確認する。
 9. Functionは全体processing数を確認した上で `public.reserve_ai_observation_job(...)` を呼び、DB側transactionでジョブ予約、上限判定、二重実行防止を行う。自動観測では `not_before_at` に遅延実行時刻を保存する。
 10. 手動予約の成功時は `queued` jobを即時dispatchする。自動観測では scheduled Functionがdue jobだけを `/api/ai-observation-worker` Background Functionへ `jobId`, `issuedAt`, `nonce`, HMAC-SHA256署名でdispatchする。
-11. workerはclaim前に全体processing数を再確認し、capacity不足ならqueued jobを残してGeminiを呼ばない。余裕がある場合だけservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。
+11. workerはclaim前に全体processing数を再確認し、capacity不足ならqueued jobを残してGeminiを呼ばない。余裕がある場合だけservice_roleで投稿・media・ちあprofileを再取得し、予約時fingerprintと一致する場合だけGeminiを呼び出す。provider処理全体は `AI_OBSERVATION_TIMEOUT_MS` のdeadlineで囲み、timeoutを `processing` のまま残さない。
 12. 検証済み出力だけを `public.complete_ai_observation_job(...)` へ渡す。completion RPCはtransaction内で現在の `posts` / `post_media` からfingerprintを再計算し、job保存値とworker入力値の両方に一致する場合だけ `public.observations` 保存、必要時の星文insert、job成功更新を同一transactionで確定する。
 
 ## 信頼境界
@@ -184,6 +184,7 @@ Schema不正時は公開処理へ渡さない。
 DBテーブル名、RLS policy名、SQL、stack trace、Supabase生エラー、secret、Storage pathは返さない。
 429では可能な場合に `Retry-After` を返す。
 rate limit超過、worker署名不正、prompt injection由来のschema不正、観測対象変更など、危険または不明な状態ではGemini呼び出しや公開星文作成を継続しない。
+Gemini providerのrequest拒否、接続失敗、429、5xx、timeout、出力不正は別々の安全なpublic error codeへ分類する。`MEDIA_UNAVAILABLE` は作品データをStorageやvalidationで確認できない場合だけに使い、text生成APIの失敗をmedia不良として記録しない。
 
 ## 星空ちあ観測MVP
 
@@ -193,7 +194,7 @@ MVPでは運営ユーザーだけが手動で公開流星便1件を観測でき�
 予約Functionからworkerへ渡す値はjobId、issuedAt、nonce、HMAC-SHA256署名だけで、投稿本文、Storage path、署名付きURL、プロンプト、星空ちあprofile idは渡さない。
 workerは署名、TTL、nonce、jobIdを検証し、古いdispatch、改ざん、jobId不一致、同一インスタンス内のnonce再利用を拒否する。
 workerはcapacity確認後に `claim_ai_observation_job` で `queued -> processing` をclaimし、Gemini呼び出し直前に `start_ai_observation_attempt` で `attempt_count` を増やす。
-Interactions APIへ生成リクエストを送信した後のtimeout、接続切断、status不明、usage欠損、Schema不正は、provider側の処理・課金停止を保証できないため同じjob内で自動再送しない。SDK内部retryも `retries: { strategy: "none" }` で無効化し、`timeout_ms` とAbortSignalはprovider処理停止保証ではなく応答待ち上限として扱う。`AI_OBSERVATION_MAX_RETRIES` は互換設定として残すが、MVPでは生成処理のblind retryには使わない。
+Interactions APIへ生成リクエストを送信した後のtimeout、接続切断、status不明、usage欠損、Schema不正は、provider側の処理・課金停止を保証できないため同じjob内で自動再送しない。SDK内部retryも `retries: { strategy: "none" }` で無効化し、worker側のprovider全体deadlineとSDKの `timeout_ms` / AbortSignalを併用する。これらはprovider処理停止保証ではなく応答待ち上限として扱う。`AI_OBSERVATION_MAX_RETRIES` は互換設定として残すが、MVPでは生成処理のblind retryには使わない。
 Gemini出力は固定JSON Schemaとローカルvalidatorで再検証し、AI生レスポンスはDBにもログにも保存しない。
 星文を残す場合は、service_roleから `AI_HOSHIZORA_CHIA_PROFILE_ID` の `profiles.username = 'chia_hoshizora'` をDB側でも確認し、ちあ名義の `star_letters` を作成する。星空ちあのパスワードログインは使用しない。
 使用量が取得できない場合は成功扱いせず、料金はGemini 3.5 Flash Standardのpricing snapshotからmicro USD単位で推定する。DBの `output_tokens` には `total_output_tokens + total_thought_tokens` のbillable outputを保存し、thinking tokenを出力料金対象に含める。

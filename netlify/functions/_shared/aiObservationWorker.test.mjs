@@ -87,7 +87,7 @@ function config() {
       starLetterProbabilityPercent: 100,
       starLetterMinConfidencePercent: 75,
       starLetterDailyLimit: 20,
-      starLetterAuthorCooldownSeconds: 86400,
+      starLetterAuthorCooldownSeconds: 21600,
     },
   };
 }
@@ -407,7 +407,7 @@ test("global processing capacity allows the last available processing slot", asy
   assert.equal(calls.cancelArgs, null);
   assert.equal(calls.completeArgs.p_should_post, true);
   assert.equal(calls.completeArgs.p_auto_star_letter_daily_limit, 20);
-  assert.equal(calls.completeArgs.p_auto_star_letter_author_cooldown_seconds, 86400);
+  assert.equal(calls.completeArgs.p_auto_star_letter_author_cooldown_seconds, 21600);
 });
 
 test("automatic text observation can suppress star letters while keeping observation completion", async () => {
@@ -457,6 +457,57 @@ test("provider failure after attempt is not blindly retried", async () => {
   assert.equal(providerCalls, 1);
   assert.equal(calls.attempts, 1);
   assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.MEDIA_UNAVAILABLE[0]);
+});
+
+test("provider timeout is recorded as failed instead of remaining processing", async () => {
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  });
+  const timeoutConfig = {
+    ...config(),
+    observationTimeoutMs: 5,
+  };
+  let providerCalls = 0;
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: timeoutConfig,
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    runProvider: async ({ signal }) => {
+      providerCalls += 1;
+      assert.equal(signal instanceof AbortSignal, true);
+      return new Promise(() => {});
+    },
+  });
+
+  assert.equal(result.outcome, "failed");
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.attempts, 1);
+  assert.equal(calls.completeCalls, 0);
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.GEMINI_TIMEOUT[0]);
+});
+
+test("text provider service errors remain provider errors instead of MEDIA_UNAVAILABLE", async () => {
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  });
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    runProvider: async () => {
+      throw aiHttpError(503, AI_ERROR.GEMINI_SERVICE_UNAVAILABLE);
+    },
+  });
+
+  assert.equal(result.outcome, "failed");
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.GEMINI_SERVICE_UNAVAILABLE[0]);
+  assert.notEqual(calls.failArgs.p_public_error_code, AI_ERROR.MEDIA_UNAVAILABLE[0]);
 });
 
 test("completion invalid_payload is failed instead of being logged as success", async () => {
