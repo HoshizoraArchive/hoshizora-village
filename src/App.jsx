@@ -9,6 +9,7 @@ import {
 import { supabase } from "./lib/supabaseClient";
 import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw";
 import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
+import VillageGuideAdminScreen from "./VillageGuideAdmin";
 import {
   getPushNotificationPermission,
   getPushNotificationPermissionLabel,
@@ -21,6 +22,16 @@ import {
   subscribeToPushNotifications,
   transferPushSubscriptionToCurrentAccount,
 } from "./pushNotificationSetup";
+import {
+  GUIDE_ENTRY_SELECT_COLUMNS,
+  GUIDE_SECTION_SELECT_COLUMNS,
+  buildVillageGuideTree,
+  createVillageGuideStableKey,
+  getFallbackVillageGuideRows,
+  isMissingVillageGuideSchemaError,
+  validateVillageGuideEntryInput,
+  validateVillageGuideSectionInput,
+} from "./villageGuide";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -1544,6 +1555,8 @@ function App() {
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
+  const [guideIsAdmin, setGuideIsAdmin] = useState(false);
+  const [guideAdminLoading, setGuideAdminLoading] = useState(false);
   const [profileFrames, setProfileFrames] = useState([]);
   const [ownedProfileFrameIds, setOwnedProfileFrameIds] = useState([]);
   const [profileFramesAvailable, setProfileFramesAvailable] = useState(true);
@@ -2287,6 +2300,46 @@ function App() {
     }
 
     readProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function readGuideAdminStatus() {
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        setGuideIsAdmin(false);
+        setGuideAdminLoading(false);
+        return;
+      }
+
+      setGuideAdminLoading(true);
+      const { data, error } = await supabase.rpc("is_app_admin");
+
+      if (!isMounted) {
+        return;
+      }
+
+      setGuideAdminLoading(false);
+
+      if (error) {
+        setGuideIsAdmin(false);
+
+        if (!isMissingVillageGuideSchemaError(error)) {
+          logSafeError(ERROR_OPERATION.GUIDE_LOAD, error);
+        }
+        return;
+      }
+
+      setGuideIsAdmin(data === true);
+    }
+
+    readGuideAdminStatus();
 
     return () => {
       isMounted = false;
@@ -3373,6 +3426,16 @@ function App() {
     setProfileMessage("");
     setProfileError("");
     setProfileScreenMode("guide");
+  }
+
+  function handleOpenGuideAdmin() {
+    if (!guideIsAdmin) {
+      return;
+    }
+
+    setProfileMessage("");
+    setProfileError("");
+    setProfileScreenMode("guide-admin");
   }
 
   function handleBackToProfile() {
@@ -5422,6 +5485,7 @@ function App() {
     onOpenFeedback: handleOpenFeedback,
     onOpenAvatar: handleOpenAvatarModal,
     onOpenGuide: handleOpenGuide,
+    onOpenGuideAdmin: handleOpenGuideAdmin,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
     onShareProfile: handleShareStarProfile,
@@ -5432,6 +5496,8 @@ function App() {
     profileFramesAvailable,
     profileFramesError,
     profileFramesLoading,
+    guideAdminLoading,
+    guideIsAdmin,
     selectedFrame: selectedProfileFrame,
     saving: profileSaving,
     shareError: profileShareError,
@@ -7381,6 +7447,14 @@ function ProfileScreen({
     );
   }
 
+  if (profile.profileScreenMode === "guide-admin") {
+    return (
+      <main className="mx-auto max-w-3xl">
+        <VillageGuideAdminScreen isAdmin={profile.guideIsAdmin} onBack={profile.onBackToProfile} />
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-2xl space-y-4">
       <ProfileCard profile={profile} />
@@ -7568,6 +7642,19 @@ function SettingsPanel({ auth, onBack, profile }) {
             星空Villageで今できること、基本の使い方、これから増える機能を確認できます。
           </span>
         </button>
+        {profile.guideIsAdmin ? (
+          <button
+            className="w-full rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-4 text-left transition hover:border-amber-200/40 hover:bg-amber-300/15"
+            onClick={profile.onOpenGuideAdmin}
+            type="button"
+          >
+            <span className="block text-sm font-black text-amber-100">入村案内を編集</span>
+            <span className="mt-1 block text-xs leading-6 text-slate-400">
+              セクションと文章を1項目ずつ編集し、表示順や公開状態を変更できます。
+            </span>
+          </button>
+        ) : null}
+        {profile.guideAdminLoading ? <p className="text-xs text-slate-500">管理設定を確認中...</p> : null}
         <button
           className="w-full rounded-2xl border border-comet/20 bg-comet/10 px-4 py-4 text-left transition hover:border-comet/35 hover:bg-comet/15"
           onClick={profile.onOpenFeedback}
@@ -7675,89 +7762,52 @@ function SettingsPanel({ auth, onBack, profile }) {
 }
 
 function GuideScreen({ onBack, onOpenFeedback }) {
-  const availableSections = [
-    {
-      title: "アカウントとプロフィール",
-      items: [
-        "会員登録 / ログイン / ログアウト",
-        "利用規約・プライバシーポリシーの確認と同意",
-        "プロフィール作成 / 編集",
-        "プロフィール画像のアップロード / 切り抜き",
-        "プロフィールの星枠選択",
-        "公開プロフィール表示 / URL共有",
-        "流星便から投稿者プロフィールへ移動",
-      ],
-    },
-    {
-      title: "流星便を届ける",
-      items: [
-        "テキスト流星便の投稿",
-        "星影（画像・最大4枚）の投稿 / 拡大表示",
-        "星映（動画・35秒以内）の切り抜き / 表紙設定 / 再生",
-        "YouTube URLの埋め込み再生",
-        "Suno楽曲リンクカード表示",
-        "流星タグ（最大3個）の追加 / タグ別一覧",
-        "流星便の編集 / 削除",
-        "流星便の詳細ページ表示 / URL共有",
-      ],
-    },
-    {
-      title: "観測してつながる",
-      items: [
-        "共鳴",
-        "星文の投稿 / 編集 / 削除",
-        "Archive保存 / 解除 / 一覧表示",
-        "R.Connect通知（共鳴・Archive・星文・観測）",
-        "R.Connectの未読 / 既読管理",
-        "通知から流星便やプロフィールへ移動",
-        "共鳴 / Archive通知のON・OFF設定",
-        "iPhone / AndroidへのPush通知",
-        "通知端末の登録 / 再登録 / テスト通知",
-      ],
-    },
-    {
-      title: "星空ちあAI住人",
-      items: [
-        "公開テキスト流星便を、少し時間を空けて自動観測",
-        "観測した流星便への、ちあからの共鳴",
-        "ちあから、ときどき届く星文",
-        "R.Connect / Pushで観測結果を通知",
-      ],
-    },
-    {
-      title: "スマホ利用とサポート",
-      items: [
-        "ホーム画面へ追加してPWAとして利用",
-        "新しい本番更新の検知 / 再読み込み案内",
-        "星の目安箱からフィードバック送信",
-        "利用規約 / プライバシーポリシーの閲覧",
-        "公式X / メールへのお問い合わせ",
-      ],
-    },
-  ];
-  const plannedItems = [
-    "音声の流星便投稿",
-    "リポスト / 再放流",
-    "星空広場 / ゲーム広場",
-    "占い舘",
-    "App Store / Google Playで配布するネイティブアプリ",
-  ];
-  const firstSteps = [
-    "My Const.で、名前・自己紹介・プロフィール画像を設定する",
-    "中央の＋から、最初の流星便を放流する",
-    "観測で誰かの流星便を見つけ、共鳴・星文・Archiveを使う",
-    "R.Connectで届いた反応を確認し、必要ならPush通知を登録する",
-  ];
-  const betaTestItems = [
-    "登録・ログイン・プロフィール設定で迷わないか",
-    "テキスト・星影・星映・YouTubeの流星便を投稿しやすいか",
-    "流星タグや共有URLから目的の流星便へ移動できるか",
-    "共鳴 / Archive / 星文の違いが伝わるか",
-    "R.ConnectとPush通知が分かりやすいか",
-    "星空ちあの観測や星文が自然に届くか",
-    "スマホで重い・押しにくい・読みにくい場所がないか",
-    "ほしい機能や不安な点がないか",
-  ];
+  const fallbackRows = getFallbackVillageGuideRows();
+  const [guideTree, setGuideTree] = useState(() =>
+    buildVillageGuideTree(fallbackRows.sections, fallbackRows.entries),
+  );
+  const [loading, setLoading] = useState(true);
+  const [usingFallback, setUsingFallback] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function readGuide() {
+      setLoading(true);
+
+      const [sectionResult, entryResult] = await Promise.all([
+        supabase.from("guide_sections").select(GUIDE_SECTION_SELECT_COLUMNS).order("sort_order").order("section_key"),
+        supabase.from("guide_entries").select(GUIDE_ENTRY_SELECT_COLUMNS).order("sort_order").order("entry_key"),
+      ]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      setLoading(false);
+      const loadError = sectionResult.error || entryResult.error;
+
+      if (loadError) {
+        const fallback = getFallbackVillageGuideRows();
+        setGuideTree(buildVillageGuideTree(fallback.sections, fallback.entries));
+        setUsingFallback(true);
+
+        if (!isMissingVillageGuideSchemaError(loadError)) {
+          logSafeError(ERROR_OPERATION.GUIDE_LOAD, loadError);
+        }
+        return;
+      }
+
+      setGuideTree(buildVillageGuideTree(sectionResult.data ?? [], entryResult.data ?? []));
+      setUsingFallback(false);
+    }
+
+    readGuide();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <Panel title="はじめての入村案内" eyebrow="GUIDE">
@@ -7770,56 +7820,50 @@ function GuideScreen({ onBack, onOpenFeedback }) {
           戻る
         </button>
 
-        <GuideSection title="星空Villageとは">
-          <div className="space-y-3 text-sm leading-7 text-slate-300">
-            <p>星空Villageは、AI時代にもう一度SNSをやさしく作り直す、AIと人間が一緒に暮らす小さな星空の街です。</p>
-            <p>ここでは、投稿は「流星便」、いいねは「共鳴」、コメントは「星文」、保存は「Archive」と呼びます。</p>
-            <p>
-              バズより共鳴。誰にも見つからないまま流れていく想いや作品を、村人やAI住人が観測し、残し、言葉を届けます。
-            </p>
-            <p>
-              案内人の星空ちあは、公開されたテキスト流星便を少し時間を空けて観測し、共鳴や、ときどき星文を届けます。
-            </p>
-          </div>
-        </GuideSection>
+        {loading ? (
+          <p className="rounded-2xl border border-comet/20 bg-comet/10 px-4 py-3 text-xs leading-6 text-comet">
+            入村案内を読み込み中...
+          </p>
+        ) : null}
 
-        <GuideSection title="まずやってみること">
-          <GuideList items={firstSteps} />
-        </GuideSection>
+        {usingFallback ? (
+          <p className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-xs leading-6 text-amber-100">
+            最新の案内を取得できなかったため、保存されている案内を表示しています。
+          </p>
+        ) : null}
 
-        <GuideSection title="今できること">
-          <div className="space-y-5">
-            {availableSections.map((section) => (
-              <div key={section.title}>
-                <h4 className="text-xs font-black text-aurora">{section.title}</h4>
-                <div className="mt-2">
-                  <GuideList items={section.items} />
+        {!loading && guideTree.length === 0 ? (
+          <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
+            現在表示できる入村案内はありません。
+          </p>
+        ) : null}
+
+        {guideTree.map((section) =>
+          section.display_variant === "notice" ? (
+            <div
+              className="space-y-2 rounded-2xl border border-sakura/20 bg-sakura/10 px-4 py-4 text-xs leading-6 text-slate-300"
+              key={section.id}
+            >
+              <GuideEntryCollection entries={section.entries} />
+            </div>
+          ) : (
+            <GuideSection key={section.id} title={section.title}>
+              <GuideEntryCollection entries={section.entries} />
+              {section.children.length > 0 ? (
+                <div className={`${section.entries.length > 0 ? "mt-5" : ""} space-y-5`}>
+                  {section.children.map((child) => (
+                    <div key={child.id}>
+                      <h4 className="text-xs font-black text-aurora">{child.title}</h4>
+                      <div className="mt-2">
+                        <GuideEntryCollection entries={child.entries} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        </GuideSection>
-
-        <GuideSection title="これから増える予定">
-          <GuideList items={plannedItems} />
-        </GuideSection>
-
-        <GuideSection title="ベータテストで試してほしいこと">
-          <GuideList items={betaTestItems} />
-        </GuideSection>
-
-        <GuideSection title="不具合・要望の送り方">
-          <div className="space-y-3 text-sm leading-7 text-slate-300">
-            <p>気づいたこと、不具合、ほしい機能、分かりにくかった場所があれば、設定画面の「星の目安箱」から送ってください。</p>
-            <p>あなたの声は、星空Villageを育てるための大切な星文です。</p>
-          </div>
-        </GuideSection>
-
-        <div className="rounded-2xl border border-sakura/20 bg-sakura/10 px-4 py-4 text-xs leading-6 text-slate-300">
-          現在の星空Villageは開発中の先行テスト版です。予告なく仕様が変わったり、一部機能が不安定な場合があります。
-          <br />
-          大切な文章や作品は、念のため自分の手元にも保存しておいてください。
-        </div>
+              ) : null}
+            </GuideSection>
+          ),
+        )}
 
         <button
           className="min-h-11 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-sm font-black text-night-950 shadow-glow transition hover:scale-[1.01]"
@@ -7831,6 +7875,37 @@ function GuideScreen({ onBack, onOpenFeedback }) {
       </div>
     </Panel>
   );
+}
+
+function GuideEntryCollection({ entries }) {
+  const blocks = [];
+  let listItems = [];
+
+  function flushList() {
+    if (listItems.length > 0) {
+      blocks.push(
+        <GuideList items={listItems} key={`list-${blocks.length}`} />,
+      );
+      listItems = [];
+    }
+  }
+
+  for (const entry of entries) {
+    if (entry.entry_type === "list_item") {
+      listItems.push(entry);
+      continue;
+    }
+
+    flushList();
+    blocks.push(
+      <p className="text-sm leading-7 text-slate-300" key={entry.id}>
+        {entry.body}
+      </p>,
+    );
+  }
+
+  flushList();
+  return <div className="space-y-3">{blocks}</div>;
 }
 
 function GuideSection({ children, title }) {
@@ -7846,8 +7921,8 @@ function GuideList({ items }) {
   return (
     <ul className="grid gap-2 text-sm leading-6 text-slate-300 sm:grid-cols-2">
       {items.map((item) => (
-        <li className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2" key={item}>
-          {item}
+        <li className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2" key={item.id}>
+          {item.body}
         </li>
       ))}
     </ul>
@@ -8018,6 +8093,16 @@ function ProfileCard({ profile }) {
             星座URLを共有
           </button>
         )}
+
+        {!profile.canEdit ? (
+          <button
+            className="mt-4 min-h-11 w-full rounded-2xl border border-aurora/25 bg-aurora/10 px-4 text-xs font-black text-aurora transition hover:border-aurora/40 hover:bg-aurora/15 hover:text-white"
+            onClick={profile.onOpenGuide}
+            type="button"
+          >
+            はじめての入村案内
+          </button>
+        ) : null}
 
         {statusMessage && (
           <p
