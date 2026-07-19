@@ -31,7 +31,12 @@ export function getPushNotificationPermission() {
 
 export function getPushNotificationPermissionLabel(permission = getPushNotificationPermission()) {
   if (permission === "granted") {
-    return "通知: 許可済み";
+    const androidNotice =
+      typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
+        ? "。Androidでは端末設定により、通知が画面上に表示されず通知欄だけに届く場合があります。"
+        : "";
+
+    return `通知: 許可済み${androidNotice}`;
   }
 
   if (permission === "denied") {
