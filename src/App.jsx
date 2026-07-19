@@ -7565,7 +7565,7 @@ function SettingsPanel({ auth, onBack, profile }) {
         >
           <span className="block text-sm font-black text-white">はじめての入村案内</span>
           <span className="mt-1 block text-xs leading-6 text-slate-400">
-            今できること、未実装のこと、テストで見てほしい場所を確認できます。
+            星空Villageで今できること、基本の使い方、これから増える機能を確認できます。
           </span>
         </button>
         <button
@@ -7675,46 +7675,87 @@ function SettingsPanel({ auth, onBack, profile }) {
 }
 
 function GuideScreen({ onBack, onOpenFeedback }) {
-  const availableItems = [
-    "会員登録 / ログイン",
-    "プロフィール作成 / 編集",
-    "流星便投稿",
-    "流星便編集 / 削除",
-    "流星便の詳細ページ表示",
-    "流星便URL共有",
-    "共鳴",
-    "Archive保存 / 解除",
-    "星文投稿",
-    "星文編集 / 削除",
-    "R.Connect通知",
-    "共鳴 / Archive通知設定",
-    "星の目安箱からフィードバック送信",
+  const availableSections = [
+    {
+      title: "アカウントとプロフィール",
+      items: [
+        "会員登録 / ログイン / ログアウト",
+        "利用規約・プライバシーポリシーの確認と同意",
+        "プロフィール作成 / 編集",
+        "プロフィール画像のアップロード / 切り抜き",
+        "プロフィールの星枠選択",
+        "公開プロフィール表示 / URL共有",
+        "流星便から投稿者プロフィールへ移動",
+      ],
+    },
+    {
+      title: "流星便を届ける",
+      items: [
+        "テキスト流星便の投稿",
+        "星影（画像・最大4枚）の投稿 / 拡大表示",
+        "星映（動画・35秒以内）の切り抜き / 表紙設定 / 再生",
+        "YouTube URLの埋め込み再生",
+        "Suno楽曲リンクカード表示",
+        "流星タグ（最大3個）の追加 / タグ別一覧",
+        "流星便の編集 / 削除",
+        "流星便の詳細ページ表示 / URL共有",
+      ],
+    },
+    {
+      title: "観測してつながる",
+      items: [
+        "共鳴",
+        "星文の投稿 / 編集 / 削除",
+        "Archive保存 / 解除 / 一覧表示",
+        "R.Connect通知（共鳴・Archive・星文・観測）",
+        "R.Connectの未読 / 既読管理",
+        "通知から流星便やプロフィールへ移動",
+        "共鳴 / Archive通知のON・OFF設定",
+        "iPhone / AndroidへのPush通知",
+        "通知端末の登録 / 再登録 / テスト通知",
+      ],
+    },
+    {
+      title: "星空ちあAI住人",
+      items: [
+        "公開テキスト流星便を、少し時間を空けて自動観測",
+        "観測した流星便への、ちあからの共鳴",
+        "ちあから、ときどき届く星文",
+        "R.Connect / Pushで観測結果を通知",
+      ],
+    },
+    {
+      title: "スマホ利用とサポート",
+      items: [
+        "ホーム画面へ追加してPWAとして利用",
+        "新しい本番更新の検知 / 再読み込み案内",
+        "星の目安箱からフィードバック送信",
+        "利用規約 / プライバシーポリシーの閲覧",
+        "公式X / メールへのお問い合わせ",
+      ],
+    },
   ];
   const plannedItems = [
-    "星空ちあAI住人の自動観測",
-    "AI住人からの星文",
-    "星文通知",
-    "プロフィール単体URL / アカウント共有",
-    "プロフィール画像アップロード",
-    "星影 / 音声 / 星映投稿",
-    "YouTube URL埋め込み再生",
-    "Sunoリンクカード表示",
-    "Push通知",
-    "リアルタイム通知",
+    "音声の流星便投稿",
     "リポスト / 再放流",
     "星空広場 / ゲーム広場",
     "占い舘",
-    "管理者用の目安箱一覧",
-    "スマホアプリ化",
+    "App Store / Google Playで配布するネイティブアプリ",
+  ];
+  const firstSteps = [
+    "My Const.で、名前・自己紹介・プロフィール画像を設定する",
+    "中央の＋から、最初の流星便を放流する",
+    "観測で誰かの流星便を見つけ、共鳴・星文・Archiveを使う",
+    "R.Connectで届いた反応を確認し、必要ならPush通知を登録する",
   ];
   const betaTestItems = [
-    "登録やログインで迷わないか",
-    "プロフィール作成が分かりやすいか",
-    "流星便を投稿しやすいか",
-    "共鳴 / Archive / 星文の意味が伝わるか",
-    "通知が分かりやすいか",
-    "画面が重くないか",
-    "スマホで使いにくい場所がないか",
+    "登録・ログイン・プロフィール設定で迷わないか",
+    "テキスト・星影・星映・YouTubeの流星便を投稿しやすいか",
+    "流星タグや共有URLから目的の流星便へ移動できるか",
+    "共鳴 / Archive / 星文の違いが伝わるか",
+    "R.ConnectとPush通知が分かりやすいか",
+    "星空ちあの観測や星文が自然に届くか",
+    "スマホで重い・押しにくい・読みにくい場所がないか",
     "ほしい機能や不安な点がないか",
   ];
 
@@ -7731,19 +7772,35 @@ function GuideScreen({ onBack, onOpenFeedback }) {
 
         <GuideSection title="星空Villageとは">
           <div className="space-y-3 text-sm leading-7 text-slate-300">
-            <p>星空Villageは、AI時代にもう一度SNSをやさしく作り直すための、小さな星空の街です。</p>
+            <p>星空Villageは、AI時代にもう一度SNSをやさしく作り直す、AIと人間が一緒に暮らす小さな星空の街です。</p>
             <p>ここでは、投稿は「流星便」、いいねは「共鳴」、コメントは「星文」、保存は「Archive」と呼びます。</p>
             <p>
-              誰にも見つからないまま流れていく想いや作品を、AI住人や他のユーザーが観測し、残し、言葉を届ける場所を目指しています。
+              バズより共鳴。誰にも見つからないまま流れていく想いや作品を、村人やAI住人が観測し、残し、言葉を届けます。
+            </p>
+            <p>
+              案内人の星空ちあは、公開されたテキスト流星便を少し時間を空けて観測し、共鳴や、ときどき星文を届けます。
             </p>
           </div>
         </GuideSection>
 
-        <GuideSection title="今できること">
-          <GuideList items={availableItems} />
+        <GuideSection title="まずやってみること">
+          <GuideList items={firstSteps} />
         </GuideSection>
 
-        <GuideSection title="まだ未実装のこと">
+        <GuideSection title="今できること">
+          <div className="space-y-5">
+            {availableSections.map((section) => (
+              <div key={section.title}>
+                <h4 className="text-xs font-black text-aurora">{section.title}</h4>
+                <div className="mt-2">
+                  <GuideList items={section.items} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </GuideSection>
+
+        <GuideSection title="これから増える予定">
           <GuideList items={plannedItems} />
         </GuideSection>
 
