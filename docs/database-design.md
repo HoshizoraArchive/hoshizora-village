@@ -688,6 +688,36 @@ completion RPCはtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post
 
 本番適用時は、先に `docs/ai-resident-security-preflight.sql` を実行し、既存 `post_media` のStorage path違反件数がすべて0件であることを確認してからmigrationを適用します。適用後は `docs/ai-resident-security-verification.sql` で制約、RLS、GRANT、RPC権限を確認します。
 
+## はじめての入村案内
+
+### `guide_sections`
+
+入村案内の最上位セクションと子カテゴリーを管理します。
+
+- `section_key`: 外部運用でも1行を特定できる、作成後変更不可の安定キー
+- `parent_id`: `null`なら最上位、値があれば子カテゴリー
+- `display_variant`: `standard` / `subsection` / `notice`
+- `sort_order`: 同じ階層内の表示順
+- `is_visible`: 一般閲覧画面へ表示するか
+
+### `guide_entries`
+
+段落または一覧項目を1行ずつ管理します。案内全体をJSONへまとめず、`entry_key`を指定して単発追加・更新・非表示・削除できます。
+
+- `section_id`: 所属セクション
+- `entry_key`: 作成後変更不可の安定キー
+- `entry_type`: `paragraph` / `list_item`
+- `body`: プレーンテキスト本文
+- `sort_order`: セクション内の表示順
+- `is_visible`: 一般閲覧画面へ表示するか
+- `updated_by`: ブラウザ管理画面で更新したAuthユーザー。triggerが`auth.uid()`を記録する
+
+### `app_admins`
+
+管理画面とguideテーブルの書き込みを許可するAuthユーザーだけを保持します。ブラウザへ一覧を公開せず、`public.is_app_admin()`は現在ログイン中の本人が管理者かだけを返します。
+
+RLSでは`anon`と一般`authenticated`へ公開行のSELECTだけを許可します。管理者は全行SELECTとINSERT / UPDATE / DELETEが可能です。管理者ボタンの非表示は補助であり、書き込み境界はRLSです。管理者登録と単発更新例は`docs/village-guide-operations.sql`、適用後確認は`docs/village-guide-verification.sql`を使用します。
+
 ## 今回まだ実装しないこと
 
 今回のPRでは、以下は実装しません。

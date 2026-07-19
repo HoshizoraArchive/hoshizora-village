@@ -1,0 +1,106 @@
+-- はじめての入村案内 migration適用後の読み取り専用検証SQL
+-- INSERT / UPDATE / DELETE / DDLは含みません。
+
+-- 01. 必要テーブルとRLS
+select
+  c.relname as table_name,
+  c.relrowsecurity as rls_enabled
+from pg_catalog.pg_class c
+join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relname in ('app_admins', 'guide_sections', 'guide_entries')
+order by c.relname;
+
+-- 02. policy
+select
+  schemaname,
+  tablename,
+  policyname,
+  roles,
+  cmd,
+  qual,
+  with_check
+from pg_catalog.pg_policies
+where schemaname = 'public'
+  and tablename in ('app_admins', 'guide_sections', 'guide_entries')
+order by tablename, policyname;
+
+-- 03. browser roleのtable privilege
+select
+  grantee,
+  table_name,
+  privilege_type,
+  is_grantable
+from information_schema.table_privileges
+where table_schema = 'public'
+  and table_name in ('app_admins', 'guide_sections', 'guide_entries')
+  and grantee in ('PUBLIC', 'anon', 'authenticated', 'service_role')
+order by table_name, grantee, privilege_type;
+
+-- 04. 管理者判定関数とEXECUTE権限
+select
+  n.nspname as schema_name,
+  p.proname as function_name,
+  pg_catalog.pg_get_function_identity_arguments(p.oid) as identity_arguments,
+  p.prosecdef as security_definer,
+  p.proconfig as function_config,
+  coalesce(role_name.rolname, 'PUBLIC') as grantee,
+  privilege.privilege_type,
+  privilege.is_grantable
+from pg_catalog.pg_proc p
+join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+cross join lateral pg_catalog.aclexplode(
+  coalesce(p.proacl, pg_catalog.acldefault('f'::"char", p.proowner))
+) privilege
+left join pg_catalog.pg_roles role_name on role_name.oid = privilege.grantee
+where n.nspname = 'public'
+  and p.proname = 'is_app_admin'
+order by grantee;
+
+-- 05. seedされたセクション階層と順番
+select
+  section_row.section_key,
+  section_row.title,
+  parent.section_key as parent_section_key,
+  section_row.display_variant,
+  section_row.sort_order,
+  section_row.is_visible
+from public.guide_sections section_row
+left join public.guide_sections parent on parent.id = section_row.parent_id
+order by
+  coalesce(parent.sort_order, section_row.sort_order),
+  case when section_row.parent_id is null then 0 else 1 end,
+  section_row.sort_order,
+  section_row.section_key;
+
+-- 06. seedされた項目と順番（本文は公開案内そのもののみ）
+select
+  section_row.section_key,
+  entry.entry_key,
+  entry.entry_type,
+  entry.body,
+  entry.sort_order,
+  entry.is_visible
+from public.guide_entries entry
+join public.guide_sections section_row on section_row.id = entry.section_id
+order by section_row.sort_order, entry.sort_order, entry.entry_key;
+
+-- 07. seed不足・重複の診断
+select
+  (select count(*) from public.guide_sections) as section_count,
+  (select count(*) from public.guide_entries) as entry_count,
+  (select count(*) from public.guide_sections where section_key = 'available_now') as available_now_count,
+  (select count(*) from public.guide_entries where entry_key = 'planned_ai_residents') as planned_ai_residents_count,
+  (select count(*) from public.guide_sections where parent_id = id) as self_parent_count;
+
+-- 08. key変更防止・updated_at・updated_by trigger
+select
+  event_object_table,
+  trigger_name,
+  action_timing,
+  event_manipulation,
+  action_statement
+from information_schema.triggers
+where trigger_schema = 'public'
+  and event_object_table in ('guide_sections', 'guide_entries')
+order by event_object_table, trigger_name, event_manipulation;
