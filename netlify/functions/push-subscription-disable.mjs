@@ -27,6 +27,14 @@ function toSafeError(error) {
   return pushHttpError(503, "PUSH_REREGISTER_DISABLE_FAILED", "通知端末の再登録を開始できませんでした。");
 }
 
+function logSafeDisableFailure(error) {
+  const code = typeof error?.code === "string" ? error.code : "PUSH_REREGISTER_DISABLE_FAILED";
+  const stage = typeof error?.safeLogStage === "string" ? error.safeLogStage : "unknown";
+  const status = Number.isInteger(error?.status) ? error.status : 503;
+
+  console.error(JSON.stringify({ event: "push_subscription_disable_failed", code, stage, status }));
+}
+
 export default async function handler(request) {
   try {
     if (request.method !== "POST") {
@@ -45,7 +53,13 @@ export default async function handler(request) {
 
     return pushJsonResponse(200, { status: "disabled" });
   } catch (error) {
-    return pushErrorResponse(toSafeError(error));
+    const safeError = toSafeError(error);
+
+    if (safeError.code === "PUSH_REREGISTER_DISABLE_FAILED") {
+      logSafeDisableFailure(error);
+    }
+
+    return pushErrorResponse(safeError);
   }
 }
 

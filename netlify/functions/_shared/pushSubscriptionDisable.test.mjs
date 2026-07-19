@@ -5,32 +5,43 @@ import { disablePushSubscription } from "./pushSubscriptionDisable.mjs";
 function createDisableSupabase({ data, error = null, existingEndpoint = null, existingEndpointError = null }) {
   const filters = [];
   const updates = [];
-  let maybeSingleCalls = 0;
-  const query = {
-    update(values) {
-      updates.push(values);
-      return query;
-    },
-    eq(column, value) {
-      filters.push(["eq", column, value]);
-      return query;
-    },
-    select() {
-      return query;
-    },
-    async maybeSingle() {
-      maybeSingleCalls += 1;
-      return maybeSingleCalls === 1 ? { data, error } : { data: existingEndpoint, error: existingEndpointError };
-    },
-  };
+  const limits = [];
+  let fromCalls = 0;
+
+  function createQuery(result) {
+    return {
+      update(values) {
+        updates.push(values);
+        return this;
+      },
+      eq(column, value) {
+        filters.push(["eq", column, value]);
+        return this;
+      },
+      limit(value) {
+        limits.push(value);
+        return this;
+      },
+      select() {
+        return this;
+      },
+      then(resolve, reject) {
+        return Promise.resolve(result).then(resolve, reject);
+      },
+    };
+  }
 
   return {
     filters,
+    limits,
     updates,
     supabase: {
       from(table) {
         assert.equal(table, "push_subscriptions");
-        return query;
+        fromCalls += 1;
+        return fromCalls === 1
+          ? createQuery({ data, error })
+          : createQuery({ data: existingEndpoint, error: existingEndpointError });
       },
     },
   };
@@ -43,7 +54,7 @@ const subscription = {
 };
 
 test("re-registration disables only a current account record matching endpoint and both Push keys", async () => {
-  const mock = createDisableSupabase({ data: { id: "subscription-id" } });
+  const mock = createDisableSupabase({ data: [{ id: "subscription-id" }] });
 
   await disablePushSubscription({
     now: "2026-07-18T00:00:00.000Z",
@@ -66,7 +77,7 @@ test("re-registration disables only a current account record matching endpoint a
 });
 
 test("re-registration allows a browser-only subscription with no server record to be replaced", async () => {
-  const mock = createDisableSupabase({ data: null });
+  const mock = createDisableSupabase({ data: [], existingEndpoint: [] });
 
   const result = await disablePushSubscription({
     profileId: "current-profile-id",
@@ -79,7 +90,7 @@ test("re-registration allows a browser-only subscription with no server record t
 });
 
 test("re-registration never disables another account or a key-mismatched record", async () => {
-  const mock = createDisableSupabase({ data: null, existingEndpoint: { id: "other-account-subscription" } });
+  const mock = createDisableSupabase({ data: [], existingEndpoint: [{ id: "other-account-subscription" }] });
 
   await assert.rejects(
     disablePushSubscription({
@@ -91,4 +102,37 @@ test("re-registration never disables another account or a key-mismatched record"
   );
   assert.equal(mock.updates.length, 1);
   assert.equal(mock.filters.some(([, column]) => column === "profile_id"), true);
+  assert.deepEqual(mock.limits, [1]);
+});
+
+test("re-registration safely disables matching legacy duplicates without requiring a maybeSingle response", async () => {
+  const mock = createDisableSupabase({
+    data: [{ id: "matching-subscription-one" }, { id: "matching-subscription-two" }],
+  });
+
+  const result = await disablePushSubscription({
+    profileId: "current-profile-id",
+    subscription,
+    supabase: mock.supabase,
+  });
+
+  assert.deepEqual(result, { status: "disabled" });
+  assert.equal(mock.updates.length, 1);
+  assert.deepEqual(mock.limits, []);
+});
+
+test("re-registration surfaces a safe update-stage failure without subscription data", async () => {
+  const mock = createDisableSupabase({ data: [], error: { code: "database_error" } });
+
+  await assert.rejects(
+    disablePushSubscription({
+      profileId: "current-profile-id",
+      subscription,
+      supabase: mock.supabase,
+    }),
+    (error) =>
+      error?.code === "PUSH_REREGISTER_DISABLE_FAILED" &&
+      error?.safeLogStage === "update" &&
+      !error.message.includes(subscription.endpoint),
+  );
 });

@@ -638,6 +638,9 @@ test("Push subscription re-registration disables only the matching current-accou
     ".eq(\"p256dh\", subscription.p256dh)",
     ".eq(\"auth\", subscription.auth)",
     "disabled_at: now",
+    "disabledRecords",
+    "existingEndpointRecords",
+    ".limit(1)",
     "PUSH_SUBSCRIPTION_NOT_OWNED",
   ];
 
@@ -659,6 +662,9 @@ test("Push subscription re-registration disables only the matching current-accou
 
   assert.equal(pushSubscriptionDisableSharedFunction.includes("profile_id:"), false);
   assert.equal(pushSubscriptionDisableSharedFunction.includes(".neq(\"profile_id\""), false);
+  assert.equal(pushSubscriptionDisableSharedFunction.includes(".maybeSingle()"), false);
+  assert.equal(pushDisableFunction.includes("push_subscription_disable_failed"), true);
+  assert.equal(pushDisableFunction.includes("safeLogStage"), true);
 });
 
 test("Push account switching and server test delivery require the current endpoint and Push keys", () => {
