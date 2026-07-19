@@ -1,15 +1,28 @@
 import assert from "node:assert/strict";
+import { createECDH } from "node:crypto";
 import test from "node:test";
 import {
   PUSH_DEFAULT_BADGE,
   PUSH_DEFAULT_ICON,
+  assertVapidKeyPair,
   buildPushPayload,
   getNextAttemptAt,
   getPushErrorCode,
   isGonePushSubscriptionError,
   isTransientPushError,
+  logPushDeliveryFailure,
   toWebPushSubscription,
 } from "./pushDelivery.mjs";
+
+function createVapidKeyPair() {
+  const ecdh = createECDH("prime256v1");
+  ecdh.generateKeys();
+
+  return {
+    privateKey: ecdh.getPrivateKey().toString("base64url"),
+    publicKey: ecdh.getPublicKey(undefined, "uncompressed").toString("base64url"),
+  };
+}
 
 test("buildPushPayload uses R.Connect message and notification metadata", () => {
   const payload = JSON.parse(
@@ -69,6 +82,60 @@ test("Push delivery classifies invalid and transient send failures", () => {
   assert.equal(getPushErrorCode({ statusCode: 410 }), "PUSH_SUBSCRIPTION_GONE");
   assert.equal(getPushErrorCode({ statusCode: 503 }), "PUSH_SEND_TEMPORARY_FAILURE");
   assert.equal(getPushErrorCode({ statusCode: 401 }), "PUSH_AUTH_FAILED");
+  assert.equal(getPushErrorCode({ statusCode: 403 }), "PUSH_AUTH_FAILED");
+  assert.equal(getPushErrorCode({ statusCode: 404 }), "PUSH_SUBSCRIPTION_GONE");
+  assert.equal(getPushErrorCode({ statusCode: 429 }), "PUSH_SEND_TEMPORARY_FAILURE");
+  assert.equal(getPushErrorCode({ statusCode: 500 }), "PUSH_SEND_TEMPORARY_FAILURE");
+  assert.equal(getPushErrorCode({ statusCode: 418 }), "PUSH_SEND_FAILED");
+});
+
+test("VAPID delivery configuration accepts only a matching P-256 key pair", () => {
+  const pair = createVapidKeyPair();
+
+  assert.doesNotThrow(() => assertVapidKeyPair(pair.publicKey, pair.privateKey));
+});
+
+test("VAPID delivery configuration rejects a mismatched P-256 key pair", () => {
+  const firstPair = createVapidKeyPair();
+  const secondPair = createVapidKeyPair();
+
+  assert.throws(
+    () => assertVapidKeyPair(firstPair.publicKey, secondPair.privateKey),
+    (error) => error?.code === "PUSH_VAPID_KEY_MISMATCH" && error?.status === 503,
+  );
+});
+
+test("Push delivery logs only safe failure metadata", () => {
+  const originalWarn = console.warn;
+  const logged = [];
+  const secret = "private-key-must-not-appear";
+
+  try {
+    console.warn = (...args) => logged.push(args);
+    logPushDeliveryFailure({
+      code: "PUSH_AUTH_FAILED",
+      error: {
+        body: secret,
+        statusCode: 401,
+      },
+      endpoint: `https://fcm.googleapis.com/${secret}`,
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.deepEqual(logged, [
+    [
+      "Hoshizora Push delivery event",
+      {
+        code: "PUSH_AUTH_FAILED",
+        deployContext: "unknown",
+        pushService: "fcm",
+        statusCode: 401,
+      },
+    ],
+  ]);
+  assert.equal(JSON.stringify(logged).includes(secret), false);
 });
 
 test("getNextAttemptAt uses bounded exponential backoff", () => {

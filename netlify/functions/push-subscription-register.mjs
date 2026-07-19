@@ -44,23 +44,39 @@ export default async function handler(request) {
     const now = new Date().toISOString();
     const userAgent = normalizeUserAgent(request.headers.get("user-agent") ?? "");
 
-    const { error } = await supabase
+    const { data: existingSubscription, error: existingSubscriptionError } = await supabase
       .from("push_subscriptions")
-      .upsert(
-        {
+      .select("profile_id")
+      .eq("endpoint", subscription.endpoint)
+      .maybeSingle();
+
+    if (existingSubscriptionError) {
+      throw pushHttpError(503, "PUSH_REGISTER_FAILED", "スマホ通知登録に失敗しました。時間をおいてもう一度お試しください。");
+    }
+
+    if (existingSubscription && existingSubscription.profile_id !== user.id) {
+      throw pushHttpError(409, "PUSH_SUBSCRIPTION_ACCOUNT_MISMATCH", "この端末は別のアカウントに登録されています。");
+    }
+
+    const values = {
+      p256dh: subscription.p256dh,
+      auth: subscription.auth,
+      user_agent: userAgent,
+      updated_at: now,
+      last_seen_at: now,
+      disabled_at: null,
+    };
+    const { error } = existingSubscription
+      ? await supabase
+          .from("push_subscriptions")
+          .update(values)
+          .eq("endpoint", subscription.endpoint)
+          .eq("profile_id", user.id)
+      : await supabase.from("push_subscriptions").insert({
+          ...values,
           profile_id: user.id,
           endpoint: subscription.endpoint,
-          p256dh: subscription.p256dh,
-          auth: subscription.auth,
-          user_agent: userAgent,
-          updated_at: now,
-          last_seen_at: now,
-          disabled_at: null,
-        },
-        {
-          onConflict: "endpoint",
-        },
-      );
+        });
 
     if (error) {
       throw pushHttpError(503, "PUSH_REGISTER_FAILED", "スマホ通知登録に失敗しました。時間をおいてもう一度お試しください。");

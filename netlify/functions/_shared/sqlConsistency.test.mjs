@@ -20,8 +20,15 @@ const mainJsx = readFileSync("src/main.jsx", "utf8");
 const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "utf8");
 const pushConfigFunction = readFileSync("netlify/functions/push-config.mjs", "utf8");
 const pushRegisterFunction = readFileSync("netlify/functions/push-subscription-register.mjs", "utf8");
+const pushStatusFunction = readFileSync("netlify/functions/push-subscription-status.mjs", "utf8");
+const pushTestFunction = readFileSync("netlify/functions/push-subscription-test.mjs", "utf8");
+const pushTransferFunction = readFileSync("netlify/functions/push-subscription-transfer.mjs", "utf8");
+const pushDisableFunction = readFileSync("netlify/functions/push-subscription-disable.mjs", "utf8");
 const pushSharedFunction = readFileSync("netlify/functions/_shared/pushNotifications.mjs", "utf8");
 const pushDeliverySharedFunction = readFileSync("netlify/functions/_shared/pushDelivery.mjs", "utf8");
+const pushSubscriptionTestSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionTest.mjs", "utf8");
+const pushSubscriptionTransferSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionTransfer.mjs", "utf8");
+const pushSubscriptionDisableSharedFunction = readFileSync("netlify/functions/_shared/pushSubscriptionDisable.mjs", "utf8");
 const pushDispatchFunction = readFileSync("netlify/functions/push-notification-dispatch.mjs", "utf8");
 const privacyPolicyMarkdown = readFileSync("src/legal/privacy-policy.md", "utf8");
 const termsOfServiceMarkdown = readFileSync("src/legal/terms-of-service.md", "utf8");
@@ -491,7 +498,7 @@ test("R.Connect renders smartphone notification test card through React instead 
   assert.equal(pushNotificationSetupJs.includes("createElement"), false);
   assert.equal(pushNotificationSetupJs.includes("insertAdjacentElement"), false);
   assert.equal(pushNotificationSetupJs.includes("navigator.serviceWorker.register(SERVICE_WORKER_PATH)"), true);
-  assert.equal(pushNotificationSetupJs.includes('registration.showNotification("星空Village"'), true);
+  assert.equal(pushNotificationSetupJs.includes("registration.showNotification"), false);
 });
 
 test("Push subscription registration stores subscriptions through service-role-only table access", () => {
@@ -524,8 +531,9 @@ test("Push subscription Functions expose config and authenticated registration o
   assert.equal(pushRegisterFunction.includes('path: "/api/push-subscription-register"'), true);
   assert.equal(pushRegisterFunction.includes("requireAuthenticatedUser({ request, supabase })"), true);
   assert.equal(pushRegisterFunction.includes('.from("push_subscriptions")'), true);
-  assert.equal(pushRegisterFunction.includes("onConflict: \"endpoint\""), true);
   assert.equal(pushRegisterFunction.includes("profile_id: user.id"), true);
+  assert.equal(pushRegisterFunction.includes("existingSubscription.profile_id !== user.id"), true);
+  assert.equal(pushRegisterFunction.includes("PUSH_SUBSCRIPTION_ACCOUNT_MISMATCH"), true);
   assert.equal(pushSharedFunction.includes("validateEndpoint(subscription.endpoint)"), true);
   assert.equal(pushSharedFunction.includes('trimmed.startsWith("https://")'), true);
 });
@@ -535,6 +543,7 @@ test("R.Connect notification card registers this device without client-side Push
     "subscribeToPushNotifications",
     "端末登録: 未登録",
     "端末登録: 登録済み",
+    "端末登録: 別のアカウントに登録済み",
     "端末登録: 登録に失敗しました",
     "端末登録: VAPID key未設定",
     "この端末を登録",
@@ -545,7 +554,13 @@ test("R.Connect notification card registers this device without client-side Push
     "subscribeToPushNotifications({ accessToken })",
     "urlBase64ToUint8Array(publicKey)",
     "registration.pushManager.subscribe",
-    'fetch(PUSH_SUBSCRIPTION_REGISTER_ENDPOINT',
+    "navigator.serviceWorker.ready",
+    "getPushSubscriptionRegistrationStatus",
+    "PUSH_SUBSCRIPTION_STATUS_ENDPOINT",
+    "PUSH_SUBSCRIPTION_TEST_ENDPOINT",
+    "PUSH_SUBSCRIPTION_TRANSFER_ENDPOINT",
+    "PUSH_SUBSCRIPTION_DISABLE_ENDPOINT",
+    "endpoint: PUSH_SUBSCRIPTION_REGISTER_ENDPOINT",
     "Authorization: `Bearer ${accessToken}`",
   ];
 
@@ -559,6 +574,175 @@ test("R.Connect notification card registers this device without client-side Push
 
   assert.equal(pushNotificationSetupJs.includes("webpush"), false);
   assert.equal(pushRegisterFunction.includes("showNotification"), false);
+});
+
+test("R.Connect reconciles an existing Push subscription with the authenticated server record", () => {
+  const appTokens = [
+    'checking: "端末登録: 確認中"',
+    "getPushSubscriptionRegistrationStatus({",
+    "registrationStatus.hasSubscription",
+    "通知端末を再登録してください",
+    "subscriptionStatus === \"checking\"",
+  ];
+  const statusTokens = [
+    'path: "/api/push-subscription-status"',
+    "requireAuthenticatedUser({ request, supabase })",
+    '.from("push_subscriptions")',
+    '.select("profile_id, p256dh, auth, disabled_at")',
+    "status: isRegistered ? \"registered\" : isAccountMismatch ? \"account_mismatch\" : \"unregistered\"",
+    "canTransfer: isAccountMismatch",
+  ];
+
+  for (const token of appTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing Push reconciliation token: ${token}`);
+  }
+
+  for (const token of statusTokens) {
+    assert.equal(pushStatusFunction.includes(token), true, `Push status Function missing token: ${token}`);
+  }
+});
+
+test("new Push devices use the ready Service Worker registration for subscription creation", () => {
+  const requiredTokens = [
+    "const registration = await getReadyPushNotificationServiceWorker();",
+    "const existingSubscription = await registration.pushManager.getSubscription();",
+    "await registration.pushManager.subscribe({",
+  ];
+
+  for (const token of requiredTokens) {
+    assert.equal(pushNotificationSetupJs.includes(token), true, `pushNotificationSetup.js missing new-device subscription token: ${token}`);
+  }
+});
+
+test("Push subscription re-registration disables only the matching current-account record before replacing the browser subscription", () => {
+  const appTokens = [
+    "reRegisterPushNotifications",
+    "通知端末を再登録",
+    "PUSH_REREGISTER_DISABLE_FAILED",
+    "PUSH_SUBSCRIPTION_NOT_OWNED",
+    "PUSH_CONFIGURATION_ERROR",
+    "INVALID_TOKEN",
+    "PUSH_REREGISTER_UNSUBSCRIBE_FAILED",
+  ];
+  const setupTokens = [
+    "PUSH_SUBSCRIPTION_DISABLE_ENDPOINT",
+    "existingSubscription.unsubscribe()",
+    "push-subscription-reregister-disable",
+    "code.startsWith(errorPrefix)",
+    "PUSH_REREGISTER_SUBSCRIBE_FAILED",
+    "PUSH_REREGISTER_STATUS_FAILED",
+    "push-subscription-reregister-required",
+  ];
+  const disableTokens = [
+    'path: "/api/push-subscription-disable"',
+    "requireAuthenticatedUser({ request, supabase })",
+    "disablePushSubscription({",
+    ".eq(\"profile_id\", profileId)",
+    ".eq(\"endpoint\", subscription.endpoint)",
+    ".eq(\"p256dh\", subscription.p256dh)",
+    ".eq(\"auth\", subscription.auth)",
+    "disabled_at: now",
+    "disabledRecords",
+    "existingEndpointRecords",
+    ".limit(1)",
+    "PUSH_SUBSCRIPTION_NOT_OWNED",
+  ];
+
+  for (const token of appTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing re-registration token: ${token}`);
+  }
+
+  for (const token of setupTokens) {
+    assert.equal(pushNotificationSetupJs.includes(token), true, `pushNotificationSetup.js missing re-registration token: ${token}`);
+  }
+
+  for (const token of disableTokens) {
+    assert.equal(
+      pushDisableFunction.includes(token) || pushSubscriptionDisableSharedFunction.includes(token),
+      true,
+      `Push disable Function missing ${token}`,
+    );
+  }
+
+  assert.equal(pushSubscriptionDisableSharedFunction.includes("profile_id:"), false);
+  assert.equal(pushSubscriptionDisableSharedFunction.includes(".neq(\"profile_id\""), false);
+  assert.equal(pushSubscriptionDisableSharedFunction.includes(".maybeSingle()"), false);
+  assert.equal(pushDisableFunction.includes("push_subscription_disable_failed"), true);
+  assert.equal(pushDisableFunction.includes("safeLogStage"), true);
+  assert.equal(pushDisableFunction.includes("databaseCode"), true);
+  assert.equal(pushSubscriptionDisableSharedFunction.includes("safeLogDatabaseCode"), true);
+});
+
+test("Push account switching and server test delivery require the current endpoint and Push keys", () => {
+  const appTokens = [
+    "この端末は別のアカウントに通知登録されています",
+    "この端末の通知先を現在のアカウントへ切り替える",
+    "transferPushSubscriptionToCurrentAccount",
+    "sendPushNotificationTest({ accessToken: session?.access_token })",
+  ];
+  const transferTokens = [
+    'path: "/api/push-subscription-transfer"',
+    "transferPushSubscription({",
+    ".eq(\"endpoint\", subscription.endpoint)",
+    ".eq(\"p256dh\", subscription.p256dh)",
+    ".eq(\"auth\", subscription.auth)",
+    ".neq(\"profile_id\", profileId)",
+  ];
+  const testTokens = [
+    'path: "/api/push-subscription-test"',
+    "sendPushSubscriptionTest({",
+    "readPushDeliveryConfig",
+    "configureWebPush",
+    '.eq("profile_id", profileId)',
+    '.eq("endpoint", subscription.endpoint)',
+    '.eq("p256dh", subscription.p256dh)',
+    '.eq("auth", subscription.auth)',
+    "R.Connect通知のテストです。",
+  ];
+
+  for (const token of appTokens) {
+    assert.equal(appJsx.includes(token), true, `App.jsx missing account-switch or server-test token: ${token}`);
+  }
+
+  for (const token of transferTokens) {
+    assert.equal(pushTransferFunction.includes(token) || pushSubscriptionTransferSharedFunction.includes(token), true, `Push transfer missing token: ${token}`);
+  }
+
+  for (const token of testTokens) {
+    assert.equal(pushTestFunction.includes(token) || pushSubscriptionTestSharedFunction.includes(token), true, `Push test missing token: ${token}`);
+  }
+
+  assert.equal(pushTestFunction.includes("PUSH_VAPID_PRIVATE_KEY"), false);
+  assert.equal(pushSubscriptionTestSharedFunction.includes("push_notification_jobs"), false);
+});
+
+test("Push test delivery validates VAPID pairs and returns only safe delivery error codes", () => {
+  const deliveryTokens = [
+    'createECDH("prime256v1")',
+    "timingSafeEqual",
+    "PUSH_VAPID_KEY_MISMATCH",
+    "PUSH_AUTH_FAILED",
+    "PUSH_SEND_TEMPORARY_FAILURE",
+    "PUSH_SEND_FAILED",
+    "deployContext",
+    "pushService",
+  ];
+  const testTokens = [
+    "getPushErrorCode",
+    "logPushDeliveryFailure",
+    "PUSH_AUTH_FAILED",
+    "PUSH_SEND_TEMPORARY_FAILURE",
+  ];
+
+  for (const token of deliveryTokens) {
+    assert.equal(pushDeliverySharedFunction.includes(token), true, `Push delivery helper missing ${token}`);
+  }
+
+  for (const token of testTokens) {
+    assert.equal(pushSubscriptionTestSharedFunction.includes(token), true, `Push test helper missing ${token}`);
+  }
+
+  assert.equal(pushSubscriptionTestSharedFunction.includes("console.warn"), false);
 });
 
 test("R.Connect Push delivery migration queues notifications and keeps jobs server-managed", () => {
@@ -603,6 +787,7 @@ test("R.Connect Push delivery Function sends all notification types without expo
   assert.equal(pushDispatchFunction.includes("sendNotification"), true);
   assert.equal(pushDispatchFunction.includes("disabled_at"), true);
   assert.equal(pushDispatchFunction.includes("PUSH_VAPID_PRIVATE_KEY"), false);
+  assert.equal(pushDispatchFunction.includes("logPushDeliveryFailure"), true);
 
   for (const token of ["resonance", "archive", "star_letter"]) {
     assert.equal(pushDeliverySharedFunction.includes(token), true, `push delivery fallback missing ${token}`);

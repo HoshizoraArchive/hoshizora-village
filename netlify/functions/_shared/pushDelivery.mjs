@@ -1,3 +1,4 @@
+import { createECDH, timingSafeEqual } from "node:crypto";
 import { pushHttpError, readEnv, readVapidPublicKey } from "./pushNotifications.mjs";
 
 export const PUSH_DELIVERY_BATCH_SIZE = 20;
@@ -20,11 +21,44 @@ export function readPushDeliveryConfig() {
     throw pushHttpError(503, "PUSH_DELIVERY_CONFIGURATION_ERROR", "スマホ通知配信は現在利用できません。");
   }
 
+  assertVapidKeyPair(vapidPublicKey, vapidPrivateKey);
+
   return {
     vapidPublicKey,
     vapidPrivateKey,
     vapidSubject,
   };
+}
+
+function decodeVapidKey(value, expectedLength) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    return null;
+  }
+
+  const decoded = Buffer.from(value, "base64url");
+
+  return decoded.length === expectedLength ? decoded : null;
+}
+
+export function assertVapidKeyPair(vapidPublicKey, vapidPrivateKey) {
+  try {
+    const publicKey = decodeVapidKey(vapidPublicKey, 65);
+    const privateKey = decodeVapidKey(vapidPrivateKey, 32);
+
+    if (!publicKey || !privateKey || publicKey[0] !== 4) {
+      throw new Error("invalid_vapid_key");
+    }
+
+    const ecdh = createECDH("prime256v1");
+    ecdh.setPrivateKey(privateKey);
+    const derivedPublicKey = ecdh.getPublicKey(undefined, "uncompressed");
+
+    if (derivedPublicKey.length !== publicKey.length || !timingSafeEqual(derivedPublicKey, publicKey)) {
+      throw new Error("vapid_key_mismatch");
+    }
+  } catch {
+    throw pushHttpError(503, "PUSH_VAPID_KEY_MISMATCH", "通知配信用の公開鍵と秘密鍵が一致していません。");
+  }
 }
 
 export function configureWebPush(webPushClient, config) {
@@ -108,6 +142,37 @@ export function getPushErrorCode(error) {
   }
 
   return "PUSH_SEND_FAILED";
+}
+
+function getPushServiceKind(endpoint) {
+  try {
+    const hostname = new URL(endpoint).hostname.toLowerCase();
+
+    if (hostname.endsWith("fcm.googleapis.com")) {
+      return "fcm";
+    }
+
+    if (hostname.endsWith("push.services.mozilla.com")) {
+      return "mozilla";
+    }
+
+    if (hostname.endsWith("push.apple.com")) {
+      return "apple";
+    }
+  } catch {
+    // Do not log an untrusted endpoint when classifying a failed Push request.
+  }
+
+  return "other";
+}
+
+export function logPushDeliveryFailure({ code, error, endpoint }) {
+  console.warn("Hoshizora Push delivery event", {
+    code,
+    statusCode: getPushErrorStatus(error),
+    deployContext: readEnv("CONTEXT").trim() || "unknown",
+    pushService: getPushServiceKind(endpoint),
+  });
 }
 
 export function getNextAttemptAt(attemptCount, now = new Date()) {
