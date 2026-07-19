@@ -710,13 +710,15 @@ completion RPCはtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post
 - `body`: プレーンテキスト本文
 - `sort_order`: セクション内の表示順
 - `is_visible`: 一般閲覧画面へ表示するか
-- `updated_by`: ブラウザ管理画面で更新したAuthユーザー。triggerが`auth.uid()`を記録する
+- `updated_by`: ブラウザ管理画面で更新したAuthユーザー。triggerが`auth.uid()`を記録する非公開監査列
 
 ### `app_admins`
 
 管理画面とguideテーブルの書き込みを許可するAuthユーザーだけを保持します。ブラウザへ一覧を公開せず、`public.is_app_admin()`は現在ログイン中の本人が管理者かだけを返します。
 
-RLSでは`anon`と一般`authenticated`へ公開行のSELECTだけを許可します。管理者は全行SELECTとINSERT / UPDATE / DELETEが可能です。管理者ボタンの非表示は補助であり、書き込み境界はRLSです。管理者登録と単発更新例は`docs/village-guide-operations.sql`、適用後確認は`docs/village-guide-verification.sql`を使用します。
+RLSでは`anon`と一般`authenticated`へ公開行のSELECTだけを許可します。`app_private.guide_section_is_public(uuid)`がRLSを再帰させずに祖先をたどり、対象と全祖先が表示中で、循環せず最上位へ到達した階層だけを公開します。非表示の親配下にある子カテゴリーと項目は、フロントの組み立て処理だけでなくDBでも非公開です。
+
+`guide_entries`のbrowser role向けSELECTは列単位で付与し、`updated_by`を含めません。管理者画面も公開可能列だけを取得し、`updated_by`はservice_roleまたは運営のSQL確認でのみ参照します。管理者はRLSにより非表示行を含む公開可能列のSELECTとINSERT / UPDATE / DELETEが可能です。管理者ボタンの非表示は補助であり、書き込み境界はRLSです。管理者登録と単発更新例は`docs/village-guide-operations.sql`、適用後確認は`docs/village-guide-verification.sql`を使用します。
 
 ## 今回まだ実装しないこと
 

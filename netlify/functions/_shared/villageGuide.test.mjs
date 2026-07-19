@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  GUIDE_ENTRY_SELECT_COLUMNS,
   buildVillageGuideTree,
   getFallbackVillageGuideRows,
   validateVillageGuideEntryInput,
@@ -14,6 +15,27 @@ const schemaUrl = new URL("supabase/schema.sql", repositoryRoot);
 const appUrl = new URL("src/App.jsx", repositoryRoot);
 const adminUiUrl = new URL("src/VillageGuideAdmin.jsx", repositoryRoot);
 const verificationUrl = new URL("docs/village-guide-verification.sql", repositoryRoot);
+
+function isDatabaseSectionPublic(sectionRows, sectionId) {
+  const sectionsById = new Map(sectionRows.map((section) => [section.id, section]));
+  const visited = new Set();
+  let currentId = sectionId;
+
+  for (let depth = 0; depth < 64; depth += 1) {
+    const section = sectionsById.get(currentId);
+    if (!section || section.is_visible !== true || visited.has(currentId)) {
+      return false;
+    }
+
+    visited.add(currentId);
+    if (!section.parent_id) {
+      return true;
+    }
+    currentId = section.parent_id;
+  }
+
+  return false;
+}
 
 test("fallback preserves the current guide hierarchy and adds the planned AI resident item first", () => {
   const rows = getFallbackVillageGuideRows();
@@ -51,7 +73,32 @@ test("fallback preserves the current guide hierarchy and adds the planned AI res
   assert.equal(rows.entries.length, 59);
 });
 
-test("public guide tree excludes hidden entries, hidden sections, and descendants of hidden sections", () => {
+test("database visibility includes visible ancestry and rejects hidden parents, hidden children, and cycles", () => {
+  const rows = getFallbackVillageGuideRows();
+  const root = rows.sections.find((section) => section.section_key === "available_now");
+  const child = rows.sections.find((section) => section.section_key === "available_account_profile");
+  const entry = rows.entries.find((item) => item.entry_key === "account_auth");
+
+  assert.equal(isDatabaseSectionPublic(rows.sections, root.id), true);
+  assert.equal(isDatabaseSectionPublic(rows.sections, child.id), true);
+  assert.equal(entry.is_visible && isDatabaseSectionPublic(rows.sections, entry.section_id), true);
+
+  root.is_visible = false;
+  assert.equal(isDatabaseSectionPublic(rows.sections, child.id), false);
+  assert.equal(entry.is_visible && isDatabaseSectionPublic(rows.sections, entry.section_id), false);
+
+  root.is_visible = true;
+  child.is_visible = false;
+  assert.equal(isDatabaseSectionPublic(rows.sections, child.id), false);
+  assert.equal(entry.is_visible && isDatabaseSectionPublic(rows.sections, entry.section_id), false);
+
+  child.is_visible = true;
+  root.parent_id = child.id;
+  assert.equal(isDatabaseSectionPublic(rows.sections, root.id), false);
+  assert.equal(isDatabaseSectionPublic(rows.sections, child.id), false);
+});
+
+test("public guide tree excludes hidden entries and descendants while admin mode retains hidden rows", () => {
   const rows = getFallbackVillageGuideRows();
   rows.entries.find((entry) => entry.entry_key === "planned_audio").is_visible = false;
   rows.sections.find((section) => section.section_key === "available_now").is_visible = false;
@@ -67,6 +114,12 @@ test("public guide tree excludes hidden entries, hidden sections, and descendant
   const rlsVisibleSections = rows.sections.filter((section) => section.is_visible);
   const rlsTree = buildVillageGuideTree(rlsVisibleSections, rows.entries);
   assert.equal(rlsTree.some((section) => section.section_key === "available_account_profile"), false);
+
+  const adminTree = buildVillageGuideTree(rows.sections, rows.entries, { includeHidden: true });
+  const adminAvailable = adminTree.find((section) => section.section_key === "available_now");
+  const adminPlanned = adminTree.find((section) => section.section_key === "planned_features");
+  assert.equal(adminAvailable.children.some((section) => section.section_key === "available_account_profile"), true);
+  assert.equal(adminPlanned.entries.some((entry) => entry.entry_key === "planned_audio"), true);
 });
 
 test("single-row add, edit, reorder, hide, and delete operations are reflected by the tree", () => {
@@ -132,7 +185,12 @@ test("migration and schema keep guide security, audit, seed, and grants in sync"
     assert.match(sql, /create table if not exists public\.guide_sections/);
     assert.match(sql, /create table if not exists public\.guide_entries/);
     assert.match(sql, /create or replace function public\.is_app_admin\(\)/);
+    assert.match(sql, /create or replace function app_private\.guide_section_is_public\(p_section_id uuid\)/);
     assert.match(sql, /security definer\s+set search_path = ''/);
+    assert.match(sql, /with recursive section_ancestry/);
+    assert.match(sql, /parent_section\.id = any\(section_ancestry\.visited_ids\)/);
+    assert.match(sql, /not bool_or\(section_ancestry\.has_cycle\)/);
+    assert.match(sql, /bool_or\(section_ancestry\.parent_id is null\)/);
     assert.match(sql, /alter table public\.guide_sections enable row level security/);
     assert.match(sql, /alter table public\.guide_entries enable row level security/);
     assert.match(sql, /guide_sections_admin_(?:insert|update|delete)/);
@@ -166,14 +224,55 @@ test("migration and schema keep guide security, audit, seed, and grants in sync"
 
 test("browser roles can only read public guide rows while admin writes stay behind RLS", async () => {
   const migration = await readFile(migrationUrl, "utf8");
+  const guideEntryColumnGrant = migration.match(
+    /grant select \(([\s\S]*?)\) on table public\.guide_entries to anon, authenticated;/,
+  )?.[1];
+  const publicEntryColumns = [
+    "id",
+    "section_id",
+    "entry_key",
+    "entry_type",
+    "body",
+    "sort_order",
+    "is_visible",
+    "created_at",
+    "updated_at",
+  ];
 
   assert.match(migration, /grant select on table public\.guide_sections to anon, authenticated/);
-  assert.match(migration, /grant select on table public\.guide_entries to anon, authenticated/);
-  assert.match(migration, /using \(is_visible is true\)/);
+  assert.doesNotMatch(migration, /grant select on table public\.guide_entries to anon, authenticated/);
+  assert.ok(guideEntryColumnGrant);
+  assert.deepEqual(
+    guideEntryColumnGrant.split(",").map((columnName) => columnName.trim()),
+    publicEntryColumns,
+  );
+  assert.deepEqual(
+    GUIDE_ENTRY_SELECT_COLUMNS.split(",").map((columnName) => columnName.trim()),
+    publicEntryColumns,
+  );
+  assert.match(migration, /using \(app_private\.guide_section_is_public\(id\)\)/);
+  assert.match(
+    migration,
+    /is_visible is true\s+and app_private\.guide_section_is_public\(section_id\)/,
+  );
+  assert.match(migration, /guide_sections_admin_select_all[\s\S]*?using \(\(select public\.is_app_admin\(\)\)\)/);
+  assert.match(migration, /guide_entries_admin_select_all[\s\S]*?using \(\(select public\.is_app_admin\(\)\)\)/);
   assert.match(migration, /with check \(\(select public\.is_app_admin\(\)\)\)/);
   assert.match(migration, /using \(\(select public\.is_app_admin\(\)\)\)/);
   assert.match(migration, /revoke all on function public\.is_app_admin\(\) from public, anon, authenticated/);
   assert.match(migration, /grant execute on function public\.is_app_admin\(\) to authenticated, service_role/);
+  assert.match(
+    migration,
+    /revoke all on function app_private\.guide_section_is_public\(uuid\) from public, anon, authenticated, service_role/,
+  );
+  assert.match(
+    migration,
+    /grant execute on function app_private\.guide_section_is_public\(uuid\) to anon, authenticated/,
+  );
+  assert.doesNotMatch(
+    migration,
+    /grant execute on function app_private\.guide_section_is_public\(uuid\) to (?:public|service_role)/,
+  );
 });
 
 test("frontend uses Supabase as primary source, preserves fallback, and hides editor from non-admins", async () => {
@@ -205,6 +304,10 @@ test("verification SQL remains read-only and checks guide privileges", async () 
 
   assert.doesNotMatch(statementsWithoutComments, /\b(insert|update|delete|alter|create|drop|grant|revoke)\b/i);
   assert.match(verification, /information_schema\.table_privileges/);
+  assert.match(verification, /information_schema\.column_privileges/);
+  assert.match(verification, /has_column_privilege/);
+  assert.match(verification, /updated_by/);
   assert.match(verification, /pg_catalog\.pg_policies/);
   assert.match(verification, /is_app_admin/);
+  assert.match(verification, /guide_section_is_public/);
 });

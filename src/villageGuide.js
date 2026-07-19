@@ -1,7 +1,7 @@
 export const GUIDE_SECTION_SELECT_COLUMNS =
   "id, section_key, title, parent_id, display_variant, sort_order, is_visible, created_at, updated_at";
 export const GUIDE_ENTRY_SELECT_COLUMNS =
-  "id, section_id, entry_key, entry_type, body, sort_order, is_visible, created_at, updated_at, updated_by";
+  "id, section_id, entry_key, entry_type, body, sort_order, is_visible, created_at, updated_at";
 
 export const GUIDE_SECTION_KEY_PATTERN = /^[a-z0-9][a-z0-9_]{2,63}$/;
 export const GUIDE_ENTRY_KEY_PATTERN = /^[a-z0-9][a-z0-9_]{2,95}$/;

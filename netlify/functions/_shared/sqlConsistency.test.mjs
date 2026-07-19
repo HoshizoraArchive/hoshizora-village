@@ -438,15 +438,20 @@ test("post_media Storage path checks do not depend on app_private helper functio
     false,
     "schema.sql grants authenticated EXECUTE on a private Storage path helper",
   );
-  assert.equal(
-    /grant\s+execute\s+on\s+function\s+app_private\.[\s\S]*?\s+to\s+[^;]*authenticated/i.test(migrationSql),
-    false,
-    "migration grants authenticated EXECUTE on an app_private function",
-  );
-  assert.equal(
-    /grant\s+execute\s+on\s+function\s+app_private\.[\s\S]*?\s+to\s+[^;]*authenticated/i.test(schemaSql),
-    false,
-    "schema.sql grants authenticated EXECUTE on an app_private function",
+
+  const authenticatedPrivateFunctions = [
+    ...schemaSql.matchAll(
+      /grant\s+execute\s+on\s+function\s+app_private\.([a-z0-9_]+)\([^;]*?\)\s+to\s+([^;]+);/gi,
+    ),
+  ]
+    .filter(([, , grantees]) => grantees.split(",").some((role) => role.trim().toLowerCase() === "authenticated"))
+    .map(([, functionName]) => functionName)
+    .sort();
+
+  assert.deepEqual(
+    authenticatedPrivateFunctions,
+    ["guide_section_is_public"],
+    "only the RLS-only guide visibility helper may be executable by authenticated",
   );
 });
 

@@ -70,7 +70,7 @@ comment on table public.guide_entries is
 comment on column public.guide_entries.entry_key is
 '人間と外部運用が1行を特定する安定キー。作成後は変更しない。';
 comment on column public.guide_entries.updated_by is
-'ブラウザ管理画面から更新したAuthユーザー。service_role更新ではnullになり得る。';
+'更新したAuthユーザーを記録する非公開監査列。service_role更新ではnullになり得る。';
 
 create index if not exists guide_sections_parent_sort_idx
 on public.guide_sections(parent_id, sort_order, section_key);
@@ -104,6 +104,54 @@ comment on function public.is_app_admin() is
 
 revoke all on function public.is_app_admin() from public, anon, authenticated;
 grant execute on function public.is_app_admin() to authenticated, service_role;
+
+create or replace function app_private.guide_section_is_public(p_section_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with recursive section_ancestry as (
+    select
+      section_row.id,
+      section_row.parent_id,
+      section_row.is_visible,
+      array[section_row.id]::uuid[] as visited_ids,
+      false as has_cycle,
+      1 as depth
+    from public.guide_sections section_row
+    where section_row.id = p_section_id
+
+    union all
+
+    select
+      parent_section.id,
+      parent_section.parent_id,
+      parent_section.is_visible,
+      section_ancestry.visited_ids || parent_section.id,
+      parent_section.id = any(section_ancestry.visited_ids),
+      section_ancestry.depth + 1
+    from section_ancestry
+    join public.guide_sections parent_section
+      on parent_section.id = section_ancestry.parent_id
+    where section_ancestry.has_cycle is false
+      and section_ancestry.depth < 64
+  )
+  select coalesce(
+    bool_and(section_ancestry.is_visible)
+      and not bool_or(section_ancestry.has_cycle)
+      and bool_or(section_ancestry.parent_id is null),
+    false
+  )
+  from section_ancestry;
+$$;
+
+comment on function app_private.guide_section_is_public(uuid) is
+'RLS専用。対象セクションからルートまで全祖先が表示中で、循環せずルートへ到達した場合だけtrueを返す。';
+
+revoke all on function app_private.guide_section_is_public(uuid) from public, anon, authenticated, service_role;
+grant execute on function app_private.guide_section_is_public(uuid) to anon, authenticated;
 
 create or replace function app_private.set_guide_section_audit_fields()
 returns trigger
@@ -179,7 +227,17 @@ revoke all on table public.guide_entries from public, anon, authenticated;
 
 grant select, insert, delete on table public.app_admins to service_role;
 grant select on table public.guide_sections to anon, authenticated;
-grant select on table public.guide_entries to anon, authenticated;
+grant select (
+  id,
+  section_id,
+  entry_key,
+  entry_type,
+  body,
+  sort_order,
+  is_visible,
+  created_at,
+  updated_at
+) on table public.guide_entries to anon, authenticated;
 grant insert, update, delete on table public.guide_sections to authenticated;
 grant insert, update, delete on table public.guide_entries to authenticated;
 grant select, insert, update, delete on table public.guide_sections to service_role;
@@ -189,7 +247,7 @@ drop policy if exists guide_sections_select_visible on public.guide_sections;
 create policy guide_sections_select_visible on public.guide_sections
 for select
 to anon, authenticated
-using (is_visible is true);
+using (app_private.guide_section_is_public(id));
 
 drop policy if exists guide_sections_admin_select_all on public.guide_sections;
 create policy guide_sections_admin_select_all on public.guide_sections
@@ -222,11 +280,7 @@ for select
 to anon, authenticated
 using (
   is_visible is true
-  and exists (
-    select 1
-    from public.guide_sections section_row
-    where section_row.id = guide_entries.section_id
-  )
+  and app_private.guide_section_is_public(section_id)
 );
 
 drop policy if exists guide_entries_admin_select_all on public.guide_entries;
