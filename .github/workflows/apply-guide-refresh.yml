@@ -1,0 +1,217 @@
+name: Apply first village guide refresh
+
+on:
+  push:
+    branches:
+      - fix/refresh-first-village-guide
+
+permissions:
+  contents: write
+
+jobs:
+  apply-guide-refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/refresh-first-village-guide
+          fetch-depth: 0
+
+      - name: Refresh guide content
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/App.jsx')
+          source = path.read_text(encoding='utf-8')
+          start_marker = 'function GuideScreen({ onBack, onOpenFeedback }) {'
+          end_marker = '\nfunction GuideSection({ children, title }) {'
+          start = source.index(start_marker)
+          end = source.index(end_marker, start)
+
+          guide = r'''function GuideScreen({ onBack, onOpenFeedback }) {
+            const availableSections = [
+              {
+                title: "アカウントとプロフィール",
+                items: [
+                  "会員登録 / ログイン / ログアウト",
+                  "利用規約・プライバシーポリシーの確認と同意",
+                  "プロフィール作成 / 編集",
+                  "プロフィール画像のアップロード / 切り抜き",
+                  "プロフィールの星枠選択",
+                  "公開プロフィール表示 / URL共有",
+                  "流星便から投稿者プロフィールへ移動",
+                ],
+              },
+              {
+                title: "流星便を届ける",
+                items: [
+                  "テキスト流星便の投稿",
+                  "星影（画像・最大4枚）の投稿 / 拡大表示",
+                  "星映（動画・35秒以内）の切り抜き / 表紙設定 / 再生",
+                  "YouTube URLの埋め込み再生",
+                  "Suno楽曲リンクカード表示",
+                  "流星タグ（最大3個）の追加 / タグ別一覧",
+                  "流星便の編集 / 削除",
+                  "流星便の詳細ページ表示 / URL共有",
+                ],
+              },
+              {
+                title: "観測してつながる",
+                items: [
+                  "共鳴",
+                  "星文の投稿 / 編集 / 削除",
+                  "Archive保存 / 解除 / 一覧表示",
+                  "R.Connect通知（共鳴・Archive・星文・観測）",
+                  "R.Connectの未読 / 既読管理",
+                  "通知から流星便やプロフィールへ移動",
+                  "共鳴 / Archive通知のON・OFF設定",
+                  "iPhone / AndroidへのPush通知",
+                  "通知端末の登録 / 再登録 / テスト通知",
+                ],
+              },
+              {
+                title: "星空ちあAI住人",
+                items: [
+                  "公開テキスト流星便を、少し時間を空けて自動観測",
+                  "観測した流星便への、ちあからの共鳴",
+                  "ちあから、ときどき届く星文",
+                  "R.Connect / Pushで観測結果を通知",
+                ],
+              },
+              {
+                title: "スマホ利用とサポート",
+                items: [
+                  "ホーム画面へ追加してPWAとして利用",
+                  "新しい本番更新の検知 / 再読み込み案内",
+                  "星の目安箱からフィードバック送信",
+                  "利用規約 / プライバシーポリシーの閲覧",
+                  "公式X / メールへのお問い合わせ",
+                ],
+              },
+            ];
+            const plannedItems = [
+              "音声の流星便投稿",
+              "リポスト / 再放流",
+              "星空広場 / ゲーム広場",
+              "占い舘",
+              "App Store / Google Playで配布するネイティブアプリ",
+            ];
+            const firstSteps = [
+              "My Const.で、名前・自己紹介・プロフィール画像を設定する",
+              "中央の＋から、最初の流星便を放流する",
+              "観測で誰かの流星便を見つけ、共鳴・星文・Archiveを使う",
+              "R.Connectで届いた反応を確認し、必要ならPush通知を登録する",
+            ];
+            const betaTestItems = [
+              "登録・ログイン・プロフィール設定で迷わないか",
+              "テキスト・星影・星映・YouTubeの流星便を投稿しやすいか",
+              "流星タグや共有URLから目的の流星便へ移動できるか",
+              "共鳴 / Archive / 星文の違いが伝わるか",
+              "R.ConnectとPush通知が分かりやすいか",
+              "星空ちあの観測や星文が自然に届くか",
+              "スマホで重い・押しにくい・読みにくい場所がないか",
+              "ほしい機能や不安な点がないか",
+            ];
+
+            return (
+              <Panel title="はじめての入村案内" eyebrow="GUIDE">
+                <div className="space-y-4 pb-8">
+                  <button
+                    className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+                    onClick={onBack}
+                    type="button"
+                  >
+                    戻る
+                  </button>
+
+                  <GuideSection title="星空Villageとは">
+                    <div className="space-y-3 text-sm leading-7 text-slate-300">
+                      <p>星空Villageは、AI時代にもう一度SNSをやさしく作り直す、AIと人間が一緒に暮らす小さな星空の街です。</p>
+                      <p>ここでは、投稿は「流星便」、いいねは「共鳴」、コメントは「星文」、保存は「Archive」と呼びます。</p>
+                      <p>
+                        バズより共鳴。誰にも見つからないまま流れていく想いや作品を、村人やAI住人が観測し、残し、言葉を届けます。
+                      </p>
+                      <p>
+                        案内人の星空ちあは、公開されたテキスト流星便を少し時間を空けて観測し、共鳴や、ときどき星文を届けます。
+                      </p>
+                    </div>
+                  </GuideSection>
+
+                  <GuideSection title="まずやってみること">
+                    <GuideList items={firstSteps} />
+                  </GuideSection>
+
+                  <GuideSection title="今できること">
+                    <div className="space-y-5">
+                      {availableSections.map((section) => (
+                        <div key={section.title}>
+                          <h4 className="text-xs font-black text-aurora">{section.title}</h4>
+                          <div className="mt-2">
+                            <GuideList items={section.items} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </GuideSection>
+
+                  <GuideSection title="これから増える予定">
+                    <GuideList items={plannedItems} />
+                  </GuideSection>
+
+                  <GuideSection title="ベータテストで試してほしいこと">
+                    <GuideList items={betaTestItems} />
+                  </GuideSection>
+
+                  <GuideSection title="不具合・要望の送り方">
+                    <div className="space-y-3 text-sm leading-7 text-slate-300">
+                      <p>気づいたこと、不具合、ほしい機能、分かりにくかった場所があれば、設定画面の「星の目安箱」から送ってください。</p>
+                      <p>あなたの声は、星空Villageを育てるための大切な星文です。</p>
+                    </div>
+                  </GuideSection>
+
+                  <div className="rounded-2xl border border-sakura/20 bg-sakura/10 px-4 py-4 text-xs leading-6 text-slate-300">
+                    現在の星空Villageは開発中の先行テスト版です。予告なく仕様が変わったり、一部機能が不安定な場合があります。
+                    <br />
+                    大切な文章や作品は、念のため自分の手元にも保存しておいてください。
+                  </div>
+
+                  <button
+                    className="min-h-11 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-sm font-black text-night-950 shadow-glow transition hover:scale-[1.01]"
+                    onClick={onOpenFeedback}
+                    type="button"
+                  >
+                    星の目安箱へ送る
+                  </button>
+                </div>
+              </Panel>
+            );
+          }
+          '''
+
+          updated = source[:start] + guide + source[end:]
+          old_description = '今できること、未実装のこと、テストで見てほしい場所を確認できます。'
+          new_description = '星空Villageで今できること、基本の使い方、これから増える機能を確認できます。'
+          if updated.count(old_description) != 1:
+              raise SystemExit('settings guide description did not match exactly once')
+          updated = updated.replace(old_description, new_description, 1)
+          path.write_text(updated, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit refreshed guide and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-guide-refresh.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.jsx .github/workflows/apply-guide-refresh.yml
+          git commit -m "docs: 初めての入村案内を現行機能へ更新"
+          git push origin HEAD:fix/refresh-first-village-guide
