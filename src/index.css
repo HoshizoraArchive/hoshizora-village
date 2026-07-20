@@ -169,13 +169,14 @@
     isolation: isolate;
   }
 
-  .star-movie-observation-glow {
-    inset: -22% 0;
-    z-index: -1;
-    -webkit-mask-image: radial-gradient(ellipse at center, #000 0 28%, rgb(0 0 0 / 0.82) 47%, transparent 78%);
-    mask-image: radial-gradient(ellipse at center, #000 0 28%, rgb(0 0 0 / 0.82) 47%, transparent 78%);
-    mix-blend-mode: screen;
-    animation: starMovieObservationGlow 8s ease-in-out infinite alternate;
+  .star-movie-surface {
+    opacity: 1;
+  }
+
+  @media (min-width: 1024px) {
+    .star-movie-surface {
+      opacity: 0.9;
+    }
   }
 
   .star-movie-observation-frame {
@@ -183,9 +184,6 @@
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    opacity: 0.88;
-    -webkit-mask-image: radial-gradient(ellipse at center, #000 0 58%, rgb(0 0 0 / 0.96) 64%, rgb(0 0 0 / 0.72) 74%, rgb(0 0 0 / 0.4) 84%, rgb(0 0 0 / 0.14) 93%, transparent 100%);
-    mask-image: radial-gradient(ellipse at center, #000 0 58%, rgb(0 0 0 / 0.96) 64%, rgb(0 0 0 / 0.72) 74%, rgb(0 0 0 / 0.4) 84%, rgb(0 0 0 / 0.14) 93%, transparent 100%);
   }
 
   .star-movie-observation-upload-frame {
@@ -445,18 +443,6 @@
   }
 }
 
-@keyframes starMovieObservationGlow {
-  from {
-    opacity: 0.72;
-    transform: scale(0.98);
-  }
-
-  to {
-    opacity: 0.96;
-    transform: scale(1.025);
-  }
-}
-
 @media (max-width: 640px) {
   .moon {
     left: 22px;
@@ -505,7 +491,4 @@
     display: none;
   }
 
-  .star-movie-observation-glow {
-    animation: none;
-  }
 }

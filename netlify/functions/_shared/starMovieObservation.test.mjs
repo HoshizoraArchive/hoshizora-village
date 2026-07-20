@@ -190,24 +190,40 @@ test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", as
   assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: min\(72vh, 760px\);/);
 });
 
-test("upload and YouTube observation frames share a borderless outer fade", async () => {
+test("inline and observation movies share a uniform translucent surface without edge effects", async () => {
   const [mode, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
     readFile(cssUrl, "utf8"),
   ]);
+  const app = await readFile(appUrl, "utf8");
+  const observationFrameRule =
+    css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
 
   assert.match(mode, /star-movie-observation-frame star-movie-observation-youtube-frame/);
   assert.match(mode, /star-movie-observation-frame star-movie-observation-upload-frame/);
+  assert.match(mode, /className="star-movie-surface h-full w-full"/);
+  assert.match(mode, /className="star-movie-observation-upload-video star-movie-surface block"/);
+  assert.match(app, /className="star-movie-surface h-full w-full"/);
+  assert.match(app, /className="star-movie-surface h-full w-full bg-black object-contain"/);
+  assert.match(css, /\.star-movie-surface\s*\{\s*opacity: 1;\s*\}/);
+  assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*?\.star-movie-surface\s*\{\s*opacity: 0\.9;\s*\}/);
   assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*box-shadow: none;/);
-  assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*opacity: 0\.88;[\s\S]*mask-image: radial-gradient/);
-  assert.match(css, /#000 0 58%[\s\S]*rgb\(0 0 0 \/ 0\.72\) 74%[\s\S]*rgb\(0 0 0 \/ 0\.14\) 93%[\s\S]*transparent 100%/);
+  assert.doesNotMatch(observationFrameRule, /mask-image:/);
+  assert.doesNotMatch(observationFrameRule, /mix-blend-mode:/);
+  assert.doesNotMatch(css, /\.star-movie-observation-glow/);
+  assert.doesNotMatch(mode, /star-movie-observation-glow/);
   assert.doesNotMatch(css, /\.star-movie-observation-frame::after/);
 });
 
-test("ambient image glow respects reduced motion", async () => {
-  const css = await readFile(cssUrl, "utf8");
+test("observation mode does not add vignette, radial mask, blend, or blur effects", async () => {
+  const [mode, css] = await Promise.all([
+    readFile(modeUrl, "utf8"),
+    readFile(cssUrl, "utf8"),
+  ]);
+  const observationFrameRule =
+    css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
 
-  assert.match(css, /\.star-movie-observation-glow\s*\{/);
-  assert.match(css, /mask-image:\s*radial-gradient/);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.star-movie-observation-glow[\s\S]*animation: none/);
+  assert.doesNotMatch(mode, /blur-\[|mix-blend|star-movie-observation-glow/);
+  assert.doesNotMatch(observationFrameRule, /radial-gradient|mask-image|mix-blend-mode|filter|blur/);
+  assert.doesNotMatch(css, /\.star-movie-observation-glow/);
 });

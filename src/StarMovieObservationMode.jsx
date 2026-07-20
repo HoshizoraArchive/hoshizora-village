@@ -160,24 +160,12 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
               media.kind === "youtube" ? "w-full" : "w-fit max-w-full"
             }`}
           >
-            <div className="star-movie-observation-glow pointer-events-none absolute overflow-hidden" aria-hidden="true">
-              {media.posterUrl ? (
-                <img
-                  alt=""
-                  className="h-full w-full scale-125 object-cover opacity-55 blur-[72px] saturate-150"
-                  src={media.posterUrl}
-                />
-              ) : (
-                <div className="h-full w-full bg-[radial-gradient(circle_at_28%_30%,rgba(125,223,255,0.6),transparent_40%),radial-gradient(circle_at_76%_64%,rgba(255,139,207,0.48),transparent_44%),linear-gradient(135deg,rgba(30,50,120,0.78),rgba(79,38,125,0.68),rgba(10,16,45,0.74))] opacity-65 blur-[72px]" />
-              )}
-            </div>
-
             {media.kind === "youtube" ? (
               <div className="star-movie-observation-frame star-movie-observation-youtube-frame relative aspect-video w-full overflow-hidden">
                 <iframe
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
-                  className="h-full w-full"
+                  className="star-movie-surface h-full w-full"
                   referrerPolicy="strict-origin-when-cross-origin"
                   src={`https://www.youtube-nocookie.com/embed/${media.videoId}?rel=0`}
                   title={`${post.name}の星映`}
@@ -186,7 +174,7 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
             ) : (
               <div className="star-movie-observation-frame star-movie-observation-upload-frame relative w-fit max-w-full overflow-hidden">
                 <video
-                  className="star-movie-observation-upload-video block"
+                  className="star-movie-observation-upload-video star-movie-surface block"
                   controls
                   onPlay={handleVideoPlay}
                   playsInline

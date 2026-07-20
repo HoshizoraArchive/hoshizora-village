@@ -9617,7 +9617,7 @@ function YouTubeEmbed({ onOpenObservation, videoId }) {
       <iframe
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         allowFullScreen
-        className="h-full w-full"
+        className="star-movie-surface h-full w-full"
         loading="lazy"
         ref={iframeRef}
         referrerPolicy="strict-origin-when-cross-origin"
@@ -9810,7 +9810,7 @@ function PostVideoAttachment({ item, onOpenMedia, onOpenObservation }) {
       <div className="relative aspect-video bg-black">
         {hasLoadedVideo ? (
           <video
-            className="h-full w-full bg-black object-contain"
+            className="star-movie-surface h-full w-full bg-black object-contain"
             controls
             onPlay={() => window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }))}
             playsInline
