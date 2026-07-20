@@ -5707,11 +5707,6 @@ function App() {
         ...meteorTagPosts,
       ].find((post) => post?.id === starMovieObservation.postId) ?? null
     : null;
-  const starMovieObservationLetters = starMovieObservationPost
-    ? starLettersByPostId[starMovieObservationPost.id] ?? []
-    : [];
-  const isStarMovieObservationLettersOpen =
-    Boolean(starMovieObservationPost) && openStarLetterPostId === starMovieObservationPost.id;
   const detailPostForScreen =
     detailPostId
       ? detailPost ??
@@ -5866,39 +5861,9 @@ function App() {
         onStep={handleMediaViewerStep}
       />
       <StarMovieObservationMode
-        archive={archiveState}
-        authorAvatar={
-          starMovieObservationPost ? (
-            <AvatarFrame
-              avatar={starMovieObservationPost.avatar}
-              avatarUrl={starMovieObservationPost.avatarUrl}
-              frame={starMovieObservationPost.avatarFrame}
-            />
-          ) : null
-        }
-        body={
-          starMovieObservationPost ? (
-            <LinkedText highlightMeteorTags>{starMovieObservationPost.text}</LinkedText>
-          ) : null
-        }
         media={starMovieObservation?.media ?? null}
         onClose={handleCloseStarMovieObservation}
         post={starMovieObservationPost}
-        resonance={resonance}
-        starLetters={starLetters}
-        starLettersPanel={
-          isStarMovieObservationLettersOpen && starMovieObservationPost ? (
-            <StarLettersPanel
-              draft={starLetters.drafts?.[starMovieObservationPost.id] ?? ""}
-              letters={starMovieObservationLetters}
-              loading={starLetters.loading}
-              onChange={(value) => starLetters.onChange?.(starMovieObservationPost.id, value)}
-              onSubmit={(event) => starLetters.onSubmit?.(event, starMovieObservationPost.id)}
-              saving={starLetters.savingPostId === starMovieObservationPost.id}
-              starLetters={starLetters}
-            />
-          ) : null
-        }
       />
     </div>
   );
@@ -9635,59 +9600,49 @@ function useStarMovieObservationViewport() {
 }
 
 function YouTubeEmbed({ onOpenObservation, videoId }) {
+  const iframeRef = useRef(null);
   const isDesktopObservationViewport = useStarMovieObservationViewport();
 
   if (!videoId || !YOUTUBE_VIDEO_ID_PATTERN.test(videoId)) {
     return null;
   }
 
-  if (!isDesktopObservationViewport) {
-    return (
-      <div
-        className="mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
-        data-card-action="true"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <iframe
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-          className="h-full w-full"
-          loading="lazy"
-          referrerPolicy="strict-origin-when-cross-origin"
-          src={`https://www.youtube-nocookie.com/embed/${videoId}`}
-          title="YouTube video player"
-        />
-      </div>
-    );
-  }
-
   return (
-    <button
-      aria-label="YouTubeの星映を観測する"
-      className="group relative mt-4 aspect-video w-full overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 text-left shadow-[0_18px_55px_rgba(3,7,18,0.28)] outline-none transition hover:border-comet/40 focus-visible:ring-4 focus-visible:ring-comet/25"
+    <div
+      className="relative mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
       data-card-action="true"
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpenObservation?.(event.currentTarget);
-      }}
-      type="button"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
     >
-      <img
-        alt=""
-        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-        draggable={false}
+      <iframe
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        className="h-full w-full"
         loading="lazy"
-        src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
+        ref={iframeRef}
+        referrerPolicy="strict-origin-when-cross-origin"
+        src={`https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1`}
+        title="YouTube video player"
       />
-      <span className="absolute inset-0 bg-night-950/28" />
-      <span className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/20 text-2xl text-white shadow-[0_0_30px_rgba(125,223,255,0.35)] backdrop-blur-md transition group-hover:scale-105">
-        ▶
-      </span>
-      <span className="absolute bottom-3 left-3 rounded-full border border-white/15 bg-night-950/70 px-3 py-1.5 text-[11px] font-black text-white backdrop-blur-md">
-        星映観測モード
-      </span>
-    </button>
+      {isDesktopObservationViewport ? (
+        <button
+          aria-label="YouTubeを星映観測モードで開く"
+          className="absolute bottom-12 left-3 z-10 min-h-9 rounded-full border border-white/20 bg-night-950/75 px-3 text-[11px] font-black text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md transition hover:border-comet/45 hover:bg-comet/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
+          onClick={(event) => {
+            event.stopPropagation();
+            iframeRef.current?.contentWindow?.postMessage(
+              JSON.stringify({ event: "command", func: "pauseVideo", args: [] }),
+              "https://www.youtube-nocookie.com",
+            );
+            onOpenObservation?.(event.currentTarget);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          type="button"
+        >
+          星映観測モード
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -9845,55 +9800,55 @@ function PostVideoAttachment({ item, onOpenMedia, onOpenObservation }) {
     onOpenMedia?.([item], 0);
   }
 
-  if (!isDesktopObservationViewport) {
-    return (
-      <div
-        className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.22)]"
-        data-card-action="true"
-        onClick={stopCardAction}
-        onPointerDown={stopCardAction}
-      >
-        <div className="relative aspect-video bg-black">
-          {hasLoadedVideo ? (
-            <video
-              className="h-full w-full bg-black object-contain"
-              controls
-              onPlay={() => window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }))}
-              playsInline
-              poster={item.thumbnailUrl ?? undefined}
-              preload="none"
-              ref={videoRef}
-              src={item.url}
-            />
-          ) : (
-            <button
-              aria-label="流星便の星映を再生"
-              className="group relative h-full w-full overflow-hidden bg-night-950 text-left outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
-              onClick={requestInlinePlay}
-              type="button"
-            >
-              {item.thumbnailUrl ? (
-                <img
-                  alt=""
-                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                  draggable={false}
-                  loading="lazy"
-                  src={item.thumbnailUrl}
-                />
-              ) : (
-                <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(125,223,255,0.22),transparent_35%),linear-gradient(135deg,rgba(5,8,22,1),rgba(44,24,86,0.9),rgba(3,7,18,1))]">
-                  <div className="text-center">
-                    <p className="text-4xl">✦</p>
-                    <p className="mt-2 text-xs font-black text-comet">流星便の星映</p>
-                  </div>
+  return (
+    <div
+      className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.22)]"
+      data-card-action="true"
+      onClick={stopCardAction}
+      onPointerDown={stopCardAction}
+    >
+      <div className="relative aspect-video bg-black">
+        {hasLoadedVideo ? (
+          <video
+            className="h-full w-full bg-black object-contain"
+            controls
+            onPlay={() => window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }))}
+            playsInline
+            poster={item.thumbnailUrl ?? undefined}
+            preload="none"
+            ref={videoRef}
+            src={item.url}
+          />
+        ) : (
+          <button
+            aria-label="流星便の星映を再生"
+            className="group relative h-full w-full overflow-hidden bg-night-950 text-left outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
+            onClick={requestInlinePlay}
+            type="button"
+          >
+            {item.thumbnailUrl ? (
+              <img
+                alt=""
+                className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                draggable={false}
+                loading="lazy"
+                src={item.thumbnailUrl}
+              />
+            ) : (
+              <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(125,223,255,0.22),transparent_35%),linear-gradient(135deg,rgba(5,8,22,1),rgba(44,24,86,0.9),rgba(3,7,18,1))]">
+                <div className="text-center">
+                  <p className="text-4xl">✦</p>
+                  <p className="mt-2 text-xs font-black text-comet">流星便の星映</p>
                 </div>
-              )}
-              <span className="absolute inset-0 bg-night-950/15" />
-              <span className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/20 text-2xl text-white shadow-[0_0_30px_rgba(125,223,255,0.35)] backdrop-blur-md transition group-hover:scale-105">
-                ▶
-              </span>
-            </button>
-          )}
+              </div>
+            )}
+            <span className="absolute inset-0 bg-night-950/15" />
+            <span className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/20 text-2xl text-white shadow-[0_0_30px_rgba(125,223,255,0.35)] backdrop-blur-md transition group-hover:scale-105">
+              ▶
+            </span>
+          </button>
+        )}
+        {!isDesktopObservationViewport ? (
           <button
             className="absolute right-3 top-3 min-h-9 rounded-full border border-white/15 bg-night-950/70 px-3 text-[11px] font-black text-white backdrop-blur-md transition hover:border-comet/35 hover:bg-comet/20"
             onClick={handleOpenViewer}
@@ -9901,50 +9856,27 @@ function PostVideoAttachment({ item, onOpenMedia, onOpenObservation }) {
           >
             拡大
           </button>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[11px] font-bold text-slate-400">
-          <span>いちばん光る35秒</span>
-          {item.durationSeconds ? <span>{formatMediaDuration(item.durationSeconds)}</span> : null}
-        </div>
+        ) : (
+          <button
+            aria-label="アップロード動画を星映観測モードで開く"
+            className="absolute bottom-12 left-3 z-10 min-h-9 rounded-full border border-white/20 bg-night-950/75 px-3 text-[11px] font-black text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md transition hover:border-comet/45 hover:bg-comet/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
+            onClick={(event) => {
+              event.stopPropagation();
+              videoRef.current?.pause();
+              onOpenObservation?.(event.currentTarget);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            type="button"
+          >
+            星映観測モード
+          </button>
+        )}
       </div>
-    );
-  }
-
-  return (
-    <button
-      aria-label="流星便の星映を観測する"
-      className="group relative mt-4 aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-night-950/45 text-left shadow-[0_18px_55px_rgba(3,7,18,0.22)] outline-none transition hover:border-comet/40 focus-visible:ring-4 focus-visible:ring-comet/25"
-      data-card-action="true"
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpenObservation?.(event.currentTarget);
-      }}
-      type="button"
-    >
-      {item.thumbnailUrl ? (
-        <img
-          alt=""
-          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-          draggable={false}
-          loading="lazy"
-          src={item.thumbnailUrl}
-        />
-      ) : (
-        <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(125,223,255,0.22),transparent_35%),linear-gradient(135deg,rgba(5,8,22,1),rgba(44,24,86,0.9),rgba(3,7,18,1))]">
-          <div className="text-center">
-            <p className="text-4xl">✦</p>
-            <p className="mt-2 text-xs font-black text-comet">流星便の星映</p>
-          </div>
-        </div>
-      )}
-      <span className="absolute inset-0 bg-night-950/15" />
-      <span className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/20 text-2xl text-white shadow-[0_0_30px_rgba(125,223,255,0.35)] backdrop-blur-md transition group-hover:scale-105">
-        ▶
-      </span>
-      <span className="absolute bottom-3 left-3 rounded-full border border-white/15 bg-night-950/70 px-3 py-1.5 text-[11px] font-black text-white backdrop-blur-md">
-        星映観測モード
-      </span>
-    </button>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[11px] font-bold text-slate-400">
+        <span>いちばん光る35秒</span>
+        {item.durationSeconds ? <span>{formatMediaDuration(item.durationSeconds)}</span> : null}
+      </div>
+    </div>
   );
 }
 

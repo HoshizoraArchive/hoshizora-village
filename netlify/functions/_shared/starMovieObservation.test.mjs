@@ -133,21 +133,31 @@ test("dialog supports close, Escape, scroll lock, focus restoration, and existin
   assert.match(app, /window\.history\.back\(\)/);
 });
 
-test("desktop observation entry and unchanged mobile playback are rendered as exclusive responsive branches", async () => {
+test("inline playback stays available and only dedicated desktop controls open observation mode", async () => {
   const app = await readFile(appUrl, "utf8");
+  const requestInlinePlayBlock = app.match(/function requestInlinePlay\(event\)[\s\S]*?function handleOpenViewer/)?.[0] ?? "";
+  const observationOpenCalls = app.match(/onOpenObservation\?\.\(event\.currentTarget\)/g) ?? [];
 
   assert.match(app, /function useStarMovieObservationViewport\(\)/);
-  assert.match(app, /if \(!isDesktopObservationViewport\)/);
   assert.match(app, /window\.matchMedia\(STAR_MOVIE_OBSERVATION_MEDIA_QUERY\)/);
   assert.match(app, /www\.youtube-nocookie\.com\/embed/);
-  assert.match(app, /requestInlinePlay/);
+  assert.match(requestInlinePlayBlock, /setHasLoadedVideo\(true\)/);
+  assert.doesNotMatch(requestInlinePlayBlock, /onOpenObservation/);
+  assert.match(app, /aria-label="流星便の星映を再生"[\s\S]*?onClick=\{requestInlinePlay\}/);
+  assert.match(app, /aria-label="YouTubeを星映観測モードで開く"/);
+  assert.match(app, /aria-label="アップロード動画を星映観測モードで開く"/);
+  assert.match(app, /func: "pauseVideo"/);
+  assert.match(app, /enablejsapi=1/);
+  assert.equal(observationOpenCalls.length, 2);
+  assert.doesNotMatch(app, /aria-label="YouTubeの星映を観測する"/);
+  assert.doesNotMatch(app, /aria-label="流星便の星映を観測する"/);
   assert.match(app, /onOpenObservation\?\.\(videoItem, triggerElement\)/);
-  assert.match(app, /onOpenObservation\?\.\(event\.currentTarget\)/);
+  assert.match(app, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
   assert.match(app, /createUploadMovieObservationMedia/);
   assert.match(app, /createYouTubeMovieObservationMedia/);
 });
 
-test("observation mode presents one immersive movie with details below instead of a side card", async () => {
+test("observation mode presents only the cosmic movie surface and close control", async () => {
   const [mode, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
     readFile(cssUrl, "utf8"),
@@ -156,11 +166,13 @@ test("observation mode presents one immersive movie with details below instead o
   assert.match(mode, /cosmic-background[\s\S]*cosmic-haze[\s\S]*moon[\s\S]*stars-layer/);
   assert.match(mode, /star-movie-observation-stage/);
   assert.match(mode, /star-movie-observation-frame/);
-  assert.match(mode, /star-movie-observation-details/);
-  assert.doesNotMatch(mode, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(340px,410px\)\]/);
+  assert.match(mode, /className="sr-only"[^>]*>[\s\S]*星映観測モード[\s\S]*<\/h2>/);
+  assert.match(mode, /aria-label="星映観測モードを閉じる"/);
+  assert.doesNotMatch(mode, /ObservationActionButton/);
+  assert.doesNotMatch(mode, /star-movie-observation-details/);
+  assert.doesNotMatch(mode, /authorAvatar|starLettersPanel|resonance|archive|post\.text|post\.tags/);
   assert.doesNotMatch(mode, /<aside/);
-  assert.match(css, /\.star-movie-observation-frame::after[\s\S]*pointer-events: none/);
-  assert.match(css, /\.star-movie-observation-details::before[\s\S]*linear-gradient/);
+  assert.doesNotMatch(css, /\.star-movie-observation-details/);
 });
 
 test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", async () => {
@@ -173,9 +185,23 @@ test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", as
   assert.match(mode, /star-movie-observation-upload-frame/);
   assert.doesNotMatch(mode, /star-movie-observation-upload-frame[^"]*aspect-video/);
   assert.doesNotMatch(mode, /star-movie-observation-upload-video[^"]*bg-black/);
+  assert.doesNotMatch(mode, /star-movie-observation-youtube-frame[^"]*bg-black/);
   assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*width: auto;[\s\S]*height: auto;/);
   assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: min\(72vh, 760px\);/);
-  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*opacity: 0\.985;[\s\S]*mask-image: radial-gradient/);
+});
+
+test("upload and YouTube observation frames share a borderless outer fade", async () => {
+  const [mode, css] = await Promise.all([
+    readFile(modeUrl, "utf8"),
+    readFile(cssUrl, "utf8"),
+  ]);
+
+  assert.match(mode, /star-movie-observation-frame star-movie-observation-youtube-frame/);
+  assert.match(mode, /star-movie-observation-frame star-movie-observation-upload-frame/);
+  assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*box-shadow: none;/);
+  assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*opacity: 0\.95;[\s\S]*mask-image: radial-gradient/);
+  assert.match(css, /rgb\(0 0 0 \/ 0\.76\) 91%[\s\S]*transparent 100%/);
+  assert.doesNotMatch(css, /\.star-movie-observation-frame::after/);
 });
 
 test("ambient image glow respects reduced motion", async () => {
