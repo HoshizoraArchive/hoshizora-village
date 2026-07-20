@@ -170,7 +170,7 @@
   }
 
   .star-movie-observation-glow {
-    inset: -22% -18%;
+    inset: -22% 0;
     z-index: -1;
     -webkit-mask-image: radial-gradient(ellipse at center, #000 0 28%, rgb(0 0 0 / 0.82) 47%, transparent 78%);
     mask-image: radial-gradient(ellipse at center, #000 0 28%, rgb(0 0 0 / 0.82) 47%, transparent 78%);
