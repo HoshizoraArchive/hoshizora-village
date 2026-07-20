@@ -7,6 +7,7 @@ import {
   createStarMovieObservationHistoryState,
   createUploadMovieObservationMedia,
   createYouTubeMovieObservationMedia,
+  getStarMovieObservationFocusTargetIndex,
   isStarMovieObservationHistoryState,
   isStarMovieObservationViewport,
 } from "../../../src/starMovieObservation.js";
@@ -59,6 +60,57 @@ test("history marker identifies only the active observation entry", () => {
   assert.equal(isStarMovieObservationHistoryState(null, "observation-1"), false);
 });
 
+test("focus trap wraps Tab and Shift+Tab at the dialog boundaries", () => {
+  assert.equal(
+    getStarMovieObservationFocusTargetIndex({
+      activeIndex: 2,
+      focusableCount: 3,
+      shiftKey: false,
+    }),
+    0,
+  );
+  assert.equal(
+    getStarMovieObservationFocusTargetIndex({
+      activeIndex: 0,
+      focusableCount: 3,
+      shiftKey: true,
+    }),
+    2,
+  );
+  assert.equal(
+    getStarMovieObservationFocusTargetIndex({
+      activeIndex: 1,
+      focusableCount: 3,
+      shiftKey: false,
+    }),
+    null,
+  );
+  assert.equal(
+    getStarMovieObservationFocusTargetIndex({
+      activeIndex: -1,
+      focusableCount: 3,
+      shiftKey: false,
+    }),
+    0,
+  );
+  assert.equal(
+    getStarMovieObservationFocusTargetIndex({
+      activeIndex: -1,
+      focusableCount: 3,
+      shiftKey: true,
+    }),
+    2,
+  );
+  assert.equal(
+    getStarMovieObservationFocusTargetIndex({
+      activeIndex: -1,
+      focusableCount: 0,
+      shiftKey: false,
+    }),
+    -1,
+  );
+});
+
 test("dialog supports close, Escape, scroll lock, focus restoration, and existing playback coordination", async () => {
   const [app, mode] = await Promise.all([
     readFile(appUrl, "utf8"),
@@ -69,6 +121,10 @@ test("dialog supports close, Escape, scroll lock, focus restoration, and existin
   assert.match(mode, /aria-modal="true"/);
   assert.match(mode, /aria-label="星映観測モードを閉じる"/);
   assert.match(mode, /event\.key === "Escape"/);
+  assert.match(mode, /event\.key !== "Tab"/);
+  assert.match(mode, /getStarMovieObservationFocusTargetIndex/);
+  assert.match(mode, /window\.addEventListener\("focusin", handleFocusIn\)/);
+  assert.match(mode, /window\.removeEventListener\("focusin", handleFocusIn\)/);
   assert.match(mode, /document\.body\.style\.overflow = "hidden"/);
   assert.match(mode, /document\.body\.style\.overflow = previousOverflow/);
   assert.match(mode, /POST_INLINE_VIDEO_PLAY_EVENT/);

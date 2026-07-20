@@ -1,8 +1,30 @@
 import { useEffect, useRef } from "react";
 import {
+  getStarMovieObservationFocusTargetIndex,
   POST_INLINE_VIDEO_PLAY_EVENT,
   STAR_MOVIE_OBSERVATION_MEDIA_QUERY,
 } from "./starMovieObservation";
+
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "iframe",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "video[controls]",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function getDialogFocusableElements(dialog) {
+  if (!dialog) {
+    return [];
+  }
+
+  return Array.from(dialog.querySelectorAll(DIALOG_FOCUSABLE_SELECTOR)).filter(
+    (element) => element.getClientRects().length > 0,
+  );
+}
 
 function ObservationActionButton({ active = false, disabled = false, icon, label, onClick }) {
   return (
@@ -36,6 +58,7 @@ export default function StarMovieObservationMode({
   starLettersPanel,
 }) {
   const closeButtonRef = useRef(null);
+  const dialogRef = useRef(null);
   const videoRef = useRef(null);
   const onCloseRef = useRef(onClose);
   const mediaId = `star-movie-observation:${media?.id ?? post?.id ?? "unknown"}`;
@@ -56,6 +79,33 @@ export default function StarMovieObservationMode({
       if (event.key === "Escape") {
         event.preventDefault();
         onCloseRef.current?.();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = dialogRef.current;
+      const focusableElements = getDialogFocusableElements(dialog);
+      const activeIndex = focusableElements.indexOf(document.activeElement);
+      const targetIndex = getStarMovieObservationFocusTargetIndex({
+        activeIndex,
+        focusableCount: focusableElements.length,
+        shiftKey: event.shiftKey,
+      });
+
+      if (targetIndex === null) {
+        return;
+      }
+
+      event.preventDefault();
+      (targetIndex >= 0 ? focusableElements[targetIndex] : dialog)?.focus();
+    }
+
+    function handleFocusIn(event) {
+      if (!dialogRef.current?.contains(event.target)) {
+        closeButtonRef.current?.focus();
       }
     }
 
@@ -68,12 +118,14 @@ export default function StarMovieObservationMode({
     document.body.style.overflow = "hidden";
     window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }));
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("focusin", handleFocusIn);
     desktopQuery.addEventListener?.("change", handleViewportChange);
     closeButtonRef.current?.focus();
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("focusin", handleFocusIn);
       desktopQuery.removeEventListener?.("change", handleViewportChange);
       videoRef.current?.pause();
       videoRef.current?.removeAttribute("src");
@@ -109,7 +161,9 @@ export default function StarMovieObservationMode({
       aria-modal="true"
       className="star-movie-observation fixed inset-0 z-[90] overflow-y-auto overflow-x-hidden bg-night-950/88 px-5 py-5 backdrop-blur-xl lg:px-8 lg:py-7"
       onClick={handleBackdropClick}
+      ref={dialogRef}
       role="dialog"
+      tabIndex={-1}
     >
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_16%_10%,rgba(125,223,255,0.12),transparent_30%),radial-gradient(circle_at_82%_20%,rgba(255,139,207,0.1),transparent_34%),linear-gradient(155deg,rgba(2,6,21,0.28),rgba(17,17,60,0.35),rgba(38,11,49,0.42))]" />
 

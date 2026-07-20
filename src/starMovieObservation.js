@@ -2,6 +2,30 @@ export const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play
 export const STAR_MOVIE_OBSERVATION_MEDIA_QUERY = "(min-width: 1024px)";
 export const STAR_MOVIE_OBSERVATION_HISTORY_KEY = "hoshizoraStarMovieObservation";
 
+export function getStarMovieObservationFocusTargetIndex({
+  activeIndex,
+  focusableCount,
+  shiftKey = false,
+}) {
+  if (!Number.isInteger(focusableCount) || focusableCount <= 0) {
+    return -1;
+  }
+
+  if (!Number.isInteger(activeIndex) || activeIndex < 0 || activeIndex >= focusableCount) {
+    return shiftKey ? focusableCount - 1 : 0;
+  }
+
+  if (shiftKey && activeIndex === 0) {
+    return focusableCount - 1;
+  }
+
+  if (!shiftKey && activeIndex === focusableCount - 1) {
+    return 0;
+  }
+
+  return null;
+}
+
 export function isStarMovieObservationViewport(matchMedia = globalThis.window?.matchMedia?.bind(globalThis.window)) {
   return Boolean(matchMedia?.(STAR_MOVIE_OBSERVATION_MEDIA_QUERY).matches);
 }
