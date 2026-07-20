@@ -156,6 +156,16 @@
     filter: brightness(1.06);
   }
 
+  .star-movie-observation {
+    overscroll-behavior: contain;
+  }
+
+  .star-movie-observation-glow {
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 0 38%, rgb(0 0 0 / 0.72) 56%, transparent 76%);
+    mask-image: radial-gradient(ellipse at center, #000 0 38%, rgb(0 0 0 / 0.72) 56%, transparent 76%);
+    animation: starMovieObservationGlow 8s ease-in-out infinite alternate;
+  }
+
   .cosmic-background {
     background:
       radial-gradient(circle at 18% 10%, rgb(125 223 255 / 0.34), transparent 25%),
@@ -402,6 +412,18 @@
   }
 }
 
+@keyframes starMovieObservationGlow {
+  from {
+    opacity: 0.72;
+    transform: scale(0.98);
+  }
+
+  to {
+    opacity: 0.96;
+    transform: scale(1.025);
+  }
+}
+
 @media (max-width: 640px) {
   .moon {
     left: 22px;
@@ -448,5 +470,9 @@
 
   .shooting-star {
     display: none;
+  }
+
+  .star-movie-observation-glow {
+    animation: none;
   }
 }
