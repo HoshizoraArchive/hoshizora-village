@@ -165,7 +165,7 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
                 <iframe
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
-                  className="star-movie-surface h-full w-full"
+                  className="star-movie-observation-surface star-movie-surface h-full w-full"
                   referrerPolicy="strict-origin-when-cross-origin"
                   src={`https://www.youtube-nocookie.com/embed/${media.videoId}?rel=0`}
                   title={`${post.name}の星映`}
@@ -174,7 +174,7 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
             ) : (
               <div className="star-movie-observation-frame star-movie-observation-upload-frame relative w-fit max-w-full overflow-hidden">
                 <video
-                  className="star-movie-observation-upload-video star-movie-surface block"
+                  className="star-movie-observation-upload-video star-movie-observation-surface star-movie-surface block"
                   controls
                   onPlay={handleVideoPlay}
                   playsInline

@@ -177,6 +177,10 @@
     .star-movie-surface {
       opacity: 0.9;
     }
+
+    .star-movie-observation-surface {
+      opacity: 0.65;
+    }
   }
 
   .star-movie-observation-frame {

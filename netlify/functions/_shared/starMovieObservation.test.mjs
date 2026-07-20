@@ -190,7 +190,7 @@ test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", as
   assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: min\(72vh, 760px\);/);
 });
 
-test("inline and observation movies share a uniform translucent surface without edge effects", async () => {
+test("observation movies use their own uniform opacity without changing inline playback", async () => {
   const [mode, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
     readFile(cssUrl, "utf8"),
@@ -201,12 +201,14 @@ test("inline and observation movies share a uniform translucent surface without 
 
   assert.match(mode, /star-movie-observation-frame star-movie-observation-youtube-frame/);
   assert.match(mode, /star-movie-observation-frame star-movie-observation-upload-frame/);
-  assert.match(mode, /className="star-movie-surface h-full w-full"/);
-  assert.match(mode, /className="star-movie-observation-upload-video star-movie-surface block"/);
+  assert.match(mode, /className="star-movie-observation-surface star-movie-surface h-full w-full"/);
+  assert.match(mode, /className="star-movie-observation-upload-video star-movie-observation-surface star-movie-surface block"/);
   assert.match(app, /className="star-movie-surface h-full w-full"/);
   assert.match(app, /className="star-movie-surface h-full w-full bg-black object-contain"/);
+  assert.doesNotMatch(app, /star-movie-observation-surface/);
   assert.match(css, /\.star-movie-surface\s*\{\s*opacity: 1;\s*\}/);
   assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*?\.star-movie-surface\s*\{\s*opacity: 0\.9;\s*\}/);
+  assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*?\.star-movie-observation-surface\s*\{\s*opacity: 0\.65;\s*\}/);
   assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*box-shadow: none;/);
   assert.doesNotMatch(observationFrameRule, /mask-image:/);
   assert.doesNotMatch(observationFrameRule, /mix-blend-mode:/);
