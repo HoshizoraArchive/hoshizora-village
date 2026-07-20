@@ -9756,7 +9756,9 @@ function PostMediaGrid({ media = [], onOpenMedia, onOpenObservation }) {
         <PostVideoAttachment
           item={videoItem}
           onOpenMedia={onOpenMedia}
-          onOpenObservation={onOpenObservation}
+          onOpenObservation={(triggerElement) =>
+            onOpenObservation?.(videoItem, triggerElement)
+          }
         />
       )}
       {visibleImages.length > 0 && (

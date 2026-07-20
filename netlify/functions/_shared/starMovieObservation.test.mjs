@@ -85,6 +85,7 @@ test("desktop observation entry and unchanged mobile playback are rendered as ex
   assert.match(app, /window\.matchMedia\(STAR_MOVIE_OBSERVATION_MEDIA_QUERY\)/);
   assert.match(app, /www\.youtube-nocookie\.com\/embed/);
   assert.match(app, /requestInlinePlay/);
+  assert.match(app, /onOpenObservation\?\.\(videoItem, triggerElement\)/);
   assert.match(app, /onOpenObservation\?\.\(event\.currentTarget\)/);
   assert.match(app, /createUploadMovieObservationMedia/);
   assert.match(app, /createYouTubeMovieObservationMedia/);
