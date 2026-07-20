@@ -160,10 +160,56 @@
     overscroll-behavior: contain;
   }
 
+  .star-movie-observation-content {
+    width: min(1180px, calc(100vw - 96px), 145vh);
+    max-width: 100%;
+  }
+
+  .star-movie-observation-stage {
+    isolation: isolate;
+  }
+
   .star-movie-observation-glow {
-    -webkit-mask-image: radial-gradient(ellipse at center, #000 0 38%, rgb(0 0 0 / 0.72) 56%, transparent 76%);
-    mask-image: radial-gradient(ellipse at center, #000 0 38%, rgb(0 0 0 / 0.72) 56%, transparent 76%);
+    inset: -22% -18%;
+    z-index: -1;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 0 28%, rgb(0 0 0 / 0.82) 47%, transparent 78%);
+    mask-image: radial-gradient(ellipse at center, #000 0 28%, rgb(0 0 0 / 0.82) 47%, transparent 78%);
+    mix-blend-mode: screen;
     animation: starMovieObservationGlow 8s ease-in-out infinite alternate;
+  }
+
+  .star-movie-observation-frame {
+    border-radius: clamp(14px, 1.5vw, 24px);
+    box-shadow:
+      0 34px 120px rgb(0 0 0 / 0.48),
+      0 0 88px rgb(125 223 255 / 0.12),
+      0 0 132px rgb(159 140 255 / 0.08);
+  }
+
+  .star-movie-observation-frame::after {
+    position: absolute;
+    inset: 0;
+    border: 1px solid rgb(255 255 255 / 0.1);
+    border-radius: inherit;
+    box-shadow:
+      inset 0 0 42px rgb(2 6 21 / 0.28),
+      inset 0 1px 0 rgb(255 255 255 / 0.1);
+    content: "";
+    pointer-events: none;
+  }
+
+  .star-movie-observation-details {
+    position: relative;
+  }
+
+  .star-movie-observation-details::before {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgb(125 223 255 / 0.34), rgb(159 140 255 / 0.2), transparent);
+    content: "";
   }
 
   .cosmic-background {

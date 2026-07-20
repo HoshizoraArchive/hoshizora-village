@@ -147,6 +147,22 @@ test("desktop observation entry and unchanged mobile playback are rendered as ex
   assert.match(app, /createYouTubeMovieObservationMedia/);
 });
 
+test("observation mode presents one immersive movie with details below instead of a side card", async () => {
+  const [mode, css] = await Promise.all([
+    readFile(modeUrl, "utf8"),
+    readFile(cssUrl, "utf8"),
+  ]);
+
+  assert.match(mode, /cosmic-background[\s\S]*cosmic-haze[\s\S]*moon[\s\S]*stars-layer/);
+  assert.match(mode, /star-movie-observation-stage/);
+  assert.match(mode, /star-movie-observation-frame/);
+  assert.match(mode, /star-movie-observation-details/);
+  assert.doesNotMatch(mode, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(340px,410px\)\]/);
+  assert.doesNotMatch(mode, /<aside/);
+  assert.match(css, /\.star-movie-observation-frame::after[\s\S]*pointer-events: none/);
+  assert.match(css, /\.star-movie-observation-details::before[\s\S]*linear-gradient/);
+});
+
 test("ambient image glow respects reduced motion", async () => {
   const css = await readFile(cssUrl, "utf8");
 
