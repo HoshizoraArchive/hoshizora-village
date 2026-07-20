@@ -36,7 +36,7 @@ import {
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
   { id: "rconnect", label: "R.Connect", icon: "bell" },
-  { id: "post", label: "流星便投稿", icon: "plus", primary: true },
+  { id: "post", label: "流星便", icon: "plus", primary: true },
   { id: "archive", label: "Archive", icon: "bookmark" },
   { id: "profile", label: "My Const.", ariaLabel: "My Constellation", icon: "constellation" },
 ];
