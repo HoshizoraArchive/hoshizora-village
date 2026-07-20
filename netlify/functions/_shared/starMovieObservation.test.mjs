@@ -163,6 +163,21 @@ test("observation mode presents one immersive movie with details below instead o
   assert.match(css, /\.star-movie-observation-details::before[\s\S]*linear-gradient/);
 });
 
+test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", async () => {
+  const [mode, css] = await Promise.all([
+    readFile(modeUrl, "utf8"),
+    readFile(cssUrl, "utf8"),
+  ]);
+
+  assert.match(mode, /star-movie-observation-youtube-frame[^"]*aspect-video/);
+  assert.match(mode, /star-movie-observation-upload-frame/);
+  assert.doesNotMatch(mode, /star-movie-observation-upload-frame[^"]*aspect-video/);
+  assert.doesNotMatch(mode, /star-movie-observation-upload-video[^"]*bg-black/);
+  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*width: auto;[\s\S]*height: auto;/);
+  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: min\(72vh, 760px\);/);
+  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*opacity: 0\.985;[\s\S]*mask-image: radial-gradient/);
+});
+
 test("ambient image glow respects reduced motion", async () => {
   const css = await readFile(cssUrl, "utf8");
 

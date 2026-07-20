@@ -194,39 +194,47 @@ export default function StarMovieObservationMode({
 
       <div className="star-movie-observation-content relative z-10 mx-auto flex min-h-full flex-col justify-center px-6 py-20">
         <section className="star-movie-observation-stage relative mx-auto w-full min-w-0" aria-label="星映">
-          <div className="star-movie-observation-glow pointer-events-none absolute overflow-hidden" aria-hidden="true">
-            {media.posterUrl ? (
-              <img
-                alt=""
-                className="h-full w-full scale-125 object-cover opacity-55 blur-[72px] saturate-150"
-                src={media.posterUrl}
-              />
-            ) : (
-              <div className="h-full w-full bg-[radial-gradient(circle_at_28%_30%,rgba(125,223,255,0.6),transparent_40%),radial-gradient(circle_at_76%_64%,rgba(255,139,207,0.48),transparent_44%),linear-gradient(135deg,rgba(30,50,120,0.78),rgba(79,38,125,0.68),rgba(10,16,45,0.74))] opacity-65 blur-[72px]" />
-            )}
-          </div>
+          <div
+            className={`star-movie-observation-media relative mx-auto ${
+              media.kind === "youtube" ? "w-full" : "w-fit max-w-full"
+            }`}
+          >
+            <div className="star-movie-observation-glow pointer-events-none absolute overflow-hidden" aria-hidden="true">
+              {media.posterUrl ? (
+                <img
+                  alt=""
+                  className="h-full w-full scale-125 object-cover opacity-55 blur-[72px] saturate-150"
+                  src={media.posterUrl}
+                />
+              ) : (
+                <div className="h-full w-full bg-[radial-gradient(circle_at_28%_30%,rgba(125,223,255,0.6),transparent_40%),radial-gradient(circle_at_76%_64%,rgba(255,139,207,0.48),transparent_44%),linear-gradient(135deg,rgba(30,50,120,0.78),rgba(79,38,125,0.68),rgba(10,16,45,0.74))] opacity-65 blur-[72px]" />
+              )}
+            </div>
 
-          <div className="star-movie-observation-frame relative mx-auto aspect-video w-full overflow-hidden bg-black/90">
             {media.kind === "youtube" ? (
-              <iframe
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                className="h-full w-full"
-                referrerPolicy="strict-origin-when-cross-origin"
-                src={`https://www.youtube-nocookie.com/embed/${media.videoId}?rel=0`}
-                title={`${post.name}の星映`}
-              />
+              <div className="star-movie-observation-frame star-movie-observation-youtube-frame relative aspect-video w-full overflow-hidden bg-black/90">
+                <iframe
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="h-full w-full"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  src={`https://www.youtube-nocookie.com/embed/${media.videoId}?rel=0`}
+                  title={`${post.name}の星映`}
+                />
+              </div>
             ) : (
-              <video
-                className="h-full w-full bg-black object-contain"
-                controls
-                onPlay={handleVideoPlay}
-                playsInline
-                poster={media.posterUrl ?? undefined}
-                preload="metadata"
-                ref={videoRef}
-                src={media.src}
-              />
+              <div className="star-movie-observation-frame star-movie-observation-upload-frame relative w-fit max-w-full overflow-hidden">
+                <video
+                  className="star-movie-observation-upload-video block"
+                  controls
+                  onPlay={handleVideoPlay}
+                  playsInline
+                  poster={media.posterUrl ?? undefined}
+                  preload="metadata"
+                  ref={videoRef}
+                  src={media.src}
+                />
+              </div>
             )}
           </div>
         </section>
