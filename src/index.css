@@ -183,9 +183,9 @@
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    opacity: 0.95;
-    -webkit-mask-image: radial-gradient(ellipse at center, #000 0 76%, rgb(0 0 0 / 0.98) 82%, rgb(0 0 0 / 0.76) 91%, rgb(0 0 0 / 0.18) 98%, transparent 100%);
-    mask-image: radial-gradient(ellipse at center, #000 0 76%, rgb(0 0 0 / 0.98) 82%, rgb(0 0 0 / 0.76) 91%, rgb(0 0 0 / 0.18) 98%, transparent 100%);
+    opacity: 0.88;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 0 58%, rgb(0 0 0 / 0.96) 64%, rgb(0 0 0 / 0.72) 74%, rgb(0 0 0 / 0.4) 84%, rgb(0 0 0 / 0.14) 93%, transparent 100%);
+    mask-image: radial-gradient(ellipse at center, #000 0 58%, rgb(0 0 0 / 0.96) 64%, rgb(0 0 0 / 0.72) 74%, rgb(0 0 0 / 0.4) 84%, rgb(0 0 0 / 0.14) 93%, transparent 100%);
   }
 
   .star-movie-observation-upload-frame {

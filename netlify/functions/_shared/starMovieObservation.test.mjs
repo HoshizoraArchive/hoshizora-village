@@ -199,8 +199,8 @@ test("upload and YouTube observation frames share a borderless outer fade", asyn
   assert.match(mode, /star-movie-observation-frame star-movie-observation-youtube-frame/);
   assert.match(mode, /star-movie-observation-frame star-movie-observation-upload-frame/);
   assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*box-shadow: none;/);
-  assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*opacity: 0\.95;[\s\S]*mask-image: radial-gradient/);
-  assert.match(css, /rgb\(0 0 0 \/ 0\.76\) 91%[\s\S]*transparent 100%/);
+  assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*opacity: 0\.88;[\s\S]*mask-image: radial-gradient/);
+  assert.match(css, /#000 0 58%[\s\S]*rgb\(0 0 0 \/ 0\.72\) 74%[\s\S]*rgb\(0 0 0 \/ 0\.14\) 93%[\s\S]*transparent 100%/);
   assert.doesNotMatch(css, /\.star-movie-observation-frame::after/);
 });
 
