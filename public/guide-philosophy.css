@@ -84,6 +84,9 @@
   line-height: 1.55;
   letter-spacing: 0.015em;
   color: white;
+  white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: normal;
   text-wrap: balance;
   text-shadow:
     0 0 22px rgb(125 223 255 / 0.2),
