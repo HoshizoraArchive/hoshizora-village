@@ -2,10 +2,10 @@
  * 「はじめての入村案内」の先頭にある理念カード専用スタイル。
  * about_village セクションは display_variant="notice" として表示し、
  * 同じ notice 表示を使う末尾のベータ案内には影響しないよう、
- * 案内本文直下の最初の notice カードだけを対象にする。
+ * 後ろに通常セクションが続く notice カードだけを対象にする。
  */
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type {
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section) {
   position: relative;
   overflow: hidden;
   padding: clamp(1.25rem, 4vw, 1.75rem);
@@ -21,7 +21,7 @@
 }
 
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type::before {
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -35,14 +35,14 @@
 }
 
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3 {
   position: relative;
   z-index: 1;
 }
 
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p {
   color: rgb(203 213 225);
@@ -50,7 +50,7 @@
 
 /* セクション名 */
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(1) {
   margin-bottom: 0.2rem;
@@ -62,7 +62,7 @@
 
 /* Philosophy ラベル */
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(2) {
   margin-top: 0.1rem;
@@ -75,7 +75,7 @@
 
 /* この画面で最も強く見せる理念の結論 */
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(3) {
   margin-top: 0.65rem;
@@ -92,7 +92,7 @@
 
 /* 「たった一人でもいい。」を本文内の第二の軸として強調 */
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(6) {
   margin-top: 1.5rem;
@@ -103,7 +103,7 @@
 
 /* 最後の三つの価値観 */
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(n + 9):nth-child(-n + 11) {
   font-size: 1.04rem;
@@ -114,7 +114,7 @@
 }
 
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(9) {
   margin-top: 1.75rem;
@@ -122,21 +122,21 @@
 }
 
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(10) {
   color: rgb(255 255 255);
 }
 
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(11) {
   color: rgb(255 139 207);
 }
 
 .space-y-4.pb-8
-  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
   > .space-y-3
   > p:nth-child(12) {
   margin-top: 1.65rem;
@@ -147,7 +147,7 @@
 
 @media (max-width: 420px) {
   .space-y-4.pb-8
-    > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+    > div[class~="border-sakura/20"][class~="bg-sakura/10"]:has(~ section)
     > .space-y-3
     > p:nth-child(3) {
     font-size: 1.45rem;
