@@ -1,0 +1,156 @@
+/*
+ * 「はじめての入村案内」の先頭にある理念カード専用スタイル。
+ * about_village セクションは display_variant="notice" として表示し、
+ * 同じ notice 表示を使う末尾のベータ案内には影響しないよう、
+ * 案内本文直下の最初の notice カードだけを対象にする。
+ */
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.25rem, 4vw, 1.75rem);
+  border-color: rgb(125 223 255 / 0.28);
+  border-radius: 1.5rem;
+  background:
+    radial-gradient(circle at 14% 8%, rgb(125 223 255 / 0.16), transparent 34%),
+    radial-gradient(circle at 92% 18%, rgb(255 139 207 / 0.14), transparent 36%),
+    linear-gradient(145deg, rgb(5 13 35 / 0.96), rgb(24 8 38 / 0.94));
+  box-shadow:
+    0 22px 60px rgb(0 0 0 / 0.28),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, rgb(255 255 255 / 0.72) 0 1px, transparent 1.6px),
+    radial-gradient(circle, rgb(125 223 255 / 0.52) 0 0.9px, transparent 1.5px);
+  background-position: 18px 20px, 92px 58px;
+  background-size: 126px 144px, 186px 214px;
+  opacity: 0.28;
+}
+
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3 {
+  position: relative;
+  z-index: 1;
+}
+
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p {
+  color: rgb(203 213 225);
+}
+
+/* セクション名 */
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(1) {
+  margin-bottom: 0.2rem;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1.5;
+  color: rgb(125 223 255);
+}
+
+/* Philosophy ラベル */
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(2) {
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+  color: rgb(255 139 207);
+}
+
+/* この画面で最も強く見せる理念の結論 */
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(3) {
+  margin-top: 0.65rem;
+  font-size: clamp(1.55rem, 6vw, 2.25rem);
+  font-weight: 900;
+  line-height: 1.55;
+  letter-spacing: 0.015em;
+  color: white;
+  text-wrap: balance;
+  text-shadow:
+    0 0 22px rgb(125 223 255 / 0.2),
+    0 0 34px rgb(255 139 207 / 0.12);
+}
+
+/* 「たった一人でもいい。」を本文内の第二の軸として強調 */
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(6) {
+  margin-top: 1.5rem;
+  font-size: 1.16rem;
+  font-weight: 900;
+  color: rgb(223 247 255);
+}
+
+/* 最後の三つの価値観 */
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(n + 9):nth-child(-n + 11) {
+  font-size: 1.04rem;
+  font-weight: 900;
+  line-height: 1.7;
+  text-align: center;
+  color: white;
+}
+
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(9) {
+  margin-top: 1.75rem;
+  color: rgb(125 223 255);
+}
+
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(10) {
+  color: rgb(255 255 255);
+}
+
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(11) {
+  color: rgb(255 139 207);
+}
+
+.space-y-4.pb-8
+  > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+  > .space-y-3
+  > p:nth-child(12) {
+  margin-top: 1.65rem;
+  font-weight: 900;
+  text-align: right;
+  color: rgb(125 223 255);
+}
+
+@media (max-width: 420px) {
+  .space-y-4.pb-8
+    > div[class~="border-sakura/20"][class~="bg-sakura/10"]:first-of-type
+    > .space-y-3
+    > p:nth-child(3) {
+    font-size: 1.45rem;
+    line-height: 1.58;
+  }
+}
