@@ -206,9 +206,10 @@ test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", as
   );
 });
 
-test("observation media covers the PNG opening and scales within the desktop viewport", async () => {
-  const [mode, css] = await Promise.all([
+test("observation media follows the traced PNG aperture and scales within the desktop viewport", async () => {
+  const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
+    readFile(windowUrl, "utf8"),
     readFile(cssUrl, "utf8"),
   ]);
   const observationContentRule =
@@ -223,10 +224,18 @@ test("observation media covers the PNG opening and scales within the desktop vie
   assert.match(observationContentRule, /1440px/);
   assert.match(observationContentRule, /calc\(100vw - 32px\)/);
   assert.match(observationContentRule, /calc\(\(100vh - 96px\) \* \(1536 \/ 743\)\)/);
-  assert.match(css, /--observation-window-opening-top: 3%;/);
-  assert.match(css, /--observation-window-opening-right: 9\.2%;/);
-  assert.match(css, /--observation-window-opening-bottom: 3%;/);
-  assert.match(css, /--observation-window-opening-left: 9\.2%;/);
+  assert.match(observationWindow, /clipPathUnits="objectBoundingBox"/);
+  assert.match(observationWindow, /STAR_MOVIE_OBSERVATION_APERTURE_PATH/);
+  assert.match(observationWindow, /M 0\.08724 0\.48856[\s\S]*Z"/);
+  assert.match(
+    css,
+    /--observation-window-aperture-clip: url\("#star-movie-observation-aperture"\);/,
+  );
+  assert.match(
+    css,
+    /\.star-movie-observation-window-viewport\s*\{[\s\S]*inset: 0;[\s\S]*clip-path: var\(--observation-window-aperture-clip\);/,
+  );
+  assert.doesNotMatch(css, /--observation-window-opening-(?:top|right|bottom|left|radius)/);
   assert.match(youtubeFrameRule, /width: 100%;/);
   assert.match(youtubeFrameRule, /height: 100%;/);
   assert.match(youtubeFrameRule, /overflow: hidden;/);
@@ -236,7 +245,7 @@ test("observation media covers the PNG opening and scales within the desktop vie
   assert.match(mode, /className="fixed right-5 top-3 z-50/);
 });
 
-test("observation movies keep the shared uniform surface opacity used by inline playback", async () => {
+test("observation movies use dedicated opacity without changing inline playback", async () => {
   const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
     readFile(windowUrl, "utf8"),
@@ -247,15 +256,23 @@ test("observation movies keep the shared uniform surface opacity used by inline 
     css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
 
   assert.match(observationWindow, /star-movie-observation-frame/);
-  assert.match(mode, /className="star-movie-surface h-full w-full"/);
-  assert.match(mode, /className="star-movie-observation-upload-video star-movie-surface block"/);
+  assert.match(
+    mode,
+    /className="star-movie-observation-surface star-movie-surface h-full w-full"/,
+  );
+  assert.match(
+    mode,
+    /className="star-movie-observation-surface star-movie-observation-upload-video star-movie-surface block"/,
+  );
   assert.match(app, /className="star-movie-surface h-full w-full"/);
   assert.match(app, /className="star-movie-surface h-full w-full bg-black object-contain"/);
   assert.doesNotMatch(app, /star-movie-observation-surface/);
-  assert.doesNotMatch(mode, /star-movie-observation-surface/);
   assert.match(css, /\.star-movie-surface\s*\{\s*opacity: 1;\s*\}/);
   assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*?\.star-movie-surface\s*\{\s*opacity: 0\.9;\s*\}/);
-  assert.doesNotMatch(css, /\.star-movie-observation-surface/);
+  assert.match(
+    css,
+    /@media \(min-width: 1024px\)\s*\{[\s\S]*?\.star-movie-observation-surface\s*\{\s*opacity: 0\.78;\s*\}/,
+  );
   assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*background: transparent;[\s\S]*border: 0;[\s\S]*box-shadow: none;/);
   assert.doesNotMatch(observationFrameRule, /mask-image:/);
   assert.doesNotMatch(observationFrameRule, /mix-blend-mode:/);
@@ -280,10 +297,7 @@ test("observation window overlays the provided PNG unchanged and stays non-inter
   );
   assert.match(observationWindow, /<img[\s\S]*aria-hidden="true"[\s\S]*draggable="false"/);
   assert.match(css, /--observation-window-frame-aspect-ratio: 1536 \/ 743;/);
-  assert.match(css, /--observation-window-opening-top:/);
-  assert.match(css, /--observation-window-opening-right:/);
-  assert.match(css, /--observation-window-opening-bottom:/);
-  assert.match(css, /--observation-window-opening-left:/);
+  assert.match(css, /--observation-window-aperture-clip:/);
   assert.match(frameArtRule, /pointer-events: none;/);
   assert.match(frameArtRule, /object-fit: contain;/);
   assert.doesNotMatch(frameArtRule, /filter|mask|mix-blend-mode|opacity|transform/);

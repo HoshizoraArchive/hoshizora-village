@@ -181,15 +181,15 @@
     .star-movie-surface {
       opacity: 0.9;
     }
+
+    .star-movie-observation-surface {
+      opacity: 0.78;
+    }
   }
 
   .star-movie-observation-window {
     --observation-window-frame-aspect-ratio: 1536 / 743;
-    --observation-window-opening-top: 3%;
-    --observation-window-opening-right: 9.2%;
-    --observation-window-opening-bottom: 3%;
-    --observation-window-opening-left: 9.2%;
-    --observation-window-opening-radius: 9% / 18%;
+    --observation-window-aperture-clip: url("#star-movie-observation-aperture");
     position: relative;
     isolation: isolate;
     width: 100%;
@@ -197,21 +197,25 @@
     aspect-ratio: var(--observation-window-frame-aspect-ratio);
   }
 
+  .star-movie-observation-clip-definitions {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
   .star-movie-observation-window-viewport {
     position: absolute;
     z-index: 1;
-    inset:
-      var(--observation-window-opening-top)
-      var(--observation-window-opening-right)
-      var(--observation-window-opening-bottom)
-      var(--observation-window-opening-left);
+    inset: 0;
     display: flex;
     min-width: 0;
     min-height: 0;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    border-radius: var(--observation-window-opening-radius);
+    -webkit-clip-path: var(--observation-window-aperture-clip);
+    clip-path: var(--observation-window-aperture-clip);
   }
 
   .star-movie-observation-window-art {
