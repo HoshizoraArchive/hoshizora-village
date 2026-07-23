@@ -15,6 +15,7 @@ import {
 const repositoryRoot = new URL("../../../", import.meta.url);
 const appUrl = new URL("src/App.jsx", repositoryRoot);
 const modeUrl = new URL("src/StarMovieObservationMode.jsx", repositoryRoot);
+const windowUrl = new URL("src/StarMovieObservationWindow.jsx", repositoryRoot);
 const cssUrl = new URL("src/index.css", repositoryRoot);
 
 test("observation mode uses the responsive 1024px desktop boundary", () => {
@@ -158,14 +159,16 @@ test("inline playback stays available and only dedicated desktop controls open o
 });
 
 test("observation mode presents only the cosmic movie surface and close control", async () => {
-  const [mode, css] = await Promise.all([
+  const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
+    readFile(windowUrl, "utf8"),
     readFile(cssUrl, "utf8"),
   ]);
 
   assert.match(mode, /cosmic-background[\s\S]*cosmic-haze[\s\S]*moon[\s\S]*stars-layer/);
   assert.match(mode, /star-movie-observation-stage/);
-  assert.match(mode, /star-movie-observation-frame/);
+  assert.match(mode, /StarMovieObservationWindow/);
+  assert.match(observationWindow, /star-movie-observation-frame/);
   assert.match(mode, /className="sr-only"[^>]*>[\s\S]*星映観測モード[\s\S]*<\/h2>/);
   assert.match(mode, /aria-label="星映観測モードを閉じる"/);
   assert.doesNotMatch(mode, /ObservationActionButton/);
@@ -176,40 +179,42 @@ test("observation mode presents only the cosmic movie surface and close control"
 });
 
 test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", async () => {
-  const [mode, css] = await Promise.all([
+  const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
+    readFile(windowUrl, "utf8"),
     readFile(cssUrl, "utf8"),
   ]);
 
-  assert.match(mode, /star-movie-observation-youtube-frame[^"]*aspect-video/);
-  assert.match(mode, /star-movie-observation-upload-frame/);
-  assert.doesNotMatch(mode, /star-movie-observation-upload-frame[^"]*aspect-video/);
+  assert.match(observationWindow, /star-movie-observation-youtube-frame aspect-video w-full/);
+  assert.match(observationWindow, /star-movie-observation-upload-frame w-fit max-w-full/);
+  assert.doesNotMatch(observationWindow, /star-movie-observation-upload-frame[^"]*aspect-video/);
   assert.doesNotMatch(mode, /star-movie-observation-upload-video[^"]*bg-black/);
-  assert.doesNotMatch(mode, /star-movie-observation-youtube-frame[^"]*bg-black/);
+  assert.doesNotMatch(observationWindow, /star-movie-observation-youtube-frame[^"]*bg-black/);
   assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*width: auto;[\s\S]*height: auto;/);
   assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: min\(72vh, 760px\);/);
 });
 
-test("observation movies use their own uniform opacity without changing inline playback", async () => {
-  const [mode, css] = await Promise.all([
+test("observation movies keep the shared uniform surface opacity used by inline playback", async () => {
+  const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
+    readFile(windowUrl, "utf8"),
     readFile(cssUrl, "utf8"),
   ]);
   const app = await readFile(appUrl, "utf8");
   const observationFrameRule =
     css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
 
-  assert.match(mode, /star-movie-observation-frame star-movie-observation-youtube-frame/);
-  assert.match(mode, /star-movie-observation-frame star-movie-observation-upload-frame/);
-  assert.match(mode, /className="star-movie-observation-surface star-movie-surface h-full w-full"/);
-  assert.match(mode, /className="star-movie-observation-upload-video star-movie-observation-surface star-movie-surface block"/);
+  assert.match(observationWindow, /star-movie-observation-frame relative overflow-hidden/);
+  assert.match(mode, /className="star-movie-surface h-full w-full"/);
+  assert.match(mode, /className="star-movie-observation-upload-video star-movie-surface block"/);
   assert.match(app, /className="star-movie-surface h-full w-full"/);
   assert.match(app, /className="star-movie-surface h-full w-full bg-black object-contain"/);
   assert.doesNotMatch(app, /star-movie-observation-surface/);
+  assert.doesNotMatch(mode, /star-movie-observation-surface/);
   assert.match(css, /\.star-movie-surface\s*\{\s*opacity: 1;\s*\}/);
   assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*?\.star-movie-surface\s*\{\s*opacity: 0\.9;\s*\}/);
-  assert.match(css, /@media \(min-width: 1024px\)\s*\{[\s\S]*?\.star-movie-observation-surface\s*\{\s*opacity: 0\.65;\s*\}/);
-  assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*box-shadow: none;/);
+  assert.doesNotMatch(css, /\.star-movie-observation-surface/);
+  assert.match(css, /\.star-movie-observation-frame\s*\{[\s\S]*background: transparent;[\s\S]*border: 0;[\s\S]*box-shadow: none;/);
   assert.doesNotMatch(observationFrameRule, /mask-image:/);
   assert.doesNotMatch(observationFrameRule, /mix-blend-mode:/);
   assert.doesNotMatch(css, /\.star-movie-observation-glow/);
@@ -217,15 +222,43 @@ test("observation movies use their own uniform opacity without changing inline p
   assert.doesNotMatch(css, /\.star-movie-observation-frame::after/);
 });
 
+test("observation window is a replaceable non-interactive CSS frame", async () => {
+  const [observationWindow, css] = await Promise.all([
+    readFile(windowUrl, "utf8"),
+    readFile(cssUrl, "utf8"),
+  ]);
+
+  assert.match(observationWindow, /export default function StarMovieObservationWindow/);
+  assert.match(observationWindow, /star-movie-observation-window-ornaments/);
+  assert.equal(
+    (observationWindow.match(/star-movie-observation-window-star-/g) ?? []).length,
+    4,
+  );
+  assert.match(css, /--observation-window-frame-color:/);
+  assert.match(css, /--observation-window-inner-edge-color:/);
+  assert.match(css, /--observation-window-glow-color:/);
+  assert.match(css, /--observation-window-glow-strength:/);
+  assert.match(css, /--observation-window-inner-glow-strength:/);
+  assert.match(css, /--observation-window-line-width:/);
+  assert.match(css, /--observation-window-radius:/);
+  assert.match(css, /--observation-window-decoration-opacity:/);
+  assert.match(css, /\.star-movie-observation-window::before\s*\{[\s\S]*pointer-events: none;/);
+  assert.match(css, /\.star-movie-observation-window::after\s*\{[\s\S]*pointer-events: none;/);
+  assert.match(css, /\.star-movie-observation-window-ornaments\s*\{[\s\S]*pointer-events: none;/);
+  assert.doesNotMatch(observationWindow, /\.(png|jpe?g|webp)/);
+});
+
 test("observation mode does not add vignette, radial mask, blend, or blur effects", async () => {
-  const [mode, css] = await Promise.all([
+  const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
+    readFile(windowUrl, "utf8"),
     readFile(cssUrl, "utf8"),
   ]);
   const observationFrameRule =
     css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
 
   assert.doesNotMatch(mode, /blur-\[|mix-blend|star-movie-observation-glow/);
+  assert.doesNotMatch(observationWindow, /blur-\[|mix-blend|star-movie-observation-glow/);
   assert.doesNotMatch(observationFrameRule, /radial-gradient|mask-image|mix-blend-mode|filter|blur/);
   assert.doesNotMatch(css, /\.star-movie-observation-glow/);
 });

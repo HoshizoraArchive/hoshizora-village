@@ -4,6 +4,7 @@ import {
   POST_INLINE_VIDEO_PLAY_EVENT,
   STAR_MOVIE_OBSERVATION_MEDIA_QUERY,
 } from "./starMovieObservation";
+import StarMovieObservationWindow from "./StarMovieObservationWindow";
 
 const DIALOG_FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -160,21 +161,19 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
               media.kind === "youtube" ? "w-full" : "w-fit max-w-full"
             }`}
           >
-            {media.kind === "youtube" ? (
-              <div className="star-movie-observation-frame star-movie-observation-youtube-frame relative aspect-video w-full overflow-hidden">
+            <StarMovieObservationWindow mediaKind={media.kind}>
+              {media.kind === "youtube" ? (
                 <iframe
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
-                  className="star-movie-observation-surface star-movie-surface h-full w-full"
+                  className="star-movie-surface h-full w-full"
                   referrerPolicy="strict-origin-when-cross-origin"
                   src={`https://www.youtube-nocookie.com/embed/${media.videoId}?rel=0`}
                   title={`${post.name}の星映`}
                 />
-              </div>
-            ) : (
-              <div className="star-movie-observation-frame star-movie-observation-upload-frame relative w-fit max-w-full overflow-hidden">
+              ) : (
                 <video
-                  className="star-movie-observation-upload-video star-movie-observation-surface star-movie-surface block"
+                  className="star-movie-observation-upload-video star-movie-surface block"
                   controls
                   onPlay={handleVideoPlay}
                   playsInline
@@ -183,8 +182,8 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
                   ref={videoRef}
                   src={media.src}
                 />
-              </div>
-            )}
+              )}
+            </StarMovieObservationWindow>
           </div>
         </section>
       </div>
