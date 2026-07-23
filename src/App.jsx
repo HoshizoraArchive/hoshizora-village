@@ -10,6 +10,7 @@ import { supabase } from "./lib/supabaseClient";
 import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw";
 import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import VillageGuideAdminScreen from "./VillageGuideAdmin";
+import StarMovieObservationMode from "./StarMovieObservationMode";
 import {
   getPushNotificationPermission,
   getPushNotificationPermissionLabel,
@@ -32,6 +33,15 @@ import {
   validateVillageGuideEntryInput,
   validateVillageGuideSectionInput,
 } from "./villageGuide";
+import {
+  POST_INLINE_VIDEO_PLAY_EVENT,
+  STAR_MOVIE_OBSERVATION_MEDIA_QUERY,
+  createStarMovieObservationHistoryState,
+  createUploadMovieObservationMedia,
+  createYouTubeMovieObservationMedia,
+  isStarMovieObservationHistoryState,
+  isStarMovieObservationViewport,
+} from "./starMovieObservation";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -112,7 +122,6 @@ const PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME = `${PROFILE_DETAIL_SELECT_COLUMN
 const PROFILE_FRAME_SELECT_COLUMNS =
   "id, frame_key, name, description, asset_path, acquisition_type, rarity, frame_scale, frame_offset_x, frame_offset_y, is_active, created_at, updated_at";
 const PROFILE_FRAME_OWNERSHIP_SELECT_COLUMNS = "profile_id, frame_id, acquisition_source, granted_at";
-const POST_INLINE_VIDEO_PLAY_EVENT = "hoshizora-village:inline-video-play";
 const VISIBLE_POST_TYPES = ["text", "image", "video", "youtube"];
 const LEGAL_TERMS_VERSION = "2026-07-10";
 const LEGAL_PRIVACY_VERSION = "2026-07-10";
@@ -1613,6 +1622,9 @@ function App() {
   const [postError, setPostError] = useState("");
   const [postUploadProgress, setPostUploadProgress] = useState("");
   const [mediaViewer, setMediaViewer] = useState(null);
+  const [starMovieObservation, setStarMovieObservation] = useState(null);
+  const starMovieObservationTriggerRef = useRef(null);
+  const starMovieObservationHistoryIdRef = useRef(null);
   const [editingPostId, setEditingPostId] = useState(null);
   const [postEditDrafts, setPostEditDrafts] = useState({});
   const [postUpdatingId, setPostUpdatingId] = useState(null);
@@ -1667,6 +1679,17 @@ function App() {
 
   useEffect(() => {
     function handlePopState() {
+      setStarMovieObservation((currentObservation) => {
+        if (!currentObservation) {
+          return currentObservation;
+        }
+
+        const trigger = starMovieObservationTriggerRef.current;
+        starMovieObservationTriggerRef.current = null;
+        starMovieObservationHistoryIdRef.current = null;
+        window.requestAnimationFrame(() => trigger?.focus?.());
+        return null;
+      });
       setRoute(getRouteFromLocation());
       setShareMessage("");
       setShareError("");
@@ -5430,6 +5453,49 @@ function App() {
     setMediaViewer(null);
   }
 
+  function handleOpenStarMovieObservation(post, media, triggerElement) {
+    if (!post?.id || !media || !isStarMovieObservationViewport()) {
+      return;
+    }
+
+    const observationId =
+      globalThis.crypto?.randomUUID?.() ??
+      `star-movie-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    starMovieObservationTriggerRef.current = triggerElement ?? null;
+    starMovieObservationHistoryIdRef.current = observationId;
+    window.dispatchEvent(
+      new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, {
+        detail: { mediaId: `star-movie-observation:${media.id}` },
+      }),
+    );
+    window.history.pushState(
+      createStarMovieObservationHistoryState(window.history.state, observationId),
+      "",
+      window.location.href,
+    );
+    setMediaViewer(null);
+    setStarMovieObservation({
+      media,
+      postId: post.id,
+    });
+  }
+
+  function handleCloseStarMovieObservation() {
+    const historyId = starMovieObservationHistoryIdRef.current;
+    const shouldStepBack = isStarMovieObservationHistoryState(window.history.state, historyId);
+    const trigger = starMovieObservationTriggerRef.current;
+
+    setStarMovieObservation(null);
+    starMovieObservationTriggerRef.current = null;
+    starMovieObservationHistoryIdRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus?.());
+
+    if (shouldStepBack) {
+      window.history.back();
+    }
+  }
+
   function handleMediaViewerStep(direction) {
     setMediaViewer((currentViewer) => {
       if (!currentViewer) {
@@ -5631,6 +5697,16 @@ function App() {
     session,
   };
   const posts = savedPosts;
+  const starMovieObservationPost = starMovieObservation
+    ? [
+        detailPost,
+        ...savedPosts,
+        ...ownPosts,
+        ...archivedPosts,
+        ...publicProfilePosts,
+        ...meteorTagPosts,
+      ].find((post) => post?.id === starMovieObservation.postId) ?? null
+    : null;
   const detailPostForScreen =
     detailPostId
       ? detailPost ??
@@ -5768,6 +5844,7 @@ function App() {
           route={route}
           onBackFromPost={() => handleTabChange("observe")}
           onOpenMeteorDetail={handleOpenMeteorDetail}
+          onOpenStarMovieObservation={handleOpenStarMovieObservation}
           onOpenPostMedia={handleOpenMediaViewer}
           onOpenStarProfile={handleOpenStarProfile}
         />
@@ -5782,6 +5859,11 @@ function App() {
         viewer={mediaViewer}
         onClose={handleCloseMediaViewer}
         onStep={handleMediaViewerStep}
+      />
+      <StarMovieObservationMode
+        media={starMovieObservation?.media ?? null}
+        onClose={handleCloseStarMovieObservation}
+        post={starMovieObservationPost}
       />
     </div>
   );
@@ -5847,6 +5929,7 @@ function TabContent({
   onBackFromPost,
   onOpenMeteorDetail,
   onOpenPostMedia,
+  onOpenStarMovieObservation,
   onOpenStarProfile,
   ownPosts,
   postActions,
@@ -5869,6 +5952,7 @@ function TabContent({
         archive={archive}
         detail={meteorDetail}
         onOpenPostMedia={onOpenPostMedia}
+        onOpenStarMovieObservation={onOpenStarMovieObservation}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         resonance={resonance}
@@ -5881,6 +5965,7 @@ function TabContent({
     return (
       <PublicStarProfileScreen
         archive={archive}
+        onOpenStarMovieObservation={onOpenStarMovieObservation}
         onOpenPostMedia={onOpenPostMedia}
         postActions={postActions}
         profileRoute={publicStarProfile}
@@ -5895,6 +5980,7 @@ function TabContent({
       <MeteorTagScreen
         archive={archive}
         meteorTagRoute={meteorTagRoute}
+        onOpenStarMovieObservation={onOpenStarMovieObservation}
         postActions={postActions}
         resonance={resonance}
         starLetters={starLetters}
@@ -5916,6 +6002,7 @@ function TabContent({
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
+        onOpenStarMovieObservation={onOpenStarMovieObservation}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         resonance={resonance}
@@ -5933,6 +6020,7 @@ function TabContent({
         ownPosts={ownPosts}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
+        onOpenStarMovieObservation={onOpenStarMovieObservation}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         profile={profile}
@@ -5951,6 +6039,7 @@ function TabContent({
       postsLoading={postsLoading}
       onOpenMeteorDetail={onOpenMeteorDetail}
       onOpenPostMedia={onOpenPostMedia}
+      onOpenStarMovieObservation={onOpenStarMovieObservation}
       onOpenStarProfile={onOpenStarProfile}
       resonance={resonance}
       starLetters={starLetters}
@@ -6105,6 +6194,7 @@ function ObserveScreen({
   archive,
   onOpenMeteorDetail,
   onOpenPostMedia,
+  onOpenStarMovieObservation,
   onOpenStarProfile,
   postActions,
   posts,
@@ -6119,6 +6209,7 @@ function ObserveScreen({
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
+        onOpenStarMovieObservation={onOpenStarMovieObservation}
         onOpenStarProfile={onOpenStarProfile}
         postActions={postActions}
         posts={posts}
@@ -6176,7 +6267,16 @@ function PlaceholderScreen({ eyebrow, title, text, note }) {
   );
 }
 
-function MeteorDetailScreen({ archive, detail, onOpenPostMedia, onOpenStarProfile, postActions, resonance, starLetters }) {
+function MeteorDetailScreen({
+  archive,
+  detail,
+  onOpenPostMedia,
+  onOpenStarMovieObservation,
+  onOpenStarProfile,
+  postActions,
+  resonance,
+  starLetters,
+}) {
   const post = detail.post;
   const isDeleted = Boolean(post?.deletedAt);
 
@@ -6241,6 +6341,7 @@ function MeteorDetailScreen({ archive, detail, onOpenPostMedia, onOpenStarProfil
             detailMode
             onOpenAuthorProfile={onOpenStarProfile}
             onOpenMedia={onOpenPostMedia}
+            onOpenStarMovieObservation={onOpenStarMovieObservation}
             postActions={postActions}
             post={post}
             resonance={resonance}
@@ -6253,7 +6354,14 @@ function MeteorDetailScreen({ archive, detail, onOpenPostMedia, onOpenStarProfil
   );
 }
 
-function PublicStarProfileScreen({ archive, postActions, profileRoute, resonance, starLetters }) {
+function PublicStarProfileScreen({
+  archive,
+  onOpenStarMovieObservation,
+  postActions,
+  profileRoute,
+  resonance,
+  starLetters,
+}) {
   const profile = profileRoute.profile;
   const isNotFound = profileRoute.error === "not-found";
   const displayName = profile?.display_name || defaultProfileView.display_name;
@@ -6329,6 +6437,7 @@ function PublicStarProfileScreen({ archive, postActions, profileRoute, resonance
                       onOpenAuthorProfile={profileRoute.onOpenStarProfile}
                       onOpenDetail={profileRoute.onOpenMeteorDetail}
                       onOpenMedia={profileRoute.onOpenPostMedia}
+                      onOpenStarMovieObservation={onOpenStarMovieObservation}
                       postActions={postActions}
                       post={post}
                       resonance={resonance}
@@ -6345,7 +6454,14 @@ function PublicStarProfileScreen({ archive, postActions, profileRoute, resonance
   );
 }
 
-function MeteorTagScreen({ archive, meteorTagRoute, postActions, resonance, starLetters }) {
+function MeteorTagScreen({
+  archive,
+  meteorTagRoute,
+  onOpenStarMovieObservation,
+  postActions,
+  resonance,
+  starLetters,
+}) {
   const tagLabel = meteorTagRoute.tag?.label || getMeteorTagLabel(meteorTagRoute.tag?.name) || "#流星タグ";
 
   return (
@@ -6391,6 +6507,7 @@ function MeteorTagScreen({ archive, meteorTagRoute, postActions, resonance, star
               onOpenAuthorProfile={meteorTagRoute.onOpenStarProfile}
               onOpenDetail={meteorTagRoute.onOpenMeteorDetail}
               onOpenMedia={meteorTagRoute.onOpenPostMedia}
+              onOpenStarMovieObservation={onOpenStarMovieObservation}
               postActions={postActions}
               post={post}
               resonance={resonance}
@@ -7408,6 +7525,7 @@ function ProfileScreen({
   feedback,
   onOpenMeteorDetail,
   onOpenPostMedia,
+  onOpenStarMovieObservation,
   onOpenStarProfile,
   ownPosts,
   postActions,
@@ -7462,6 +7580,7 @@ function ProfileScreen({
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
+        onOpenStarMovieObservation={onOpenStarMovieObservation}
         onOpenStarProfile={onOpenStarProfile}
         ownPosts={ownPosts}
         postActions={postActions}
@@ -7476,6 +7595,7 @@ function OwnPostsPanel({
   archive,
   onOpenMeteorDetail,
   onOpenPostMedia,
+  onOpenStarMovieObservation,
   onOpenStarProfile,
   ownPosts,
   postActions,
@@ -7519,6 +7639,7 @@ function OwnPostsPanel({
               onOpenAuthorProfile={onOpenStarProfile}
               onOpenDetail={onOpenMeteorDetail}
               onOpenMedia={onOpenPostMedia}
+              onOpenStarMovieObservation={onOpenStarMovieObservation}
               postActions={postActions}
               post={post}
               resonance={resonance}
@@ -7531,7 +7652,16 @@ function OwnPostsPanel({
   );
 }
 
-function ArchiveScreen({ archive, onOpenMeteorDetail, onOpenPostMedia, onOpenStarProfile, postActions, resonance, starLetters }) {
+function ArchiveScreen({
+  archive,
+  onOpenMeteorDetail,
+  onOpenPostMedia,
+  onOpenStarMovieObservation,
+  onOpenStarProfile,
+  postActions,
+  resonance,
+  starLetters,
+}) {
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel mb-4 p-5 sm:p-6">
@@ -7580,6 +7710,7 @@ function ArchiveScreen({ archive, onOpenMeteorDetail, onOpenPostMedia, onOpenSta
                 onOpenAuthorProfile={onOpenStarProfile}
                 onOpenDetail={onOpenMeteorDetail}
                 onOpenMedia={onOpenPostMedia}
+                onOpenStarMovieObservation={onOpenStarMovieObservation}
                 postActions={postActions}
                 post={post}
                 resonance={resonance}
@@ -9445,14 +9576,40 @@ function LinkedText({ children, highlightMeteorTags = false, onMeteorTagClick })
   return <>{parts}</>;
 }
 
-function YouTubeEmbed({ videoId }) {
+function useStarMovieObservationViewport() {
+  const [isDesktopObservationViewport, setIsDesktopObservationViewport] = useState(() =>
+    isStarMovieObservationViewport(),
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(STAR_MOVIE_OBSERVATION_MEDIA_QUERY);
+
+    function handleViewportChange(event) {
+      setIsDesktopObservationViewport(event.matches);
+    }
+
+    setIsDesktopObservationViewport(mediaQuery.matches);
+    mediaQuery.addEventListener?.("change", handleViewportChange);
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", handleViewportChange);
+    };
+  }, []);
+
+  return isDesktopObservationViewport;
+}
+
+function YouTubeEmbed({ onOpenObservation, videoId }) {
+  const iframeRef = useRef(null);
+  const isDesktopObservationViewport = useStarMovieObservationViewport();
+
   if (!videoId || !YOUTUBE_VIDEO_ID_PATTERN.test(videoId)) {
     return null;
   }
 
   return (
     <div
-      className="mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
+      className="relative mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
       data-card-action="true"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
@@ -9460,12 +9617,31 @@ function YouTubeEmbed({ videoId }) {
       <iframe
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         allowFullScreen
-        className="h-full w-full"
+        className="star-movie-surface h-full w-full"
         loading="lazy"
+        ref={iframeRef}
         referrerPolicy="strict-origin-when-cross-origin"
-        src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+        src={`https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1`}
         title="YouTube video player"
       />
+      {isDesktopObservationViewport ? (
+        <button
+          aria-label="YouTubeを星映観測モードで開く"
+          className="absolute bottom-12 left-3 z-10 min-h-9 rounded-full border border-white/20 bg-night-950/75 px-3 text-[11px] font-black text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md transition hover:border-comet/45 hover:bg-comet/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
+          onClick={(event) => {
+            event.stopPropagation();
+            iframeRef.current?.contentWindow?.postMessage(
+              JSON.stringify({ event: "command", func: "pauseVideo", args: [] }),
+              "https://www.youtube-nocookie.com",
+            );
+            onOpenObservation?.(event.currentTarget);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          type="button"
+        >
+          星映観測モード
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -9507,7 +9683,7 @@ function SunoLinkCard({ url }) {
   );
 }
 
-function PostMediaGrid({ media = [], onOpenMedia }) {
+function PostMediaGrid({ media = [], onOpenMedia, onOpenObservation }) {
   const videoItem = media.find((item) => item?.mediaType === "video" && item.url);
   const visibleImages = media
     .filter((item) => item?.mediaType !== "video" && item?.url)
@@ -9531,7 +9707,15 @@ function PostMediaGrid({ media = [], onOpenMedia }) {
 
   return (
     <>
-      {videoItem && <PostVideoAttachment item={videoItem} onOpenMedia={onOpenMedia} />}
+      {videoItem && (
+        <PostVideoAttachment
+          item={videoItem}
+          onOpenMedia={onOpenMedia}
+          onOpenObservation={(triggerElement) =>
+            onOpenObservation?.(videoItem, triggerElement)
+          }
+        />
+      )}
       {visibleImages.length > 0 && (
         <div
           className={`mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-night-950/35 ${gridClass} gap-1`}
@@ -9572,9 +9756,10 @@ function PostMediaGrid({ media = [], onOpenMedia }) {
   );
 }
 
-function PostVideoAttachment({ item, onOpenMedia }) {
+function PostVideoAttachment({ item, onOpenMedia, onOpenObservation }) {
   const videoRef = useRef(null);
   const [hasLoadedVideo, setHasLoadedVideo] = useState(false);
+  const isDesktopObservationViewport = useStarMovieObservationViewport();
   const mediaId = item.id ?? item.storagePath ?? item.url;
 
   useEffect(() => {
@@ -9625,7 +9810,7 @@ function PostVideoAttachment({ item, onOpenMedia }) {
       <div className="relative aspect-video bg-black">
         {hasLoadedVideo ? (
           <video
-            className="h-full w-full bg-black object-contain"
+            className="star-movie-surface h-full w-full bg-black object-contain"
             controls
             onPlay={() => window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }))}
             playsInline
@@ -9663,13 +9848,29 @@ function PostVideoAttachment({ item, onOpenMedia }) {
             </span>
           </button>
         )}
-        <button
-          className="absolute right-3 top-3 min-h-9 rounded-full border border-white/15 bg-night-950/70 px-3 text-[11px] font-black text-white backdrop-blur-md transition hover:border-comet/35 hover:bg-comet/20"
-          onClick={handleOpenViewer}
-          type="button"
-        >
-          拡大
-        </button>
+        {!isDesktopObservationViewport ? (
+          <button
+            className="absolute right-3 top-3 min-h-9 rounded-full border border-white/15 bg-night-950/70 px-3 text-[11px] font-black text-white backdrop-blur-md transition hover:border-comet/35 hover:bg-comet/20"
+            onClick={handleOpenViewer}
+            type="button"
+          >
+            拡大
+          </button>
+        ) : (
+          <button
+            aria-label="アップロード動画を星映観測モードで開く"
+            className="absolute bottom-12 left-3 z-10 min-h-9 rounded-full border border-white/20 bg-night-950/75 px-3 text-[11px] font-black text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-md transition hover:border-comet/45 hover:bg-comet/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
+            onClick={(event) => {
+              event.stopPropagation();
+              videoRef.current?.pause();
+              onOpenObservation?.(event.currentTarget);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            type="button"
+          >
+            星映観測モード
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[11px] font-bold text-slate-400">
         <span>いちばん光る35秒</span>
@@ -9811,6 +10012,7 @@ function Timeline({
   archive,
   onOpenMeteorDetail,
   onOpenPostMedia,
+  onOpenStarMovieObservation,
   onOpenStarProfile,
   postActions,
   posts,
@@ -9894,6 +10096,7 @@ function Timeline({
               onOpenAuthorProfile={onOpenStarProfile}
               onOpenDetail={onOpenMeteorDetail}
               onOpenMedia={onOpenPostMedia}
+              onOpenStarMovieObservation={onOpenStarMovieObservation}
               postActions={postActions}
               post={post}
               resonance={resonance}
@@ -10467,6 +10670,7 @@ function PostCard({
   onOpenAuthorProfile,
   onOpenDetail,
   onOpenMedia,
+  onOpenStarMovieObservation,
   post,
   postActions,
   resonance,
@@ -10530,6 +10734,22 @@ function PostCard({
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onOpenDetail(post.id);
+    }
+  }
+
+  function handleOpenUploadObservation(item, triggerElement) {
+    const media = createUploadMovieObservationMedia(item);
+
+    if (media) {
+      onOpenStarMovieObservation?.(post, media, triggerElement);
+    }
+  }
+
+  function handleOpenYouTubeObservation(triggerElement) {
+    const media = createYouTubeMovieObservationMedia(youtubeVideoId);
+
+    if (media) {
+      onOpenStarMovieObservation?.(post, media, triggerElement);
     }
   }
 
@@ -10657,9 +10877,16 @@ function PostCard({
                 </LinkedText>
               </p>
             ) : null}
-            <YouTubeEmbed videoId={youtubeVideoId} />
+            <YouTubeEmbed
+              onOpenObservation={handleOpenYouTubeObservation}
+              videoId={youtubeVideoId}
+            />
             <SunoLinkCard url={sunoUrl} />
-            <PostMediaGrid media={postMedia} onOpenMedia={onOpenMedia} />
+            <PostMediaGrid
+              media={postMedia}
+              onOpenMedia={onOpenMedia}
+              onOpenObservation={handleOpenUploadObservation}
+            />
           </>
         )}
         <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
