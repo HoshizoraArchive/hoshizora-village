@@ -196,9 +196,44 @@ test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", as
   assert.doesNotMatch(observationWindow, /star-movie-observation-upload-frame[^"]*aspect-video/);
   assert.doesNotMatch(mode, /star-movie-observation-upload-video[^"]*bg-black/);
   assert.doesNotMatch(observationWindow, /star-movie-observation-youtube-frame[^"]*bg-black/);
-  assert.match(css, /\.star-movie-observation-youtube-frame\s*\{[\s\S]*aspect-ratio: 16 \/ 9;/);
-  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*width: auto;[\s\S]*height: auto;/);
-  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: 100%;/);
+  assert.match(
+    css,
+    /\.star-movie-observation-youtube-frame > \.star-movie-surface\s*\{[\s\S]*aspect-ratio: 16 \/ 9;/,
+  );
+  assert.match(
+    css,
+    /\.star-movie-observation-upload-video\s*\{[\s\S]*width: 100%;[\s\S]*height: 100%;[\s\S]*object-fit: cover;/,
+  );
+});
+
+test("observation media covers the PNG opening and scales within the desktop viewport", async () => {
+  const [mode, css] = await Promise.all([
+    readFile(modeUrl, "utf8"),
+    readFile(cssUrl, "utf8"),
+  ]);
+  const observationContentRule =
+    css.match(/\.star-movie-observation-content\s*\{([^}]*)\}/)?.[1] ?? "";
+  const youtubeFrameRule =
+    css.match(/\.star-movie-observation-youtube-frame\s*\{([^}]*)\}/)?.[1] ?? "";
+  const youtubeSurfaceRule =
+    css.match(
+      /\.star-movie-observation-youtube-frame > \.star-movie-surface\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+
+  assert.match(observationContentRule, /1440px/);
+  assert.match(observationContentRule, /calc\(100vw - 32px\)/);
+  assert.match(observationContentRule, /calc\(\(100vh - 96px\) \* \(1536 \/ 743\)\)/);
+  assert.match(css, /--observation-window-opening-top: 3%;/);
+  assert.match(css, /--observation-window-opening-right: 9\.2%;/);
+  assert.match(css, /--observation-window-opening-bottom: 3%;/);
+  assert.match(css, /--observation-window-opening-left: 9\.2%;/);
+  assert.match(youtubeFrameRule, /width: 100%;/);
+  assert.match(youtubeFrameRule, /height: 100%;/);
+  assert.match(youtubeFrameRule, /overflow: hidden;/);
+  assert.match(youtubeSurfaceRule, /width: 100%;/);
+  assert.match(youtubeSurfaceRule, /min-height: 100%;/);
+  assert.match(youtubeSurfaceRule, /transform: translate\(-50%, -50%\);/);
+  assert.match(mode, /className="fixed right-5 top-3 z-50/);
 });
 
 test("observation movies keep the shared uniform surface opacity used by inline playback", async () => {

@@ -146,7 +146,7 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
       </h2>
       <button
         aria-label="星映観測モードを閉じる"
-        className="fixed right-6 top-5 z-40 grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-night-950/45 text-xl text-white shadow-[0_12px_36px_rgba(0,0,0,0.32)] backdrop-blur-xl transition hover:border-comet/40 hover:bg-comet/15 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/25"
+        className="fixed right-5 top-3 z-50 grid h-10 w-10 place-items-center rounded-full border border-white/15 bg-night-950/45 text-xl text-white shadow-[0_12px_36px_rgba(0,0,0,0.32)] backdrop-blur-xl transition hover:border-comet/40 hover:bg-comet/15 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-comet/25"
         onClick={onClose}
         ref={closeButtonRef}
         type="button"
@@ -154,7 +154,7 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
         ×
       </button>
 
-      <div className="star-movie-observation-content relative z-10 mx-auto flex min-h-full flex-col justify-center px-6 py-16">
+      <div className="star-movie-observation-content relative z-10 mx-auto flex min-h-full flex-col justify-center px-4 py-12">
         <section className="star-movie-observation-stage relative mx-auto w-full min-w-0" aria-label="星映">
           <div className="star-movie-observation-media relative mx-auto w-full max-w-full">
             <StarMovieObservationWindow mediaKind={media.kind}>
