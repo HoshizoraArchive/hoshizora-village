@@ -184,7 +184,7 @@ test("observation mode presents only the cosmic movie surface and close control"
   assert.doesNotMatch(css, /\.star-movie-observation-details/);
 });
 
-test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", async () => {
+test("observation movies preserve their full frame while YouTube remains 16:9", async () => {
   const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
     readFile(windowUrl, "utf8"),
@@ -202,8 +202,9 @@ test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", as
   );
   assert.match(
     css,
-    /\.star-movie-observation-upload-video\s*\{[\s\S]*width: 100%;[\s\S]*height: 100%;[\s\S]*object-fit: cover;/,
+    /\.star-movie-observation-upload-video\s*\{[\s\S]*width: 100%;[\s\S]*height: 100%;[\s\S]*object-fit: contain;/,
   );
+  assert.doesNotMatch(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*object-fit: cover;/);
 });
 
 test("observation media follows the traced PNG aperture and scales within the desktop viewport", async () => {
@@ -243,8 +244,10 @@ test("observation media follows the traced PNG aperture and scales within the de
   assert.match(youtubeFrameRule, /width: 100%;/);
   assert.match(youtubeFrameRule, /height: 100%;/);
   assert.match(youtubeFrameRule, /overflow: hidden;/);
-  assert.match(youtubeSurfaceRule, /width: 100%;/);
-  assert.match(youtubeSurfaceRule, /min-height: 100%;/);
+  assert.match(youtubeSurfaceRule, /width: auto;/);
+  assert.match(youtubeSurfaceRule, /height: 100%;/);
+  assert.match(youtubeSurfaceRule, /max-width: 100%;/);
+  assert.doesNotMatch(youtubeSurfaceRule, /min-height:/);
   assert.match(youtubeSurfaceRule, /transform: translate\(-50%, -50%\);/);
   assert.match(mode, /className="fixed right-5 top-3 z-50/);
 });
