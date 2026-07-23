@@ -226,14 +226,18 @@ test("observation media follows the traced PNG aperture and scales within the de
   assert.match(observationContentRule, /calc\(\(100vh - 96px\) \* \(1536 \/ 743\)\)/);
   assert.match(observationWindow, /clipPathUnits="objectBoundingBox"/);
   assert.match(observationWindow, /STAR_MOVIE_OBSERVATION_APERTURE_PATH/);
-  assert.match(observationWindow, /M 0\.08724 0\.48856[\s\S]*Z"/);
+  assert.match(observationWindow, /M 0 0\.494058[\s\S]*1 0\.619694[\s\S]*Z"/);
   assert.match(
     css,
     /--observation-window-aperture-clip: url\("#star-movie-observation-aperture"\);/,
   );
+  assert.match(css, /--observation-window-aperture-top: 9\.6904%;/);
+  assert.match(css, /--observation-window-aperture-right: 8\.9193%;/);
+  assert.match(css, /--observation-window-aperture-bottom: 11\.0363%;/);
+  assert.match(css, /--observation-window-aperture-left: 8\.724%;/);
   assert.match(
     css,
-    /\.star-movie-observation-window-viewport\s*\{[\s\S]*inset: 0;[\s\S]*clip-path: var\(--observation-window-aperture-clip\);/,
+    /\.star-movie-observation-window-viewport\s*\{[\s\S]*inset:[\s\S]*var\(--observation-window-aperture-top\)[\s\S]*clip-path: var\(--observation-window-aperture-clip\);/,
   );
   assert.doesNotMatch(css, /--observation-window-opening-(?:top|right|bottom|left|radius)/);
   assert.match(youtubeFrameRule, /width: 100%;/);
