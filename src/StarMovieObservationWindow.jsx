@@ -1,3 +1,4 @@
+// Visual maintenance map: docs/star-movie-observation-mode.md
 export const STAR_MOVIE_OBSERVATION_FRAME_ASSET =
   "/images/star-movie-observation-window-frame.png";
 

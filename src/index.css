@@ -156,6 +156,7 @@
     filter: brightness(1.06);
   }
 
+  /* Visual maintenance map: docs/star-movie-observation-mode.md */
   .star-movie-observation {
     overscroll-behavior: contain;
   }
