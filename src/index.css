@@ -180,153 +180,64 @@
   }
 
   .star-movie-observation-window {
-    --observation-window-frame-color: rgb(16 29 70 / 0.96);
-    --observation-window-frame-highlight: rgb(75 93 168 / 0.72);
-    --observation-window-inner-edge-color: rgb(132 221 255 / 0.88);
-    --observation-window-glow-color: rgb(132 145 255 / 0.36);
-    --observation-window-glow-strength: 18px;
-    --observation-window-inner-glow-strength: 13px;
-    --observation-window-line-width: 1px;
-    --observation-window-frame-width: clamp(12px, 1.55vw, 20px);
-    --observation-window-radius: clamp(30px, 4.2vw, 58px);
-    --observation-window-decoration-opacity: 0.76;
+    --observation-window-frame-aspect-ratio: 1536 / 743;
+    --observation-window-opening-top: 10.2%;
+    --observation-window-opening-right: 9.4%;
+    --observation-window-opening-bottom: 10.6%;
+    --observation-window-opening-left: 9.4%;
+    --observation-window-opening-radius: 9% / 18%;
     position: relative;
     isolation: isolate;
+    width: 100%;
     max-width: 100%;
-    padding: var(--observation-window-frame-width);
-    border-radius: var(--observation-window-radius);
+    aspect-ratio: var(--observation-window-frame-aspect-ratio);
   }
 
-  .star-movie-observation-window::before {
-    content: "";
+  .star-movie-observation-window-viewport {
     position: absolute;
-    z-index: -1;
+    z-index: 1;
+    inset:
+      var(--observation-window-opening-top)
+      var(--observation-window-opening-right)
+      var(--observation-window-opening-bottom)
+      var(--observation-window-opening-left);
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: var(--observation-window-opening-radius);
+  }
+
+  .star-movie-observation-window-art {
+    position: absolute;
+    z-index: 2;
     inset: 0;
-    border: var(--observation-window-line-width) solid
-      rgb(138 172 255 / 0.38);
-    border-radius: inherit;
-    background:
-      linear-gradient(
-        90deg,
-        transparent 10%,
-        var(--observation-window-frame-highlight) 24%,
-        transparent 42% 58%,
-        var(--observation-window-frame-highlight) 76%,
-        transparent 90%
-      ),
-      linear-gradient(
-        160deg,
-        rgb(61 77 142 / 0.94) 0%,
-        var(--observation-window-frame-color) 24%,
-        rgb(13 24 60 / 0.97) 53%,
-        rgb(40 35 104 / 0.94) 76%,
-        rgb(21 31 75 / 0.97) 100%
-      );
-    box-shadow:
-      inset 0 1px 0 rgb(217 232 255 / 0.2),
-      inset 0 -2px 0 rgb(3 8 27 / 0.56),
-      0 0 var(--observation-window-glow-strength)
-        var(--observation-window-glow-color);
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     pointer-events: none;
-  }
-
-  .star-movie-observation-window::after {
-    content: "";
-    position: absolute;
-    z-index: 3;
-    inset: calc(var(--observation-window-frame-width) - 2px);
-    border: var(--observation-window-line-width) solid
-      var(--observation-window-inner-edge-color);
-    border-radius: calc(
-      var(--observation-window-radius) - var(--observation-window-frame-width) +
-        4px
-    );
-    box-shadow:
-      0 0 var(--observation-window-inner-glow-strength)
-        var(--observation-window-glow-color),
-      inset 0 0 8px rgb(126 224 255 / 0.12);
-    pointer-events: none;
-  }
-
-  .star-movie-observation-window-ornaments {
-    position: absolute;
-    z-index: 4;
-    inset: 0;
-    opacity: var(--observation-window-decoration-opacity);
-    pointer-events: none;
-  }
-
-  .star-movie-observation-window-star {
-    position: absolute;
-    width: clamp(11px, 1.25vw, 17px);
-    aspect-ratio: 1;
-    border: 1px solid rgb(158 198 255 / 0.5);
-    border-radius: 9999px;
-    color: rgb(214 235 255 / 0.94);
-    box-shadow:
-      0 0 8px rgb(126 224 255 / 0.34),
-      inset 0 0 6px rgb(159 140 255 / 0.24);
-  }
-
-  .star-movie-observation-window-star::before,
-  .star-movie-observation-window-star::after {
-    content: "";
-    position: absolute;
-    inset: 50% auto auto 50%;
-    border-radius: 9999px;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      currentColor 28% 72%,
-      transparent
-    );
-    transform: translate(-50%, -50%);
-  }
-
-  .star-movie-observation-window-star::before {
-    width: 140%;
-    height: 1px;
-  }
-
-  .star-movie-observation-window-star::after {
-    width: 1px;
-    height: 140%;
-    background: linear-gradient(
-      180deg,
-      transparent,
-      currentColor 28% 72%,
-      transparent
-    );
-  }
-
-  .star-movie-observation-window-star-top-left,
-  .star-movie-observation-window-star-top-right {
-    top: calc(var(--observation-window-frame-width) * 0.48);
-  }
-
-  .star-movie-observation-window-star-bottom-left,
-  .star-movie-observation-window-star-bottom-right {
-    bottom: calc(var(--observation-window-frame-width) * 0.48);
-  }
-
-  .star-movie-observation-window-star-top-left,
-  .star-movie-observation-window-star-bottom-left {
-    left: calc(var(--observation-window-frame-width) * 0.72);
-  }
-
-  .star-movie-observation-window-star-top-right,
-  .star-movie-observation-window-star-bottom-right {
-    right: calc(var(--observation-window-frame-width) * 0.72);
+    user-select: none;
   }
 
   .star-movie-observation-frame {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     border: 0;
-    border-radius: calc(
-      var(--observation-window-radius) - var(--observation-window-frame-width) +
-        3px
-    );
     box-shadow: none;
+  }
+
+  .star-movie-observation-youtube-frame {
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
   }
 
   .star-movie-observation-upload-frame {
@@ -337,7 +248,7 @@
     width: auto;
     height: auto;
     max-width: 100%;
-    max-height: min(72vh, 760px);
+    max-height: 100%;
   }
 
   .cosmic-background {

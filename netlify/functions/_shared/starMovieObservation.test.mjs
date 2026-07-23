@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
@@ -17,6 +18,10 @@ const appUrl = new URL("src/App.jsx", repositoryRoot);
 const modeUrl = new URL("src/StarMovieObservationMode.jsx", repositoryRoot);
 const windowUrl = new URL("src/StarMovieObservationWindow.jsx", repositoryRoot);
 const cssUrl = new URL("src/index.css", repositoryRoot);
+const frameAssetUrl = new URL(
+  "public/images/star-movie-observation-window-frame.png",
+  repositoryRoot,
+);
 
 test("observation mode uses the responsive 1024px desktop boundary", () => {
   assert.equal(STAR_MOVIE_OBSERVATION_MEDIA_QUERY, "(min-width: 1024px)");
@@ -169,6 +174,7 @@ test("observation mode presents only the cosmic movie surface and close control"
   assert.match(mode, /star-movie-observation-stage/);
   assert.match(mode, /StarMovieObservationWindow/);
   assert.match(observationWindow, /star-movie-observation-frame/);
+  assert.match(observationWindow, /star-movie-observation-window-art/);
   assert.match(mode, /className="sr-only"[^>]*>[\s\S]*星映観測モード[\s\S]*<\/h2>/);
   assert.match(mode, /aria-label="星映観測モードを閉じる"/);
   assert.doesNotMatch(mode, /ObservationActionButton/);
@@ -185,13 +191,14 @@ test("uploaded movies keep their intrinsic ratio while YouTube remains 16:9", as
     readFile(cssUrl, "utf8"),
   ]);
 
-  assert.match(observationWindow, /star-movie-observation-youtube-frame aspect-video w-full/);
-  assert.match(observationWindow, /star-movie-observation-upload-frame w-fit max-w-full/);
+  assert.match(observationWindow, /star-movie-observation-youtube-frame/);
+  assert.match(observationWindow, /star-movie-observation-upload-frame h-full w-full/);
   assert.doesNotMatch(observationWindow, /star-movie-observation-upload-frame[^"]*aspect-video/);
   assert.doesNotMatch(mode, /star-movie-observation-upload-video[^"]*bg-black/);
   assert.doesNotMatch(observationWindow, /star-movie-observation-youtube-frame[^"]*bg-black/);
+  assert.match(css, /\.star-movie-observation-youtube-frame\s*\{[\s\S]*aspect-ratio: 16 \/ 9;/);
   assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*width: auto;[\s\S]*height: auto;/);
-  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: min\(72vh, 760px\);/);
+  assert.match(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*max-width: 100%;[\s\S]*max-height: 100%;/);
 });
 
 test("observation movies keep the shared uniform surface opacity used by inline playback", async () => {
@@ -204,7 +211,7 @@ test("observation movies keep the shared uniform surface opacity used by inline 
   const observationFrameRule =
     css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
 
-  assert.match(observationWindow, /star-movie-observation-frame relative overflow-hidden/);
+  assert.match(observationWindow, /star-movie-observation-frame/);
   assert.match(mode, /className="star-movie-surface h-full w-full"/);
   assert.match(mode, /className="star-movie-observation-upload-video star-movie-surface block"/);
   assert.match(app, /className="star-movie-surface h-full w-full"/);
@@ -222,30 +229,33 @@ test("observation movies keep the shared uniform surface opacity used by inline 
   assert.doesNotMatch(css, /\.star-movie-observation-frame::after/);
 });
 
-test("observation window is a replaceable non-interactive CSS frame", async () => {
-  const [observationWindow, css] = await Promise.all([
+test("observation window overlays the provided PNG unchanged and stays non-interactive", async () => {
+  const [observationWindow, css, frameAsset] = await Promise.all([
     readFile(windowUrl, "utf8"),
     readFile(cssUrl, "utf8"),
+    readFile(frameAssetUrl),
   ]);
+  const frameArtRule =
+    css.match(/\.star-movie-observation-window-art\s*\{([^}]*)\}/)?.[1] ?? "";
 
   assert.match(observationWindow, /export default function StarMovieObservationWindow/);
-  assert.match(observationWindow, /star-movie-observation-window-ornaments/);
-  assert.equal(
-    (observationWindow.match(/star-movie-observation-window-star-/g) ?? []).length,
-    4,
+  assert.match(
+    observationWindow,
+    /STAR_MOVIE_OBSERVATION_FRAME_ASSET\s*=\s*[\s\S]*"\/images\/star-movie-observation-window-frame\.png"/,
   );
-  assert.match(css, /--observation-window-frame-color:/);
-  assert.match(css, /--observation-window-inner-edge-color:/);
-  assert.match(css, /--observation-window-glow-color:/);
-  assert.match(css, /--observation-window-glow-strength:/);
-  assert.match(css, /--observation-window-inner-glow-strength:/);
-  assert.match(css, /--observation-window-line-width:/);
-  assert.match(css, /--observation-window-radius:/);
-  assert.match(css, /--observation-window-decoration-opacity:/);
-  assert.match(css, /\.star-movie-observation-window::before\s*\{[\s\S]*pointer-events: none;/);
-  assert.match(css, /\.star-movie-observation-window::after\s*\{[\s\S]*pointer-events: none;/);
-  assert.match(css, /\.star-movie-observation-window-ornaments\s*\{[\s\S]*pointer-events: none;/);
-  assert.doesNotMatch(observationWindow, /\.(png|jpe?g|webp)/);
+  assert.match(observationWindow, /<img[\s\S]*aria-hidden="true"[\s\S]*draggable="false"/);
+  assert.match(css, /--observation-window-frame-aspect-ratio: 1536 \/ 743;/);
+  assert.match(css, /--observation-window-opening-top:/);
+  assert.match(css, /--observation-window-opening-right:/);
+  assert.match(css, /--observation-window-opening-bottom:/);
+  assert.match(css, /--observation-window-opening-left:/);
+  assert.match(frameArtRule, /pointer-events: none;/);
+  assert.match(frameArtRule, /object-fit: contain;/);
+  assert.doesNotMatch(frameArtRule, /filter|mask|mix-blend-mode|opacity|transform/);
+  assert.equal(
+    createHash("sha256").update(frameAsset).digest("hex"),
+    "6142068721e08a8a1ab0344a337cf56dee65c1a30c6c424e00903261433b99dd",
+  );
 });
 
 test("observation mode does not add vignette, radial mask, blend, or blur effects", async () => {
@@ -256,9 +266,12 @@ test("observation mode does not add vignette, radial mask, blend, or blur effect
   ]);
   const observationFrameRule =
     css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
+  const frameArtRule =
+    css.match(/\.star-movie-observation-window-art\s*\{([^}]*)\}/)?.[1] ?? "";
 
   assert.doesNotMatch(mode, /blur-\[|mix-blend|star-movie-observation-glow/);
   assert.doesNotMatch(observationWindow, /blur-\[|mix-blend|star-movie-observation-glow/);
   assert.doesNotMatch(observationFrameRule, /radial-gradient|mask-image|mix-blend-mode|filter|blur/);
+  assert.doesNotMatch(frameArtRule, /radial-gradient|mask-image|mix-blend-mode|filter|blur/);
   assert.doesNotMatch(css, /\.star-movie-observation-glow/);
 });

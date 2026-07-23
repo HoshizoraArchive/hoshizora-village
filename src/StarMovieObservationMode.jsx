@@ -156,11 +156,7 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
 
       <div className="star-movie-observation-content relative z-10 mx-auto flex min-h-full flex-col justify-center px-6 py-16">
         <section className="star-movie-observation-stage relative mx-auto w-full min-w-0" aria-label="星映">
-          <div
-            className={`star-movie-observation-media relative mx-auto ${
-              media.kind === "youtube" ? "w-full" : "w-fit max-w-full"
-            }`}
-          >
+          <div className="star-movie-observation-media relative mx-auto w-full max-w-full">
             <StarMovieObservationWindow mediaKind={media.kind}>
               {media.kind === "youtube" ? (
                 <iframe
