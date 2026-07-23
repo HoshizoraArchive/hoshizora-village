@@ -194,6 +194,7 @@
     --observation-window-aperture-right: 8.9193%;
     --observation-window-aperture-bottom: 11.0363%;
     --observation-window-aperture-left: 8.724%;
+    --observation-window-wide-media-inline-safe: 0.4%;
     position: relative;
     isolation: isolate;
     width: 100%;
@@ -260,9 +261,13 @@
     position: absolute;
     top: 50%;
     left: 50%;
-    width: auto;
-    height: 100%;
-    max-width: 100%;
+    width: calc(
+      100% -
+      var(--observation-window-wide-media-inline-safe) -
+      var(--observation-window-wide-media-inline-safe)
+    );
+    height: auto;
+    min-height: 100%;
     aspect-ratio: 16 / 9;
     transform: translate(-50%, -50%);
   }
@@ -274,7 +279,21 @@
   .star-movie-observation-upload-video {
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: cover;
+  }
+
+  .star-movie-observation-upload-video.is-16-by-9 {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(
+      100% -
+      var(--observation-window-wide-media-inline-safe) -
+      var(--observation-window-wide-media-inline-safe)
+    );
+    height: auto;
+    min-height: 100%;
+    transform: translate(-50%, -50%);
   }
 
   .cosmic-background {

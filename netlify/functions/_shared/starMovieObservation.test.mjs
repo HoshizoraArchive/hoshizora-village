@@ -184,7 +184,7 @@ test("observation mode presents only the cosmic movie surface and close control"
   assert.doesNotMatch(css, /\.star-movie-observation-details/);
 });
 
-test("observation movies preserve their full frame while YouTube remains 16:9", async () => {
+test("observation movies fill the aperture while 16:9 media receives only a rim-sized adjustment", async () => {
   const [mode, observationWindow, css] = await Promise.all([
     readFile(modeUrl, "utf8"),
     readFile(windowUrl, "utf8"),
@@ -202,9 +202,15 @@ test("observation movies preserve their full frame while YouTube remains 16:9", 
   );
   assert.match(
     css,
-    /\.star-movie-observation-upload-video\s*\{[\s\S]*width: 100%;[\s\S]*height: 100%;[\s\S]*object-fit: contain;/,
+    /\.star-movie-observation-upload-video\s*\{[\s\S]*width: 100%;[\s\S]*height: 100%;[\s\S]*object-fit: cover;/,
   );
-  assert.doesNotMatch(css, /\.star-movie-observation-upload-video\s*\{[\s\S]*object-fit: cover;/);
+  assert.match(mode, /onLoadedMetadata=\{handleUploadVideoMetadata\}/);
+  assert.match(mode, /Math\.abs\(aspectRatio - 16 \/ 9\) <= 0\.01/);
+  assert.match(mode, /classList\.toggle\("is-16-by-9", is16By9\)/);
+  assert.match(
+    css,
+    /\.star-movie-observation-upload-video\.is-16-by-9\s*\{[\s\S]*width: calc\([\s\S]*--observation-window-wide-media-inline-safe[\s\S]*height: auto;[\s\S]*min-height: 100%;/,
+  );
 });
 
 test("observation media follows the traced PNG aperture and scales within the desktop viewport", async () => {
@@ -244,10 +250,14 @@ test("observation media follows the traced PNG aperture and scales within the de
   assert.match(youtubeFrameRule, /width: 100%;/);
   assert.match(youtubeFrameRule, /height: 100%;/);
   assert.match(youtubeFrameRule, /overflow: hidden;/);
-  assert.match(youtubeSurfaceRule, /width: auto;/);
-  assert.match(youtubeSurfaceRule, /height: 100%;/);
-  assert.match(youtubeSurfaceRule, /max-width: 100%;/);
-  assert.doesNotMatch(youtubeSurfaceRule, /min-height:/);
+  assert.match(
+    css,
+    /--observation-window-wide-media-inline-safe: 0\.4%;/,
+  );
+  assert.match(youtubeSurfaceRule, /width: calc\(/);
+  assert.match(youtubeSurfaceRule, /--observation-window-wide-media-inline-safe/);
+  assert.match(youtubeSurfaceRule, /height: auto;/);
+  assert.match(youtubeSurfaceRule, /min-height: 100%;/);
   assert.match(youtubeSurfaceRule, /transform: translate\(-50%, -50%\);/);
   assert.match(mode, /className="fixed right-5 top-3 z-50/);
 });

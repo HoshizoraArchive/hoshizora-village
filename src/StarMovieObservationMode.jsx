@@ -120,6 +120,14 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
     window.dispatchEvent(new CustomEvent(POST_INLINE_VIDEO_PLAY_EVENT, { detail: { mediaId } }));
   }
 
+  function handleUploadVideoMetadata(event) {
+    const video = event.currentTarget;
+    const aspectRatio = video.videoWidth / video.videoHeight;
+    const is16By9 = Number.isFinite(aspectRatio) && Math.abs(aspectRatio - 16 / 9) <= 0.01;
+
+    video.classList.toggle("is-16-by-9", is16By9);
+  }
+
   return (
     <div
       aria-labelledby={titleId}
@@ -171,6 +179,7 @@ export default function StarMovieObservationMode({ media, onClose, post }) {
                 <video
                   className="star-movie-observation-surface star-movie-observation-upload-video star-movie-surface block"
                   controls
+                  onLoadedMetadata={handleUploadVideoMetadata}
                   onPlay={handleVideoPlay}
                   playsInline
                   poster={media.posterUrl ?? undefined}
