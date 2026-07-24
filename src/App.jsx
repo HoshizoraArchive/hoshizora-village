@@ -5810,14 +5810,16 @@ function App() {
   return (
     <div
       className={`app-shell relative isolate bg-night-950 text-starlight ${
-        isPostEditor ? "post-editor-shell overflow-hidden pb-0" : "min-h-screen overflow-x-hidden pb-28"
+        isPostEditor
+          ? "post-editor-shell overflow-hidden pb-0"
+          : "app-shell-with-bottom-nav min-h-screen overflow-x-hidden pb-28"
       }`}
     >
       <SkyBackdrop />
       <StardustForeground />
 
       <div
-        className={`relative z-10 mx-auto w-full ${
+        className={`app-main-content relative z-10 mx-auto w-full ${
           isPostEditor ? "h-full min-h-0 max-w-none overflow-hidden px-0 py-0" : "min-h-screen max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
         }`}
       >
@@ -6204,7 +6206,7 @@ function ObserveScreen({
   starLetters,
 }) {
   return (
-    <main className="mx-auto min-w-0 max-w-3xl border-x border-white/10">
+    <main className="observe-screen mx-auto min-w-0 max-w-3xl border-x border-white/10">
       <Timeline
         archive={archive}
         onOpenMeteorDetail={onOpenMeteorDetail}
@@ -9096,7 +9098,7 @@ function BottomNav({ activeTab, onTabChange }) {
   return (
     <nav
       aria-label="星空Village bottom navigation"
-      className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-5"
+      className="bottom-navigation fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-5"
     >
       <div className="mx-auto max-w-2xl rounded-3xl border border-white/15 bg-night-950/85 px-2 py-2 shadow-[0_0_40px_rgba(125,223,255,0.16)] backdrop-blur-2xl">
         <div className="grid grid-cols-5 items-end gap-1">
@@ -9609,7 +9611,7 @@ function YouTubeEmbed({ onOpenObservation, videoId }) {
 
   return (
     <div
-      className="relative mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
+      className="post-video-shell post-video-youtube relative mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
       data-card-action="true"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
@@ -9802,12 +9804,12 @@ function PostVideoAttachment({ item, onOpenMedia, onOpenObservation }) {
 
   return (
     <div
-      className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.22)]"
+      className="post-video-shell post-video-upload mt-4 overflow-hidden rounded-2xl border border-white/10 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.22)]"
       data-card-action="true"
       onClick={stopCardAction}
       onPointerDown={stopCardAction}
     >
-      <div className="relative aspect-video bg-black">
+      <div className="post-video-viewport relative aspect-video bg-black">
         {hasLoadedVideo ? (
           <video
             className="star-movie-surface h-full w-full bg-black object-contain"
@@ -10022,7 +10024,7 @@ function Timeline({
   starLetters,
 }) {
   return (
-    <section className="mx-auto max-w-3xl">
+    <section className="timeline mx-auto max-w-3xl">
       {(postsLoading || postsError) && (
         <div className="px-3 pt-4 sm:px-5">
           <p
@@ -10083,7 +10085,7 @@ function Timeline({
         </div>
       )}
 
-      <div className="space-y-5 px-3 pb-10 pt-4 sm:px-5">
+      <div className="timeline-post-list space-y-5 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
           <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
             まだ流星便はありません。最初の光を放流してみましょう。
@@ -10756,7 +10758,7 @@ function PostCard({
   return (
     <article
       aria-label={canOpenDetail ? `${post.name}の流星便を開く` : undefined}
-      className={`glass-panel post-card-panel group overflow-hidden ${
+      className={`glass-panel post-card-panel post-card group overflow-hidden ${
         canOpenDetail ? "is-clickable" : ""
       }`}
       onClick={handleOpenDetail}
@@ -10765,7 +10767,7 @@ function PostCard({
       tabIndex={canOpenDetail ? 0 : undefined}
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
-      <div className="p-4 sm:p-5">
+      <div className="post-card-content p-4 sm:p-5">
         <div className="flex items-start gap-3">
           {canOpenAuthorProfile ? (
             <button

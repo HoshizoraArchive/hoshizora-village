@@ -297,6 +297,63 @@
     transform: translate(-50%, -50%);
   }
 
+  @media (orientation: landscape) and (max-width: 1023px) and (max-height: 500px) {
+    .app-shell.app-shell-with-bottom-nav {
+      padding: 0;
+    }
+
+    .bottom-navigation {
+      display: none;
+    }
+
+    .app-shell .app-main-content {
+      padding-top: max(0.25rem, env(safe-area-inset-top));
+      padding-right: max(0.25rem, env(safe-area-inset-right));
+      padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
+      padding-left: max(0.25rem, env(safe-area-inset-left));
+    }
+
+    .app-shell .observe-screen,
+    .app-shell .timeline {
+      max-width: none;
+    }
+
+    .timeline .timeline-post-list {
+      padding: 0.25rem 0 0;
+    }
+
+    .post-card .post-card-content {
+      padding: 0.5rem;
+    }
+
+    .post-video-shell {
+      width: min(
+        100%,
+        calc(
+          (
+            100dvh -
+            env(safe-area-inset-top) -
+            env(safe-area-inset-bottom) -
+            0.5rem
+          ) *
+          (16 / 9)
+        )
+      );
+      margin-right: auto;
+      margin-left: auto;
+    }
+
+    .post-video-youtube,
+    .post-video-viewport {
+      max-height: calc(
+        100dvh -
+        env(safe-area-inset-top) -
+        env(safe-area-inset-bottom) -
+        0.5rem
+      );
+    }
+  }
+
   .cosmic-background {
     background:
       radial-gradient(circle at 18% 10%, rgb(125 223 255 / 0.34), transparent 25%),
