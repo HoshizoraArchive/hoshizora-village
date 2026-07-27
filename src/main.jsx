@@ -6,6 +6,7 @@ import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./onboardingFirstPostExample.js";
 import "./onboardingObserveExperience.js";
+import "./onboardingObserveRecovery.js";
 import "./onboardingVisibilityRecovery.js";
 import "./index.css";
 
