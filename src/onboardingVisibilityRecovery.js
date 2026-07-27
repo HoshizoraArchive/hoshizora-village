@@ -6,9 +6,9 @@ import {
 
 const GUIDE_RECOVERY_DELAY_MS = 1200;
 const GUIDE_RELOAD_DELAY_MS = 2200;
+const RECOVERY_STORAGE_PREFIX = "hoshizora-onboarding-recovery";
 let recoveryTimerId = null;
 let reloadTimerId = null;
-let reloadAttempted = false;
 let checkInFlight = false;
 
 function findCollapsedGuideButton() {
@@ -23,6 +23,34 @@ function hasVisibleOnboardingUi(step) {
   }
 
   return Boolean(document.querySelector(".onboarding-guide") || findCollapsedGuideButton());
+}
+
+function getRecoveryStorageKey(userId, step) {
+  return `${RECOVERY_STORAGE_PREFIX}:${userId}:${step}`;
+}
+
+function hasReloadedForStep(storageKey) {
+  try {
+    return window.sessionStorage.getItem(storageKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markReloadedForStep(storageKey) {
+  try {
+    window.sessionStorage.setItem(storageKey, "1");
+  } catch {
+    // A blocked storage API must not prevent the normal onboarding flow.
+  }
+}
+
+function clearReloadMarker(storageKey) {
+  try {
+    window.sessionStorage.removeItem(storageKey);
+  } catch {
+    // Best-effort cleanup only.
+  }
 }
 
 async function recoverOnboardingGuide() {
@@ -52,18 +80,24 @@ async function recoverOnboardingGuide() {
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (error || !isOnboardingActive(progress) || hasVisibleOnboardingUi(progress.current_step)) {
-      reloadAttempted = false;
+    if (error || !isOnboardingActive(progress)) {
+      return;
+    }
+
+    const storageKey = getRecoveryStorageKey(userId, progress.current_step);
+
+    if (hasVisibleOnboardingUi(progress.current_step)) {
+      clearReloadMarker(storageKey);
       return;
     }
 
     window.clearTimeout(reloadTimerId);
     reloadTimerId = window.setTimeout(() => {
-      if (reloadAttempted || hasVisibleOnboardingUi(progress.current_step)) {
+      if (hasVisibleOnboardingUi(progress.current_step) || hasReloadedForStep(storageKey)) {
         return;
       }
 
-      reloadAttempted = true;
+      markReloadedForStep(storageKey);
       window.location.reload();
     }, GUIDE_RELOAD_DELAY_MS);
   } catch {
