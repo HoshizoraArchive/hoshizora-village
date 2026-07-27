@@ -352,6 +352,25 @@
         0.5rem
       );
     }
+
+    .onboarding-guide-inner,
+    .onboarding-guide[data-onboarding-step^="post_intro"] .onboarding-guide-inner,
+    .onboarding-guide[data-onboarding-step="first_post"] .onboarding-guide-inner {
+      top: max(0.5rem, env(safe-area-inset-top));
+      right: max(0.75rem, env(safe-area-inset-right));
+      bottom: auto;
+      left: max(0.75rem, env(safe-area-inset-left));
+      grid-template-columns: minmax(3.5rem, 5rem) minmax(0, 24rem);
+      max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
+    }
+
+    .onboarding-mini-chia {
+      max-height: 58dvh;
+    }
+
+    .onboarding-dialogue {
+      max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
+    }
   }
 
   .cosmic-background {
@@ -562,6 +581,62 @@
   header[data-auth-panel="hidden"] > .grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .onboarding-guide-inner {
+    position: absolute;
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: calc(6.75rem + env(safe-area-inset-bottom));
+    left: max(0.75rem, env(safe-area-inset-left));
+    display: grid;
+    grid-template-columns: clamp(4.5rem, 18vw, 7rem) minmax(0, 25rem);
+    align-items: end;
+    justify-content: center;
+    gap: 0.5rem;
+    max-height: calc(100dvh - 8rem);
+  }
+
+  .onboarding-mini-chia {
+    width: 100%;
+    max-height: min(34dvh, 15rem);
+    object-fit: contain;
+    object-position: bottom center;
+    filter: drop-shadow(0 0 18px rgb(125 223 255 / 0.22));
+  }
+
+  .onboarding-dialogue {
+    max-height: min(48dvh, 22rem);
+    overflow-y: auto;
+    border: 1px solid rgb(125 223 255 / 0.3);
+    border-radius: 1.25rem;
+    background: rgb(3 8 28 / 0.94);
+    padding: 0.9rem 1rem;
+    box-shadow:
+      0 18px 50px rgb(0 0 0 / 0.34),
+      0 0 28px rgb(125 223 255 / 0.11);
+    backdrop-filter: blur(16px);
+  }
+
+  .onboarding-guide[data-onboarding-step^="post_intro"] .onboarding-guide-inner,
+  .onboarding-guide[data-onboarding-step="first_post"] .onboarding-guide-inner {
+    top: calc(4.5rem + env(safe-area-inset-top));
+    bottom: auto;
+  }
+
+  [data-onboarding-target] {
+    outline: 3px solid rgb(125 223 255 / 0.82);
+    outline-offset: 4px;
+    box-shadow: 0 0 0 7px rgb(125 223 255 / 0.12);
+  }
+
+  @media (min-width: 768px) {
+    .onboarding-guide-inner {
+      right: max(1.5rem, env(safe-area-inset-right));
+      bottom: calc(7.5rem + env(safe-area-inset-bottom));
+      left: auto;
+      width: min(36rem, calc(100vw - 3rem));
+      grid-template-columns: 8rem minmax(0, 1fr);
+    }
+  }
 }
 
 @keyframes starDrift {
@@ -646,6 +721,13 @@
 
   .shooting-star {
     display: none;
+  }
+
+  .onboarding-mini-chia,
+  [data-onboarding-target] {
+    animation: none;
+    scroll-behavior: auto;
+    transition: none;
   }
 
 }

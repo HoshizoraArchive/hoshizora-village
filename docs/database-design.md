@@ -720,6 +720,26 @@ RLSでは`anon`と一般`authenticated`へ公開行のSELECTだけを許可し�
 
 `guide_entries`のbrowser role向けSELECTは列単位で付与し、`updated_by`を含めません。管理者画面も公開可能列だけを取得し、`updated_by`はservice_roleまたは運営のSQL確認でのみ参照します。管理者はRLSにより非表示行を含む公開可能列のSELECTとINSERT / UPDATE / DELETEが可能です。管理者ボタンの非表示は補助であり、書き込み境界はRLSです。管理者登録と単発更新例は`docs/village-guide-operations.sql`、適用後確認は`docs/village-guide-verification.sql`を使用します。
 
+## 初回インタラクティブオンボーディング
+
+### `user_onboarding_progress`
+
+Issue #97の新規入村者向け進捗をユーザー単位で1行保存します。migration適用後に
+`auth.users`へ追加されたユーザーだけをAuth triggerで登録し、既存ユーザーはbackfillしません。
+
+- `current_step`: Welcome映像、プロフィール、Archive、R.Connect、初投稿の現在地点
+- `target_post_id`: 観測とArchive画面で共通して確認する公開流星便
+- `notification_permission_status`: 許可、拒否、未対応を端末登録や送信結果と分離
+- `push_registration_status`: 現在ユーザーへの端末登録成功・失敗
+- `push_test_status`: service roleから記録する実Web Pushの送信結果
+- `first_post_id`: オンボーディング開始後に本人が保存した流星便
+- `completed_at`: 完了後の再表示を止める確定時刻
+
+`authenticated`はRLSで本人行だけSELECTできます。直接のINSERT / UPDATE / DELETEは許可せず、
+状態変更は本人の実プロフィール、Archive、Push Subscription、投稿を再検証する
+`public.advance_initial_onboarding(...)`に限定します。実Pushの成功記録は
+`public.record_initial_onboarding_push_test(...)`をservice_roleだけが実行できます。
+
 ## 今回まだ実装しないこと
 
 今回のPRでは、以下は実装しません。
