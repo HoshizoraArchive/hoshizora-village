@@ -1,7 +1,7 @@
 # Interactive onboarding current status
 
 - PR: #98
-- Latest verified preview commit: `fd63586b7c56f758ef3e1335fff48a48cf151d9c`
+- Latest verified preview commit: pending after environment repair
 - Deploy Preview: https://deploy-preview-98--hoshizora-village.netlify.app
 - PR state: Draft / mergeable
 
@@ -17,15 +17,19 @@
 
 ## Verification
 
-- Netlify build passed.
+- Netlify build passed before the environment repair.
 - JSX transpile syntax check passed.
 - Three new focused guide regression tests passed.
 - Preview test account reset to the Welcome step.
-- Production database and deployment were not changed.
+- The Deploy Preview `SUPABASE_URL`, `VITE_SUPABASE_URL`, publishable key, and service-role key now belong to the same isolated Preview Supabase project.
+- The prior `INVALID_TOKEN` during iOS PWA device registration was caused by a Production service-role key paired with the Preview Supabase URL.
+- Temporary key-transfer storage and functions were removed or locked immediately after the Preview-only repair.
+- Production database, Production environment values, and Production deployment were not changed.
 
 ## Still manual
 
 - Retest the revised layout on iPhone.
-- Confirm notification permission and real Push from the installed iOS PWA.
+- Confirm device registration after the Preview environment repair.
+- Confirm real Push from the installed iOS PWA.
 - Confirm Android notification behavior.
 - Confirm the completed Welcome video once its asset is available.
