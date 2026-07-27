@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
+import "./onboardingFirstPostExample.js";
 import "./onboardingVisibilityRecovery.js";
 import "./index.css";
 
