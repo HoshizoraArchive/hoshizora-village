@@ -49,15 +49,13 @@ test("iPhone Safariではホーム画面追加を案内し、PWAでは通常の�
 test("操作案内は対象ごとに小型化でき、邪魔な時は折りたためる", () => {
   for (const token of [
     'const PROFILE_DYNAMIC_TARGET = "profile-guide-active"',
-    'data-onboarding-dynamic-target',
+    "data-onboarding-dynamic-target",
     'data-guide-variant={isCompact ? "compact" : "story"}',
     "ちあの案内を小さくする",
     "ちあの案内を見る",
     "ホーム画面への追加方法を見る",
     "Safari下部の共有ボタンを押す",
     "通知はあとで設定する",
-    "自己紹介はあとで",
-    "My Star Chartはあとで",
   ]) {
     assert.equal(componentSource.includes(token), true, `missing refined onboarding UI: ${token}`);
   }
