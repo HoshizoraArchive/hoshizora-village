@@ -5,11 +5,14 @@ import test from "node:test";
 import {
   ONBOARDING_MINI_CHIA_SRC,
   ONBOARDING_WELCOME_VIDEO_SRC,
+  canApplyOnboardingProgressResponse,
   getOnboardingResumeTab,
   getOnboardingStepDefinition,
   isOnboardingActive,
+  isOnboardingProgressForUser,
   replaceOnboardingDisplayName,
   shouldOfferNotificationSkip,
+  tryPlayWelcomeVideo,
 } from "../../../src/onboarding.js";
 
 const appSource = readFileSync("src/App.jsx", "utf8");
@@ -144,9 +147,106 @@ test("通知許可、端末登録、実Push失敗を分け、成功台詞を偽�
 test("Welcome映像は一か所で差し替えでき、未設定でもスキップできる", () => {
   assert.equal(ONBOARDING_WELCOME_VIDEO_SRC, "");
   assert.equal(componentSource.includes("映像をスキップして案内へ進む"), true);
-  assert.equal(componentSource.includes("onEnded={() => onComplete(\"completed\")}"), true);
+  assert.equal(componentSource.includes('onEnded={() => void completeOnce("completed")}'), true);
   assert.match(migration, /welcome_video_status in \('not_started', 'completed', 'skipped'\)/);
   assert.match(migration, /welcome_video_status = p_status/);
+});
+
+test("Welcome映像は設定時に音あり再生を試し、拒否後も利用者操作で再試行できる", async () => {
+  let playAttempts = 0;
+  let shouldReject = true;
+  const video = {
+    async play() {
+      playAttempts += 1;
+      if (shouldReject) {
+        throw new Error("autoplay blocked");
+      }
+    },
+  };
+
+  assert.equal(await tryPlayWelcomeVideo(video), false);
+  assert.equal(playAttempts, 1);
+
+  shouldReject = false;
+  assert.equal(await tryPlayWelcomeVideo(video), true);
+  assert.equal(playAttempts, 2);
+  assert.equal(await tryPlayWelcomeVideo(null), false);
+
+  for (const token of [
+    "const videoRef = useRef(null)",
+    "const started = await tryPlayWelcomeVideo(videoRef.current)",
+    "setShowPlayButton(!started)",
+    "Welcome映像を再生",
+    "onClick={handlePlayVideo}",
+    'onEnded={() => void completeOnce("completed")}',
+    'completeOnce("skipped")',
+  ]) {
+    assert.equal(componentSource.includes(token), true, `missing Welcome playback behavior: ${token}`);
+  }
+
+  assert.equal(componentSource.includes("muted"), false);
+  assert.equal(componentSource.includes('completeOnce("completed")'), true);
+  assert.equal(
+    componentSource.indexOf('completeOnce("completed")'),
+    componentSource.lastIndexOf('completeOnce("completed")'),
+    "Welcome完了は動画終了経路だけに限定する",
+  );
+});
+
+test("進捗は現在のsession userだけへ適用し、古い取得結果を破棄する", () => {
+  const userAProgress = {
+    user_id: "user-a",
+    current_step: "archive_prompt",
+    completed_at: null,
+  };
+  const userBProgress = {
+    user_id: "user-b",
+    current_step: "profile_setup",
+    completed_at: null,
+  };
+
+  assert.equal(isOnboardingProgressForUser(userAProgress, "user-a"), true);
+  assert.equal(isOnboardingProgressForUser(userAProgress, "user-b"), false);
+  assert.equal(
+    canApplyOnboardingProgressResponse({
+      activeUserId: "user-b",
+      progress: userAProgress,
+      requestedUserId: "user-a",
+    }),
+    false,
+  );
+  assert.equal(
+    canApplyOnboardingProgressResponse({
+      activeUserId: "user-b",
+      progress: userAProgress,
+      requestedUserId: "user-b",
+    }),
+    false,
+  );
+  assert.equal(
+    canApplyOnboardingProgressResponse({
+      activeUserId: "user-b",
+      progress: userBProgress,
+      requestedUserId: "user-b",
+    }),
+    true,
+  );
+
+  for (const token of [
+    "onboardingProgressRef.current = null",
+    "onboardingAdvanceInFlightRef.current = false",
+    "onboardingPostCompletionRef.current = false",
+    "setOnboardingProgress(null)",
+    "setOnboardingError(\"\")",
+    "onboardingProgressRef.current.user_id !== requestedUserId",
+    "activeSessionUserIdRef.current !== requestedUserId",
+    "isOnboardingProgressForUser(onboardingProgress, sessionUserId)",
+    "profile?.id === sessionUserId ? profile : null",
+    "displayName={sessionOnboardingProfile?.display_name ?? \"\"}",
+    "canApplyOnboardingProgressResponse({",
+  ]) {
+    assert.equal(appSource.includes(token), true, `missing account isolation guard: ${token}`);
+  }
 });
 
 test("ミニちあはIssue素材の透過PNGをローカル参照する", () => {

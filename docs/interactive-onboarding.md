@@ -45,10 +45,16 @@ service role専用の `public.record_initial_onboarding_push_test` が記録す�
 ## Welcome映像とミニちあ
 
 Welcome映像の差し替え箇所は `src/onboarding.js` の
-`ONBOARDING_WELCOME_VIDEO_SRC` だけ。未設定、読み込み失敗、自動再生拒否でも
-「映像をスキップして案内へ進む」から後続導線を確認できる。
+`ONBOARDING_WELCOME_VIDEO_SRC` だけ。URL設定時は音声を消さずに `video.play()` を試し、
+ブラウザに拒否された場合は「Welcome映像を再生」ボタンから利用者操作で再試行する。
+未設定、読み込み失敗、自動再生拒否でも「映像をスキップして案内へ進む」から後続導線を確認できる。
+動画終了とスキップは一度だけ進捗へ記録する。
 
 ミニちあは `public/images/onboarding/mini-chia.png` にIssue添付の透過PNGを無加工で保存する。
+
+ログインユーザーが切り替わると、以前のユーザーの進捗stateと進行中フラグを取得前に破棄する。
+取得結果、進捗RPC、画面表示はいずれも進捗の `user_id` と現在の `session.user.id` が一致する場合だけ
+有効にし、切り替え前の非同期レスポンスは反映しない。
 
 ## RLSと権限
 

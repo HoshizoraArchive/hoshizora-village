@@ -1,15 +1,67 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ONBOARDING_MINI_CHIA_SRC,
   ONBOARDING_WELCOME_VIDEO_SRC,
   getNotificationSkipStatus,
   getOnboardingStepDefinition,
   shouldOfferNotificationSkip,
+  tryPlayWelcomeVideo,
 } from "./onboarding";
 
 function WelcomeVideo({ error, onComplete }) {
   const dialogRef = useRef(null);
+  const completionStartedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
   const skipButtonRef = useRef(null);
+  const videoRef = useRef(null);
+  const [showPlayButton, setShowPlayButton] = useState(false);
+  const [playbackError, setPlaybackError] = useState("");
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  const completeOnce = useCallback(async (status) => {
+    if (completionStartedRef.current) {
+      return false;
+    }
+
+    completionStartedRef.current = true;
+    try {
+      const result = await onCompleteRef.current(status);
+
+      if (!result) {
+        completionStartedRef.current = false;
+      }
+
+      return Boolean(result);
+    } catch {
+      completionStartedRef.current = false;
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!ONBOARDING_WELCOME_VIDEO_SRC) {
+      return undefined;
+    }
+
+    let isCurrent = true;
+
+    async function attemptAutoplay() {
+      const started = await tryPlayWelcomeVideo(videoRef.current);
+
+      if (isCurrent) {
+        setShowPlayButton(!started);
+      }
+    }
+
+    void attemptAutoplay();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -19,7 +71,7 @@ function WelcomeVideo({ error, onComplete }) {
     function handleKeyDown(event) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onComplete("skipped");
+        void completeOnce("skipped");
         return;
       }
 
@@ -51,7 +103,17 @@ function WelcomeVideo({ error, onComplete }) {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onComplete]);
+  }, [completeOnce]);
+
+  async function handlePlayVideo() {
+    setPlaybackError("");
+    const started = await tryPlayWelcomeVideo(videoRef.current);
+    setShowPlayButton(!started);
+
+    if (!started) {
+      setPlaybackError("映像を再生できませんでした。スキップして案内へ進むこともできます。");
+    }
+  }
 
   return (
     <div
@@ -73,9 +135,14 @@ function WelcomeVideo({ error, onComplete }) {
           <video
             className="mt-5 aspect-video w-full bg-transparent object-contain"
             controls
-            onEnded={() => onComplete("completed")}
+            onEnded={() => void completeOnce("completed")}
+            onPlay={() => {
+              setShowPlayButton(false);
+              setPlaybackError("");
+            }}
             playsInline
             preload="metadata"
+            ref={videoRef}
             src={ONBOARDING_WELCOME_VIDEO_SRC}
           />
         ) : (
@@ -83,6 +150,18 @@ function WelcomeVideo({ error, onComplete }) {
             Welcome映像は準備中です。映像をスキップすると、ミニちあの案内を確認できます。
           </div>
         )}
+        {showPlayButton ? (
+          <button
+            className="mt-4 min-h-12 w-full rounded-2xl border border-comet/40 bg-comet/10 px-5 text-sm font-black text-white transition hover:bg-comet/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/40"
+            onClick={handlePlayVideo}
+            type="button"
+          >
+            Welcome映像を再生
+          </button>
+        ) : null}
+        {playbackError ? (
+          <p className="mt-3 text-sm leading-6 text-slate-300">{playbackError}</p>
+        ) : null}
         {error ? (
           <p className="mt-4 rounded-2xl border border-sakura/30 bg-sakura/10 px-4 py-3 text-sm leading-6 text-sakura">
             {error}
@@ -90,7 +169,7 @@ function WelcomeVideo({ error, onComplete }) {
         ) : null}
         <button
           className="mt-5 min-h-12 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-5 text-sm font-black text-night-950 shadow-glow transition hover:scale-[1.01] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/40"
-          onClick={() => onComplete("skipped")}
+          onClick={() => void completeOnce("skipped")}
           ref={skipButtonRef}
           type="button"
         >

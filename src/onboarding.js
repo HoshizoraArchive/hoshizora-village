@@ -1,6 +1,35 @@
 export const ONBOARDING_WELCOME_VIDEO_SRC = "";
 export const ONBOARDING_MINI_CHIA_SRC = "/images/onboarding/mini-chia.png";
 
+export async function tryPlayWelcomeVideo(videoElement) {
+  if (!videoElement || typeof videoElement.play !== "function") {
+    return false;
+  }
+
+  try {
+    await videoElement.play();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isOnboardingProgressForUser(progress, userId) {
+  return Boolean(userId && progress?.user_id === userId);
+}
+
+export function canApplyOnboardingProgressResponse({
+  activeUserId,
+  progress,
+  requestedUserId,
+}) {
+  return Boolean(
+    requestedUserId &&
+      activeUserId === requestedUserId &&
+      (!progress || isOnboardingProgressForUser(progress, requestedUserId)),
+  );
+}
+
 export const ONBOARDING_PROGRESS_SELECT_COLUMNS = [
   "user_id",
   "current_step",

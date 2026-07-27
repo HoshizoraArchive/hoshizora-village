@@ -45,10 +45,12 @@ import {
 } from "./starMovieObservation";
 import {
   ONBOARDING_PROGRESS_SELECT_COLUMNS,
+  canApplyOnboardingProgressResponse,
   getOnboardingResumeTab,
   getOnboardingTarget,
   isMissingOnboardingSchemaError,
   isOnboardingActive,
+  isOnboardingProgressForUser,
 } from "./onboarding";
 
 const bottomNavItems = [
@@ -1692,6 +1694,11 @@ function App() {
         .filter(Boolean),
     ),
   ].join("|");
+  const sessionUserId = session?.user?.id ?? null;
+  const sessionOnboardingProgress = isOnboardingProgressForUser(onboardingProgress, sessionUserId)
+    ? onboardingProgress
+    : null;
+  const sessionOnboardingProfile = profile?.id === sessionUserId ? profile : null;
 
   useEffect(() => {
     function handlePopState() {
@@ -1810,6 +1817,7 @@ function App() {
         return;
       }
 
+      activeSessionUserIdRef.current = data.session?.user?.id ?? null;
       setSession(data.session);
       setAuthStatus(data.session ? "ログイン中" : "未ログイン");
     }
@@ -1819,6 +1827,7 @@ function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);
       setAuthStatus(session ? "ログイン中" : "未ログイン");
     });
@@ -1834,19 +1843,25 @@ function App() {
   }, [session?.user?.id]);
 
   useEffect(() => {
-    onboardingProgressRef.current = onboardingProgress;
-  }, [onboardingProgress]);
+    onboardingProgressRef.current = isOnboardingProgressForUser(onboardingProgress, sessionUserId)
+      ? onboardingProgress
+      : null;
+  }, [onboardingProgress, sessionUserId]);
 
   useEffect(() => {
     let isMounted = true;
-    const userId = session?.user?.id;
+    const userId = sessionUserId;
+
+    activeSessionUserIdRef.current = userId;
+    onboardingProgressRef.current = null;
+    onboardingAdvanceInFlightRef.current = false;
+    onboardingPostCompletionRef.current = false;
+    setOnboardingProgress(null);
+    setOnboardingBusy(false);
+    setOnboardingError("");
 
     if (!userId) {
-      onboardingProgressRef.current = null;
-      setOnboardingProgress(null);
       setOnboardingLoading(false);
-      setOnboardingBusy(false);
-      setOnboardingError("");
       return () => {
         isMounted = false;
       };
@@ -1862,18 +1877,27 @@ function App() {
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (!isMounted) {
+      if (!isMounted || activeSessionUserIdRef.current !== userId) {
         return;
       }
 
       setOnboardingLoading(false);
 
       if (error) {
-        setOnboardingProgress(null);
-
         if (!isMissingOnboardingSchemaError(error)) {
           logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
         }
+        return;
+      }
+
+      if (
+        !canApplyOnboardingProgressResponse({
+          activeUserId: activeSessionUserIdRef.current,
+          progress: data,
+          requestedUserId: userId,
+        })
+      ) {
+        setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
         return;
       }
 
@@ -1890,7 +1914,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [sessionUserId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3201,15 +3225,15 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
-    const targetPostId = onboardingProgress?.target_post_id;
+    const targetPostId = sessionOnboardingProgress?.target_post_id;
     const needsTarget = [
       "observe_intro",
       "archive_prompt",
       "archive_check",
       "archive_success",
-    ].includes(onboardingProgress?.current_step);
+    ].includes(sessionOnboardingProgress?.current_step);
 
-    if (!isOnboardingActive(onboardingProgress) || !needsTarget) {
+    if (!isOnboardingActive(sessionOnboardingProgress) || !needsTarget) {
       return () => {
         isMounted = false;
       };
@@ -3290,26 +3314,30 @@ function App() {
       isMounted = false;
     };
   }, [
-    onboardingProgress?.current_step,
-    onboardingProgress?.target_post_id,
+    sessionOnboardingProgress?.current_step,
+    sessionOnboardingProgress?.target_post_id,
     profileFrames,
   ]);
 
   useEffect(() => {
     if (
-      onboardingProgress?.current_step === "profile_setup" &&
-      profile?.display_name?.trim() &&
-      profile?.avatar_url?.trim()
+      sessionOnboardingProgress?.current_step === "profile_setup" &&
+      sessionOnboardingProfile?.display_name?.trim() &&
+      sessionOnboardingProfile?.avatar_url?.trim()
     ) {
       void advanceInitialOnboarding("profile_saved");
     }
-  }, [onboardingProgress?.current_step, profile?.avatar_url, profile?.display_name]);
+  }, [
+    sessionOnboardingProfile?.avatar_url,
+    sessionOnboardingProfile?.display_name,
+    sessionOnboardingProgress?.current_step,
+  ]);
 
   useEffect(() => {
-    const targetPostId = onboardingProgress?.target_post_id;
+    const targetPostId = sessionOnboardingProgress?.target_post_id;
 
     if (
-      onboardingProgress?.current_step === "archive_prompt" &&
+      sessionOnboardingProgress?.current_step === "archive_prompt" &&
       targetPostId &&
       archivedPosts.some((post) => post.id === targetPostId)
     ) {
@@ -3317,15 +3345,15 @@ function App() {
     }
   }, [
     archivedPostIdsKey,
-    onboardingProgress?.current_step,
-    onboardingProgress?.target_post_id,
+    sessionOnboardingProgress?.current_step,
+    sessionOnboardingProgress?.target_post_id,
   ]);
 
   useEffect(() => {
-    const targetPostId = onboardingProgress?.target_post_id;
+    const targetPostId = sessionOnboardingProgress?.target_post_id;
 
     if (
-      onboardingProgress?.current_step === "archive_check" &&
+      sessionOnboardingProgress?.current_step === "archive_check" &&
       activeTab === "archive" &&
       targetPostId &&
       archivedPosts.some((post) => post.id === targetPostId)
@@ -3335,8 +3363,8 @@ function App() {
   }, [
     activeTab,
     archivedPostIdsKey,
-    onboardingProgress?.current_step,
-    onboardingProgress?.target_post_id,
+    sessionOnboardingProgress?.current_step,
+    sessionOnboardingProgress?.target_post_id,
   ]);
 
   useEffect(() => {
@@ -3349,14 +3377,14 @@ function App() {
     ];
 
     if (
-      postSteps.includes(onboardingProgress?.current_step) &&
+      postSteps.includes(sessionOnboardingProgress?.current_step) &&
       !ownPostsLoading &&
       ownPosts.length > 0 &&
       !onboardingPostCompletionRef.current
     ) {
       void advanceInitialOnboarding("existing_post_detected");
     }
-  }, [onboardingProgress?.current_step, ownPostIdsKey, ownPostsLoading]);
+  }, [sessionOnboardingProgress?.current_step, ownPostIdsKey, ownPostsLoading]);
 
   function hasCurrentLegalConsentMetadata(user) {
     const metadata = user?.user_metadata ?? {};
@@ -5777,15 +5805,17 @@ function App() {
     action,
     { navigateTo = "", status = null, targetId = null } = {},
   ) {
+    const requestedUserId = session?.user?.id;
+
     if (
-      !session?.user?.id ||
+      !requestedUserId ||
       !onboardingProgressRef.current ||
+      onboardingProgressRef.current.user_id !== requestedUserId ||
       onboardingAdvanceInFlightRef.current
     ) {
       return null;
     }
 
-    const requestedUserId = session.user.id;
     onboardingAdvanceInFlightRef.current = true;
     setOnboardingBusy(true);
     setOnboardingError("");
@@ -5802,21 +5832,21 @@ function App() {
       data = result.data;
       error = result.error;
     } catch (requestError) {
-      onboardingAdvanceInFlightRef.current = false;
-      setOnboardingBusy(false);
       if (activeSessionUserIdRef.current === requestedUserId) {
+        onboardingAdvanceInFlightRef.current = false;
+        setOnboardingBusy(false);
         logSafeError(ERROR_OPERATION.ONBOARDING_SAVE, requestError);
         setOnboardingError(getUserFacingError(requestError, ERROR_OPERATION.ONBOARDING_SAVE));
       }
       return null;
     }
 
-    onboardingAdvanceInFlightRef.current = false;
-    setOnboardingBusy(false);
-
     if (activeSessionUserIdRef.current !== requestedUserId) {
       return null;
     }
+
+    onboardingAdvanceInFlightRef.current = false;
+    setOnboardingBusy(false);
 
     if (error) {
       if (!isMissingOnboardingSchemaError(error)) {
@@ -5844,6 +5874,11 @@ function App() {
       return null;
     }
 
+    if (!isOnboardingProgressForUser(data.progress, requestedUserId)) {
+      setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
+      return null;
+    }
+
     onboardingProgressRef.current = data.progress;
     setOnboardingProgress(data.progress);
 
@@ -5857,7 +5892,10 @@ function App() {
   async function refreshInitialOnboardingProgress() {
     const userId = session?.user?.id;
 
-    if (!userId) {
+    if (
+      !userId ||
+      !isOnboardingProgressForUser(onboardingProgressRef.current, userId)
+    ) {
       return null;
     }
 
@@ -5866,6 +5904,16 @@ function App() {
       .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
       .eq("user_id", userId)
       .maybeSingle();
+
+    if (
+      !canApplyOnboardingProgressResponse({
+        activeUserId: activeSessionUserIdRef.current,
+        progress: data,
+        requestedUserId: userId,
+      })
+    ) {
+      return null;
+    }
 
     if (error) {
       if (!isMissingOnboardingSchemaError(error)) {
@@ -5920,7 +5968,7 @@ function App() {
     }
 
     setOnboardingProgress((currentProgress) =>
-      currentProgress
+      isOnboardingProgressForUser(currentProgress, session?.user?.id)
         ? {
             ...currentProgress,
             push_test_status: "failed",
@@ -5949,12 +5997,12 @@ function App() {
     session,
     status: authStatus,
   };
-  const onboardingIsActive = isOnboardingActive(onboardingProgress);
-  const onboardingTarget = getOnboardingTarget(onboardingProgress, profileScreenMode);
+  const onboardingIsActive = isOnboardingActive(sessionOnboardingProgress);
+  const onboardingTarget = getOnboardingTarget(sessionOnboardingProgress, profileScreenMode);
   const onboardingState = {
     active: onboardingIsActive,
-    currentStep: onboardingProgress?.current_step ?? "",
-    targetPostId: onboardingProgress?.target_post_id ?? null,
+    currentStep: sessionOnboardingProgress?.current_step ?? "",
+    targetPostId: sessionOnboardingProgress?.target_post_id ?? null,
   };
   const ownedProfileFrames = profileFrames.filter((frame) => ownedProfileFrameIds.includes(frame.id));
   const activeProfileFrame = getProfileFrameById(profileFrames, profile?.active_frame_id);
@@ -6314,12 +6362,12 @@ function App() {
       {onboardingIsActive && !onboardingLoading ? (
         <InteractiveOnboarding
           busy={onboardingBusy}
-          displayName={profile?.display_name ?? ""}
+          displayName={sessionOnboardingProfile?.display_name ?? ""}
           error={onboardingError}
           onAdvance={handleOnboardingAdvance}
           onSkipNotifications={handleOnboardingNotificationSkip}
           progress={{
-            ...onboardingProgress,
+            ...sessionOnboardingProgress,
             target: onboardingTarget,
           }}
         />
