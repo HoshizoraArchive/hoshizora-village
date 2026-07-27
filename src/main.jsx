@@ -5,6 +5,7 @@ import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./onboardingFirstPostExample.js";
+import "./onboardingObserveExperience.js";
 import "./onboardingVisibilityRecovery.js";
 import "./index.css";
 
