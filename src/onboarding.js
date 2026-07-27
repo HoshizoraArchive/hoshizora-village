@@ -153,6 +153,41 @@ const STEP_DEFINITIONS = {
   },
 };
 
+const PROFILE_GUIDE_STEP_DEFINITIONS = {
+  name: {
+    actionLabel: "次へ",
+    lines: ["まずは、あなたの名前を書いてね！", "これからちあが呼ぶ、大切な名前だよ✨"],
+    targetKey: "name",
+  },
+  avatar: {
+    lines: ["次は、あなたの星影を写してね！", "好きな写真やイラストを選んでみて✨"],
+    targetKey: "avatar",
+  },
+  avatar_crop: {
+    lines: [
+      "画像を動かして、星影にしたい位置を合わせてね！",
+      "大きさも調整できるよ。決まったら「この星影を使う」を押してね✨",
+    ],
+    targetKey: "avatar_crop",
+  },
+  bio: {
+    actionLabel: "次へ",
+    lines: ["次は、あなたの自己紹介を書いて！", "どんな村人なのか、みんなに教えてね✨"],
+    optionalLabel: "自己紹介はあとで",
+    targetKey: "bio",
+  },
+  star_chart: {
+    actionLabel: "次へ",
+    lines: ["次は「My Star Chart」！", "あなたの好きなことや創作傾向を教えてね🌟"],
+    optionalLabel: "My Star Chartはあとで",
+    targetKey: "star_chart",
+  },
+  save: {
+    lines: ["書けたら「保存する」を押してね！", "自己紹介とMy Star Chartは、あとからいつでも書き足せるよ✨"],
+    targetKey: "save",
+  },
+};
+
 export function getOnboardingStepDefinition(step, displayName = "") {
   const definition = STEP_DEFINITIONS[step];
 
@@ -164,6 +199,31 @@ export function getOnboardingStepDefinition(step, displayName = "") {
     ...definition,
     lines: definition.lines.map((line) => replaceOnboardingDisplayName(line, displayName)),
   };
+}
+
+export function getProfileGuideStepDefinition(step) {
+  const definition = PROFILE_GUIDE_STEP_DEFINITIONS[step];
+  return definition ? { ...definition, lines: [...definition.lines] } : null;
+}
+
+export function isIosHomeScreenRequiredForPush(environment = {}) {
+  const userAgent = String(
+    environment.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : ""),
+  );
+  const platform = String(
+    environment.platform ?? (typeof navigator !== "undefined" ? navigator.platform : ""),
+  );
+  const maxTouchPoints = Number(
+    environment.maxTouchPoints ?? (typeof navigator !== "undefined" ? navigator.maxTouchPoints : 0),
+  );
+  const standalone = Boolean(
+    environment.standalone ??
+      (typeof window !== "undefined" && window.matchMedia?.("(display-mode: standalone)")?.matches) ??
+      (typeof navigator !== "undefined" && navigator.standalone === true),
+  );
+  const isIos = /iPhone|iPad|iPod/i.test(userAgent) || (platform === "MacIntel" && maxTouchPoints > 1);
+
+  return isIos && !standalone;
 }
 
 export function replaceOnboardingDisplayName(line, displayName) {
