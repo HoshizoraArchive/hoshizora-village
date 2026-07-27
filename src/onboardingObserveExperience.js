@@ -95,10 +95,14 @@ function getOriginalDialogueLines(dialogue) {
   );
 }
 
-function clearDynamicTargets() {
+function clearGuideTargets() {
+  document.querySelectorAll(`[data-onboarding-target="${ACTIVE_TARGET_NAME}"]`).forEach((element) => {
+    element.removeAttribute("data-onboarding-target");
+    element.removeAttribute(DYNAMIC_TARGET_ATTRIBUTE);
+  });
+
   document.querySelectorAll(`[${DYNAMIC_TARGET_ATTRIBUTE}="true"]`).forEach((element) => {
     element.removeAttribute(DYNAMIC_TARGET_ATTRIBUTE);
-    element.removeAttribute("data-onboarding-target");
   });
 }
 
@@ -111,9 +115,19 @@ function restoreDialogue() {
   });
 }
 
+function restoreDefaultArchiveTarget() {
+  if (!getGuide()) {
+    return;
+  }
+
+  const archiveButton = findActionButton(getTargetPostCard(), (label) => label.includes("Archive"));
+  archiveButton?.setAttribute("data-onboarding-target", ACTIVE_TARGET_NAME);
+}
+
 function cleanupObserveExperience() {
-  clearDynamicTargets();
+  clearGuideTargets();
   restoreDialogue();
+  restoreDefaultArchiveTarget();
 
   const guide = document.querySelector(".onboarding-guide[data-onboarding-observe-stage]");
   guide?.removeAttribute("data-onboarding-observe-stage");
@@ -159,6 +173,33 @@ function createSkipButton(label) {
   return button;
 }
 
+function isGuideAlreadyApplied({ definition, dialogue, guide, originalLines, target }) {
+  const injectedLines = dialogue.querySelector(`[${INJECTED_LINES_ATTRIBUTE}]`);
+  const injectedSkip = dialogue.querySelector(`[${INJECTED_SKIP_ATTRIBUTE}]`);
+  const renderedLines = [...(injectedLines?.querySelectorAll(":scope > p") ?? [])].map(
+    (paragraph) => paragraph.textContent ?? "",
+  );
+  const expectedSkipLabel = definition.optionalLabel ?? "";
+  const skipIsReady = expectedSkipLabel
+    ? injectedSkip?.textContent?.trim() === expectedSkipLabel
+    : !injectedSkip;
+  const activeTargets = [...document.querySelectorAll(`[data-onboarding-target="${ACTIVE_TARGET_NAME}"]`)];
+  const targetIsReady =
+    activeTargets.length === 1 &&
+    activeTargets[0] === target &&
+    target?.getAttribute(DYNAMIC_TARGET_ATTRIBUTE) === "true";
+
+  return Boolean(
+    guide.getAttribute("data-onboarding-observe-stage") === activeStage &&
+      originalLines.hidden &&
+      injectedLines &&
+      renderedLines.length === definition.lines.length &&
+      renderedLines.every((line, index) => line === definition.lines[index]) &&
+      skipIsReady &&
+      targetIsReady,
+  );
+}
+
 function applyObserveGuide() {
   const guide = getGuide();
   const definition = STAGE_DEFINITIONS[activeStage];
@@ -174,8 +215,13 @@ function applyObserveGuide() {
   const currentDefinition = STAGE_DEFINITIONS[activeStage];
   const dialogue = guide.querySelector(".onboarding-dialogue");
   const originalLines = getOriginalDialogueLines(dialogue);
+  const target = getObserveTarget(activeStage);
 
-  if (!dialogue || !originalLines) {
+  if (!dialogue || !originalLines || !target) {
+    return;
+  }
+
+  if (isGuideAlreadyApplied({ definition: currentDefinition, dialogue, guide, originalLines, target })) {
     return;
   }
 
@@ -193,13 +239,7 @@ function applyObserveGuide() {
     injectedLines.insertAdjacentElement("afterend", createSkipButton(currentDefinition.optionalLabel));
   }
 
-  clearDynamicTargets();
-  const target = getObserveTarget(activeStage);
-
-  if (!target) {
-    return;
-  }
-
+  clearGuideTargets();
   target.setAttribute(DYNAMIC_TARGET_ATTRIBUTE, "true");
   target.setAttribute("data-onboarding-target", ACTIVE_TARGET_NAME);
 
