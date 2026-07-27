@@ -77,7 +77,7 @@ test("server Push test targets only the current account's exact subscription, ne
   ]);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].target.endpoint, subscription.endpoint);
-  assert.match(sent[0].payload, /R.Connect通知のテストです。/);
+  assert.match(sent[0].payload, /おはちあ！ 星空Villageの通知が届いたよ💕/);
 });
 
 test("server Push test refuses an old-account or key-mismatched record without sending", async () => {
@@ -153,8 +153,8 @@ test("server Push test payload contains only the fixed test message", () => {
   const payload = JSON.parse(buildPushSubscriptionTestPayload());
 
   assert.deepEqual(payload, {
-    title: "星空Village",
-    body: "R.Connect通知のテストです。",
+    title: "星空ちあ｜街の案内人",
+    body: "おはちあ！ 星空Villageの通知が届いたよ💕",
     icon: "/images/icons/hoshizora-village-icon-192.png",
     badge: "/images/icons/favicon-32.png",
     data: {

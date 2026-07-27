@@ -33,7 +33,33 @@ function toSafeError(error) {
   return pushHttpError(503, "PUSH_TEST_DELIVERY_FAILED", "テスト通知を送信できませんでした。");
 }
 
+async function recordOnboardingPushTest({ result, supabase, userId }) {
+  const { data, error } = await supabase.rpc("record_initial_onboarding_push_test", {
+    p_result: result,
+    p_user_id: userId,
+  });
+
+  if (error) {
+    const isMissingOnboardingRpc =
+      error.code === "PGRST202" ||
+      String(error.message ?? "").includes("record_initial_onboarding_push_test");
+
+    if (!isMissingOnboardingRpc) {
+      const rawCode = typeof error.code === "string" ? error.code.toUpperCase() : "";
+      console.warn("Push onboarding result record failed", {
+        code: /^[A-Z0-9_]{1,32}$/.test(rawCode) ? rawCode : "unknown",
+        stage: "record_onboarding_push_test",
+      });
+    }
+    return false;
+  }
+
+  return data?.outcome === "recorded";
+}
+
 export default async function handler(request) {
+  let authenticatedContext = null;
+
   try {
     if (request.method !== "POST") {
       throw pushHttpError(405, "METHOD_NOT_ALLOWED", "この操作は許可されていません。");
@@ -46,17 +72,43 @@ export default async function handler(request) {
     const supabase = createSupabaseAdminClient(config);
     const user = await requireAuthenticatedUser({ request, supabase });
     const subscription = await readPushSubscriptionPayload(request);
+    authenticatedContext = { supabase, userId: user.id };
 
     configureWebPush(webPush, config);
-    await sendPushSubscriptionTest({
-      profileId: user.id,
-      subscription,
+    try {
+      await sendPushSubscriptionTest({
+        profileId: user.id,
+        subscription,
+        supabase,
+        webPushClient: webPush,
+      });
+    } catch (error) {
+      await recordOnboardingPushTest({
+        result: "failed",
+        supabase,
+        userId: user.id,
+      });
+      throw error;
+    }
+
+    const onboardingProgressRecorded = await recordOnboardingPushTest({
+      result: "succeeded",
       supabase,
-      webPushClient: webPush,
+      userId: user.id,
     });
 
-    return pushJsonResponse(200, { status: "sent" });
+    return pushJsonResponse(200, {
+      onboardingProgressRecorded,
+      status: "sent",
+    });
   } catch (error) {
+    if (authenticatedContext && !(error instanceof PushHttpError)) {
+      await recordOnboardingPushTest({
+        result: "failed",
+        supabase: authenticatedContext.supabase,
+        userId: authenticatedContext.userId,
+      });
+    }
     return pushErrorResponse(toSafeError(error));
   }
 }

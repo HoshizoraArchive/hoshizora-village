@@ -11,6 +11,7 @@ import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw";
 import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import VillageGuideAdminScreen from "./VillageGuideAdmin";
 import StarMovieObservationMode from "./StarMovieObservationMode";
+import InteractiveOnboarding from "./InteractiveOnboarding";
 import {
   getPushNotificationPermission,
   getPushNotificationPermissionLabel,
@@ -42,6 +43,15 @@ import {
   isStarMovieObservationHistoryState,
   isStarMovieObservationViewport,
 } from "./starMovieObservation";
+import {
+  ONBOARDING_PROGRESS_SELECT_COLUMNS,
+  canApplyOnboardingProgressResponse,
+  getOnboardingResumeTab,
+  getOnboardingTarget,
+  isMissingOnboardingSchemaError,
+  isOnboardingActive,
+  isOnboardingProgressForUser,
+} from "./onboarding";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -1553,6 +1563,14 @@ function App() {
   const [profileShareMessage, setProfileShareMessage] = useState("");
   const [profileShareError, setProfileShareError] = useState("");
   const [session, setSession] = useState(null);
+  const activeSessionUserIdRef = useRef(null);
+  const [onboardingProgress, setOnboardingProgress] = useState(null);
+  const onboardingProgressRef = useRef(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
+  const [onboardingError, setOnboardingError] = useState("");
+  const onboardingAdvanceInFlightRef = useRef(false);
+  const onboardingPostCompletionRef = useRef(false);
   const [authStatus, setAuthStatus] = useState("確認中");
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
@@ -1676,6 +1694,11 @@ function App() {
         .filter(Boolean),
     ),
   ].join("|");
+  const sessionUserId = session?.user?.id ?? null;
+  const sessionOnboardingProgress = isOnboardingProgressForUser(onboardingProgress, sessionUserId)
+    ? onboardingProgress
+    : null;
+  const sessionOnboardingProfile = profile?.id === sessionUserId ? profile : null;
 
   useEffect(() => {
     function handlePopState() {
@@ -1794,6 +1817,7 @@ function App() {
         return;
       }
 
+      activeSessionUserIdRef.current = data.session?.user?.id ?? null;
       setSession(data.session);
       setAuthStatus(data.session ? "ログイン中" : "未ログイン");
     }
@@ -1803,6 +1827,7 @@ function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);
       setAuthStatus(session ? "ログイン中" : "未ログイン");
     });
@@ -1812,6 +1837,84 @@ function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    activeSessionUserIdRef.current = session?.user?.id ?? null;
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    onboardingProgressRef.current = isOnboardingProgressForUser(onboardingProgress, sessionUserId)
+      ? onboardingProgress
+      : null;
+  }, [onboardingProgress, sessionUserId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = sessionUserId;
+
+    activeSessionUserIdRef.current = userId;
+    onboardingProgressRef.current = null;
+    onboardingAdvanceInFlightRef.current = false;
+    onboardingPostCompletionRef.current = false;
+    setOnboardingProgress(null);
+    setOnboardingBusy(false);
+    setOnboardingError("");
+
+    if (!userId) {
+      setOnboardingLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readOnboardingProgress() {
+      setOnboardingLoading(true);
+      setOnboardingError("");
+
+      const { data, error } = await supabase
+        .from("user_onboarding_progress")
+        .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (!isMounted || activeSessionUserIdRef.current !== userId) {
+        return;
+      }
+
+      setOnboardingLoading(false);
+
+      if (error) {
+        if (!isMissingOnboardingSchemaError(error)) {
+          logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+        }
+        return;
+      }
+
+      if (
+        !canApplyOnboardingProgressResponse({
+          activeUserId: activeSessionUserIdRef.current,
+          progress: data,
+          requestedUserId: userId,
+        })
+      ) {
+        setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
+        return;
+      }
+
+      onboardingProgressRef.current = data;
+      setOnboardingProgress(data);
+
+      if (isOnboardingActive(data) && !["welcome_video", "mini_chia_intro"].includes(data.current_step)) {
+        handleTabChange(getOnboardingResumeTab(data.current_step));
+      }
+    }
+
+    readOnboardingProgress();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [sessionUserId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3119,6 +3222,169 @@ function App() {
       isMounted = false;
     };
   }, [profileFrames]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const targetPostId = sessionOnboardingProgress?.target_post_id;
+    const needsTarget = [
+      "observe_intro",
+      "archive_prompt",
+      "archive_check",
+      "archive_success",
+    ].includes(sessionOnboardingProgress?.current_step);
+
+    if (!isOnboardingActive(sessionOnboardingProgress) || !needsTarget) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    if (!targetPostId) {
+      void advanceInitialOnboarding("ensure_target");
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    if ([...savedPosts, ...archivedPosts].some((post) => post.id === targetPostId)) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readOnboardingTargetPost() {
+      const { data: post, error } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = applyVisiblePostTypeFilter(
+          supabase.from("posts").select(columns).eq("id", targetPostId).eq("visibility", "public"),
+        );
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query.maybeSingle();
+      });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error) {
+        logSafeError(ERROR_OPERATION.POST_LOAD, error);
+        setOnboardingError("案内に使う流星便を読み込めませんでした。もう一度お試しください。");
+        return;
+      }
+
+      if (!post) {
+        void advanceInitialOnboarding("ensure_target");
+        return;
+      }
+
+      const { data: authorProfile } = await runProfileQuery(
+        (columns) => supabase.from("profiles").select(columns).eq("id", post.author_id).maybeSingle(),
+        PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+        PROFILE_BASIC_SELECT_COLUMNS,
+      );
+
+      if (!isMounted) {
+        return;
+      }
+
+      const basePost = mapSavedPost(post, authorProfile, profileFrames);
+      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets([basePost]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
+      }
+
+      const targetPost = hydratedPosts[0] ?? basePost;
+      setSavedPosts((currentPosts) => [
+        targetPost,
+        ...currentPosts.filter((currentPost) => currentPost.id !== targetPost.id),
+      ]);
+    }
+
+    readOnboardingTargetPost();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    sessionOnboardingProgress?.current_step,
+    sessionOnboardingProgress?.target_post_id,
+    profileFrames,
+  ]);
+
+  useEffect(() => {
+    if (
+      sessionOnboardingProgress?.current_step === "profile_setup" &&
+      sessionOnboardingProfile?.display_name?.trim() &&
+      sessionOnboardingProfile?.avatar_url?.trim()
+    ) {
+      void advanceInitialOnboarding("profile_saved");
+    }
+  }, [
+    sessionOnboardingProfile?.avatar_url,
+    sessionOnboardingProfile?.display_name,
+    sessionOnboardingProgress?.current_step,
+  ]);
+
+  useEffect(() => {
+    const targetPostId = sessionOnboardingProgress?.target_post_id;
+
+    if (
+      sessionOnboardingProgress?.current_step === "archive_prompt" &&
+      targetPostId &&
+      archivedPosts.some((post) => post.id === targetPostId)
+    ) {
+      void advanceInitialOnboarding("archive_saved", { targetId: targetPostId });
+    }
+  }, [
+    archivedPostIdsKey,
+    sessionOnboardingProgress?.current_step,
+    sessionOnboardingProgress?.target_post_id,
+  ]);
+
+  useEffect(() => {
+    const targetPostId = sessionOnboardingProgress?.target_post_id;
+
+    if (
+      sessionOnboardingProgress?.current_step === "archive_check" &&
+      activeTab === "archive" &&
+      targetPostId &&
+      archivedPosts.some((post) => post.id === targetPostId)
+    ) {
+      void advanceInitialOnboarding("archive_confirmed", { targetId: targetPostId });
+    }
+  }, [
+    activeTab,
+    archivedPostIdsKey,
+    sessionOnboardingProgress?.current_step,
+    sessionOnboardingProgress?.target_post_id,
+  ]);
+
+  useEffect(() => {
+    const postSteps = [
+      "post_intro_1",
+      "post_intro_2",
+      "post_intro_3",
+      "post_intro_4",
+      "first_post",
+    ];
+
+    if (
+      postSteps.includes(sessionOnboardingProgress?.current_step) &&
+      !ownPostsLoading &&
+      ownPosts.length > 0 &&
+      !onboardingPostCompletionRef.current
+    ) {
+      void advanceInitialOnboarding("existing_post_detected");
+    }
+  }, [sessionOnboardingProgress?.current_step, ownPostIdsKey, ownPostsLoading]);
 
   function hasCurrentLegalConsentMetadata(user) {
     const metadata = user?.user_metadata ?? {};
@@ -4530,6 +4796,17 @@ function App() {
         media,
         tags: meteorTags,
       };
+      const completesOnboardingFirstPost =
+        onboardingProgressRef.current?.current_step === "first_post";
+
+      if (completesOnboardingFirstPost) {
+        onboardingPostCompletionRef.current = true;
+        await advanceInitialOnboarding("first_post_saved", {
+          targetId: data.id,
+        });
+        onboardingPostCompletionRef.current = false;
+      }
+
       setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
       setOwnPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
       setPostDraft("");
@@ -4910,6 +5187,15 @@ function App() {
     }
 
     const archivedPost = archivedPosts.find((post) => post.id === postId);
+    const isOnboardingArchiveTarget =
+      onboardingProgressRef.current?.current_step === "archive_prompt" &&
+      onboardingProgressRef.current?.target_post_id === postId;
+
+    if (archivedPost?.archiveId && isOnboardingArchiveTarget) {
+      setArchivesMessage("この流星便はすでにArchive済みです。");
+      void advanceInitialOnboarding("archive_saved", { targetId: postId });
+      return;
+    }
 
     setArchiveSavingPostId(postId);
 
@@ -4960,6 +5246,9 @@ function App() {
     if (error) {
       if (error.code === "23505") {
         setArchivesMessage("この流星便はすでにArchive済みです。");
+        if (isOnboardingArchiveTarget) {
+          void advanceInitialOnboarding("archive_saved", { targetId: postId });
+        }
         return;
       }
 
@@ -4976,6 +5265,9 @@ function App() {
 
     setArchivedPosts((currentPosts) => [archivedTargetPost, ...currentPosts.filter((post) => post.id !== postId)]);
     setArchivesMessage("流星便をArchiveしました。");
+    if (isOnboardingArchiveTarget) {
+      void advanceInitialOnboarding("archive_saved", { targetId: postId });
+    }
   }
 
   async function handleMarkNotificationRead(notificationId) {
@@ -5509,6 +5801,182 @@ function App() {
     });
   }
 
+  async function advanceInitialOnboarding(
+    action,
+    { navigateTo = "", status = null, targetId = null } = {},
+  ) {
+    const requestedUserId = session?.user?.id;
+
+    if (
+      !requestedUserId ||
+      !onboardingProgressRef.current ||
+      onboardingProgressRef.current.user_id !== requestedUserId ||
+      onboardingAdvanceInFlightRef.current
+    ) {
+      return null;
+    }
+
+    onboardingAdvanceInFlightRef.current = true;
+    setOnboardingBusy(true);
+    setOnboardingError("");
+
+    let data;
+    let error;
+
+    try {
+      const result = await supabase.rpc("advance_initial_onboarding", {
+        p_action: action,
+        p_status: status,
+        p_target_id: targetId,
+      });
+      data = result.data;
+      error = result.error;
+    } catch (requestError) {
+      if (activeSessionUserIdRef.current === requestedUserId) {
+        onboardingAdvanceInFlightRef.current = false;
+        setOnboardingBusy(false);
+        logSafeError(ERROR_OPERATION.ONBOARDING_SAVE, requestError);
+        setOnboardingError(getUserFacingError(requestError, ERROR_OPERATION.ONBOARDING_SAVE));
+      }
+      return null;
+    }
+
+    if (activeSessionUserIdRef.current !== requestedUserId) {
+      return null;
+    }
+
+    onboardingAdvanceInFlightRef.current = false;
+    setOnboardingBusy(false);
+
+    if (error) {
+      if (!isMissingOnboardingSchemaError(error)) {
+        logSafeError(ERROR_OPERATION.ONBOARDING_SAVE, error);
+        setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_SAVE));
+      }
+      return null;
+    }
+
+    if (!["advanced", "already_completed"].includes(data?.outcome) || !data?.progress) {
+      const outcomeMessages = {
+        archive_not_found: "Archiveの保存をまだ確認できませんでした。",
+        invalid_step: "入村案内の現在地を確認できませんでした。画面を開き直してください。",
+        post_not_found: "流星便の保存をまだ確認できませんでした。",
+        profile_incomplete: "名前とプロフィール画像を保存してから進んでください。",
+        push_not_registered: "端末登録の完了をまだ確認できませんでした。",
+        target_unavailable: "案内に使える流星便がまだありません。少し時間をおいてください。",
+      };
+
+      if (!["not_eligible", "not_authenticated"].includes(data?.outcome)) {
+        setOnboardingError(
+          outcomeMessages[data?.outcome] ?? "入村案内の進捗を確認できませんでした。もう一度お試しください。",
+        );
+      }
+      return null;
+    }
+
+    if (!isOnboardingProgressForUser(data.progress, requestedUserId)) {
+      setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
+      return null;
+    }
+
+    onboardingProgressRef.current = data.progress;
+    setOnboardingProgress(data.progress);
+
+    if (navigateTo) {
+      handleTabChange(navigateTo);
+    }
+
+    return data.progress;
+  }
+
+  async function refreshInitialOnboardingProgress() {
+    const userId = session?.user?.id;
+
+    if (
+      !userId ||
+      !isOnboardingProgressForUser(onboardingProgressRef.current, userId)
+    ) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("user_onboarding_progress")
+      .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (
+      !canApplyOnboardingProgressResponse({
+        activeUserId: activeSessionUserIdRef.current,
+        progress: data,
+        requestedUserId: userId,
+      })
+    ) {
+      return null;
+    }
+
+    if (error) {
+      if (!isMissingOnboardingSchemaError(error)) {
+        logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+        setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
+      }
+      return null;
+    }
+
+    onboardingProgressRef.current = data;
+    setOnboardingProgress(data);
+    return data;
+  }
+
+  function handleOnboardingAdvance(action, options = {}) {
+    return advanceInitialOnboarding(action, options);
+  }
+
+  function handleOnboardingNotificationSkip(status) {
+    return advanceInitialOnboarding("skip_notifications", {
+      navigateTo: "post",
+      status,
+    });
+  }
+
+  function handleOnboardingPermissionStatus(status) {
+    if (onboardingProgressRef.current?.current_step === "notification_permission") {
+      void advanceInitialOnboarding("notification_permission", { status });
+    }
+  }
+
+  function handleOnboardingPushRegistered() {
+    if (onboardingProgressRef.current?.current_step === "device_registration") {
+      void advanceInitialOnboarding("push_registered");
+    }
+  }
+
+  function handleOnboardingPushRegistrationFailed() {
+    if (onboardingProgressRef.current?.current_step === "device_registration") {
+      void advanceInitialOnboarding("push_registration_failed");
+    }
+  }
+
+  function handleOnboardingPushTestResult(result) {
+    if (onboardingProgressRef.current?.current_step !== "push_test") {
+      return;
+    }
+
+    if (result === "succeeded") {
+      void refreshInitialOnboardingProgress();
+      return;
+    }
+
+    setOnboardingProgress((currentProgress) =>
+      isOnboardingProgressForUser(currentProgress, session?.user?.id)
+        ? {
+            ...currentProgress,
+            push_test_status: "failed",
+          }
+        : currentProgress,
+    );
+  }
+
   function handleTabChange(tabId) {
     if (route.name !== "home") {
       window.history.pushState({}, "", "/");
@@ -5528,6 +5996,13 @@ function App() {
     onSignUp: handleSignUp,
     session,
     status: authStatus,
+  };
+  const onboardingIsActive = isOnboardingActive(sessionOnboardingProgress);
+  const onboardingTarget = getOnboardingTarget(sessionOnboardingProgress, profileScreenMode);
+  const onboardingState = {
+    active: onboardingIsActive,
+    currentStep: sessionOnboardingProgress?.current_step ?? "",
+    targetPostId: sessionOnboardingProgress?.target_post_id ?? null,
   };
   const ownedProfileFrames = profileFrames.filter((frame) => ownedProfileFrameIds.includes(frame.id));
   const activeProfileFrame = getProfileFrameById(profileFrames, profile?.active_frame_id);
@@ -5569,6 +6044,7 @@ function App() {
     shareError: profileShareError,
     shareMessage: profileShareMessage,
     profileScreenMode,
+    onboardingTarget,
   };
   const feedback = {
     body: feedbackBody,
@@ -5623,6 +6099,7 @@ function App() {
     videoAccept: METEOR_VIDEO_ACCEPT,
     videoDraft: postVideoDraft,
     videoPreparing: postVideoPreparing || postVideoTrimProcessing || postCoverCropPreparing,
+    onboardingTarget,
   };
   const resonance = {
     error: resonanceError,
@@ -5639,6 +6116,7 @@ function App() {
     onToggleArchive: handleToggleArchive,
     savingPostId: archiveSavingPostId,
     session,
+    onboarding: onboardingState,
   };
   const postActions = {
     deletingId: postDeletingId,
@@ -5664,6 +6142,13 @@ function App() {
     onOpenMeteorDetail: handleOpenMeteorDetail,
     onOpenStarProfile: handleOpenStarProfile,
     session,
+    onboarding: {
+      ...onboardingState,
+      onPermissionStatus: handleOnboardingPermissionStatus,
+      onPushRegistrationFailed: handleOnboardingPushRegistrationFailed,
+      onPushRegistered: handleOnboardingPushRegistered,
+      onPushTestResult: handleOnboardingPushTestResult,
+    },
     updatingId: notificationUpdatingId,
   };
   const starLetters = {
@@ -5827,6 +6312,7 @@ function App() {
 
         <TabContent
           activeTab={activeTab}
+          onboarding={onboardingState}
           auth={auth}
           composer={composer}
           feedback={feedback}
@@ -5852,7 +6338,13 @@ function App() {
         />
       </div>
 
-      {!isPostEditor && <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />}
+      {!isPostEditor && (
+        <BottomNav
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          onboardingTarget={onboardingTarget}
+        />
+      )}
       <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />
       <AvatarCropModal crop={avatarCropState} />
       <PostCoverCropModal crop={postCoverCropState} />
@@ -5867,6 +6359,19 @@ function App() {
         onClose={handleCloseStarMovieObservation}
         post={starMovieObservationPost}
       />
+      {onboardingIsActive && !onboardingLoading ? (
+        <InteractiveOnboarding
+          busy={onboardingBusy}
+          displayName={sessionOnboardingProfile?.display_name ?? ""}
+          error={onboardingError}
+          onAdvance={handleOnboardingAdvance}
+          onSkipNotifications={handleOnboardingNotificationSkip}
+          progress={{
+            ...sessionOnboardingProgress,
+            target: onboardingTarget,
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -5925,6 +6430,7 @@ function TabContent({
   auth,
   composer,
   feedback,
+  onboarding,
   meteorDetail,
   meteorTagRoute,
   notifications,
@@ -6002,6 +6508,7 @@ function TabContent({
     return (
       <ArchiveScreen
         archive={archive}
+        onboarding={onboarding}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
         onOpenStarMovieObservation={onOpenStarMovieObservation}
@@ -6035,6 +6542,7 @@ function TabContent({
   return (
     <ObserveScreen
       archive={archive}
+      onboarding={onboarding}
       postActions={postActions}
       posts={posts}
       postsError={postsError}
@@ -6194,6 +6702,7 @@ function MarkdownDocument({ markdown }) {
 
 function ObserveScreen({
   archive,
+  onboarding,
   onOpenMeteorDetail,
   onOpenPostMedia,
   onOpenStarMovieObservation,
@@ -6209,6 +6718,7 @@ function ObserveScreen({
     <main className="observe-screen mx-auto min-w-0 max-w-3xl border-x border-white/10">
       <Timeline
         archive={archive}
+        onboarding={onboarding}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
         onOpenStarMovieObservation={onOpenStarMovieObservation}
@@ -7053,7 +7563,7 @@ const PUSH_SUBSCRIPTION_STATUS_LABELS = {
   unsupported: "端末登録: この表示環境では未対応",
 };
 
-function PushNotificationTestCard({ session }) {
+function PushNotificationTestCard({ onboarding, session }) {
   const [permission, setPermission] = useState(() => getPushNotificationPermission());
   const [subscriptionStatus, setSubscriptionStatus] = useState("checking");
   const [subscriptionCheckVersion, setSubscriptionCheckVersion] = useState(0);
@@ -7104,6 +7614,9 @@ function PushNotificationTestCard({ session }) {
 
         if (!cancelled) {
           setSubscriptionStatus(registrationStatus.status);
+          if (registrationStatus.status === "registered") {
+            onboarding?.onPushRegistered?.();
+          }
           if (registrationStatus.status === "account_mismatch") {
             setStatusMessage("この端末は別のアカウントに通知登録されています");
           } else if (registrationStatus.status === "unregistered" && registrationStatus.hasSubscription) {
@@ -7130,6 +7643,16 @@ function PushNotificationTestCard({ session }) {
     };
   }, [session?.access_token, subscriptionCheckVersion]);
 
+  useEffect(() => {
+    if (onboarding?.currentStep === "notification_permission") {
+      onboarding.onPermissionStatus?.(getPushNotificationPermission());
+    }
+
+    if (onboarding?.currentStep === "device_registration" && subscriptionStatus === "registered") {
+      onboarding.onPushRegistered?.();
+    }
+  }, [onboarding?.currentStep, subscriptionStatus]);
+
   async function handleRequestPermission() {
     if (!isSupported) {
       setStatusMessage("この表示環境では通知テストを利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
@@ -7144,10 +7667,12 @@ function PushNotificationTestCard({ session }) {
       const nextPermission = await requestPushNotificationPermission();
       setPermission(getPushNotificationPermission());
       setStatusMessage(nextPermission === "granted" ? "通知を許可しました。" : "通知許可は完了していません。");
+      onboarding?.onPermissionStatus?.(nextPermission);
       setSubscriptionCheckVersion((version) => version + 1);
     } catch {
       setPermission(getPushNotificationPermission());
       setStatusMessage("通知許可の準備に失敗しました。");
+      onboarding?.onPermissionStatus?.("error");
     } finally {
       setIsWorking(false);
     }
@@ -7170,9 +7695,12 @@ function PushNotificationTestCard({ session }) {
     setStatusMessage("");
 
     try {
-      await sendPushNotificationTest({ accessToken: session?.access_token });
+      const result = await sendPushNotificationTest({ accessToken: session?.access_token });
       setPermission(getPushNotificationPermission());
       setStatusMessage("サーバーからこの端末へテスト通知を送りました。");
+      onboarding?.onPushTestResult?.(
+        result?.onboardingProgressRecorded === false ? "failed" : "succeeded",
+      );
     } catch (error) {
       setPermission(getPushNotificationPermission());
       const isNotRegistered = error instanceof Error && error.message.includes("PUSH_SUBSCRIPTION_NOT_REGISTERED");
@@ -7193,6 +7721,7 @@ function PushNotificationTestCard({ session }) {
                   ? "通知サービスが一時的に利用できません"
                   : "サーバーからテスト通知を送信できませんでした。",
       );
+      onboarding?.onPushTestResult?.("failed");
     } finally {
       setIsWorking(false);
     }
@@ -7202,12 +7731,14 @@ function PushNotificationTestCard({ session }) {
     if (!isSubscriptionSupported) {
       setPermission(getPushNotificationPermission());
       setStatusMessage("この表示環境では端末登録を利用できません。iPhoneではホーム画面に追加した星空Villageから試してください。");
+      onboarding?.onPushRegistrationFailed?.();
       return;
     }
 
     if (!session?.access_token) {
       setSubscriptionStatus("failed");
       setStatusMessage("ログインすると、この端末をR.Connect通知用に登録できます。");
+      onboarding?.onPushRegistrationFailed?.();
       return;
     }
 
@@ -7225,6 +7756,7 @@ function PushNotificationTestCard({ session }) {
       setPermission(getPushNotificationPermission());
       setSubscriptionStatus("registered");
       setStatusMessage("この端末を登録しました。");
+      onboarding?.onPushRegistered?.();
     } catch (error) {
       setPermission(getPushNotificationPermission());
       const isConfigMissing = error instanceof Error && error.message === "push-vapid-key-missing";
@@ -7240,6 +7772,7 @@ function PushNotificationTestCard({ session }) {
               ? "この端末には以前の通知購読があります。通知端末を再登録してください。"
               : "端末登録に失敗しました。",
       );
+      onboarding?.onPushRegistrationFailed?.();
     } finally {
       setIsWorking(false);
     }
@@ -7258,6 +7791,7 @@ function PushNotificationTestCard({ session }) {
       setPermission(getPushNotificationPermission());
       setSubscriptionStatus("registered");
       setStatusMessage("通知端末を再登録しました。");
+      onboarding?.onPushRegistered?.();
       setSubscriptionCheckVersion((version) => version + 1);
     } catch (error) {
       setPermission(getPushNotificationPermission());
@@ -7276,6 +7810,7 @@ function PushNotificationTestCard({ session }) {
       };
       setSubscriptionStatus("failed");
       setStatusMessage(`${messages[code] ?? "通知端末を再登録できませんでした。"}（${code}）`);
+      onboarding?.onPushRegistrationFailed?.();
     } finally {
       setIsWorking(false);
     }
@@ -7294,6 +7829,7 @@ function PushNotificationTestCard({ session }) {
       setPermission(getPushNotificationPermission());
       setSubscriptionStatus("registered");
       setStatusMessage("この端末の通知先を現在のアカウントへ切り替えました。");
+      onboarding?.onPushRegistered?.();
       setSubscriptionCheckVersion((version) => version + 1);
     } catch (error) {
       setPermission(getPushNotificationPermission());
@@ -7303,6 +7839,7 @@ function PushNotificationTestCard({ session }) {
           ? "この端末の通知登録を確認できませんでした。画面を開き直してもう一度お試しください。"
           : "端末の通知先を切り替えられませんでした。",
       );
+      onboarding?.onPushRegistrationFailed?.();
     } finally {
       setIsWorking(false);
     }
@@ -7324,6 +7861,9 @@ function PushNotificationTestCard({ session }) {
         <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
           <button
             className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            data-onboarding-target={
+              onboarding?.currentStep === "notification_permission" ? "push-permission" : undefined
+            }
             disabled={!isSupported || isWorking}
             onClick={handleRequestPermission}
             type="button"
@@ -7332,6 +7872,9 @@ function PushNotificationTestCard({ session }) {
           </button>
           <button
             className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            data-onboarding-target={
+              onboarding?.currentStep === "device_registration" ? "push-register" : undefined
+            }
             disabled={
               !isSubscriptionSupported ||
               isWorking ||
@@ -7373,6 +7916,7 @@ function PushNotificationTestCard({ session }) {
           ) : null}
           <button
             className="min-h-10 rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
+            data-onboarding-target={onboarding?.currentStep === "push_test" ? "push-test" : undefined}
             disabled={
               !isSubscriptionSupported ||
               isWorking ||
@@ -7398,7 +7942,7 @@ function RConnectScreen({ notifications }) {
         <p className="text-xs font-bold normal-case text-comet">R.Connect</p>
         <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">R.Connect</h2>
         <p className="mt-4 text-sm leading-7 text-slate-300">共鳴・星文・観測通知がここに届きます。</p>
-        <PushNotificationTestCard session={notifications.session} />
+        <PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />
 
         {!notifications.session ? (
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
@@ -7656,6 +8200,7 @@ function OwnPostsPanel({
 
 function ArchiveScreen({
   archive,
+  onboarding,
   onOpenMeteorDetail,
   onOpenPostMedia,
   onOpenStarMovieObservation,
@@ -7709,6 +8254,7 @@ function ArchiveScreen({
               <PostCard
                 archive={archive}
                 key={post.archiveId ?? post.id}
+                onboarding={onboarding}
                 onOpenAuthorProfile={onOpenStarProfile}
                 onOpenDetail={onOpenMeteorDetail}
                 onOpenMedia={onOpenPostMedia}
@@ -8195,6 +8741,7 @@ function ProfileCard({ profile }) {
             {profile.canEdit && (
               <button
                 className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+                data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
                 disabled={profile.loading}
                 onClick={profile.onStartEdit}
                 type="button"
@@ -8902,7 +9449,11 @@ function ProfileEditor({ profile }) {
   const selectedFrame = profile.selectedFrame;
 
   return (
-    <form className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-night-950/35 p-3" onSubmit={profile.onSubmit}>
+    <form
+      className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-night-950/35 p-3"
+      data-onboarding-target={profile.onboardingTarget === "profile-editor" ? "profile-editor" : undefined}
+      onSubmit={profile.onSubmit}
+    >
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-black text-comet">プロフィール編集</p>
         {(profile.loading || profile.avatarUploading) && (
@@ -9094,7 +9645,7 @@ function ProfileEditor({ profile }) {
   );
 }
 
-function BottomNav({ activeTab, onTabChange }) {
+function BottomNav({ activeTab, onTabChange, onboardingTarget = "" }) {
   return (
     <nav
       aria-label="星空Village bottom navigation"
@@ -9117,6 +9668,7 @@ function BottomNav({ activeTab, onTabChange }) {
                 aria-current={isActive ? "page" : undefined}
                 aria-label={item.ariaLabel ?? item.label}
                 className={buttonClass}
+                data-onboarding-target={onboardingTarget === `nav-${item.id}` ? onboardingTarget : undefined}
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
                 type="button"
@@ -10012,6 +10564,7 @@ function PostMediaViewerModal({ onClose, onStep, viewer }) {
 
 function Timeline({
   archive,
+  onboarding,
   onOpenMeteorDetail,
   onOpenPostMedia,
   onOpenStarMovieObservation,
@@ -10095,6 +10648,7 @@ function Timeline({
             <PostCard
               archive={archive}
               key={post.id ?? post.handle}
+              onboarding={onboarding}
               onOpenAuthorProfile={onOpenStarProfile}
               onOpenDetail={onOpenMeteorDetail}
               onOpenMedia={onOpenPostMedia}
@@ -10325,6 +10879,7 @@ function Composer({ composer }) {
   return (
     <form
       className="contents"
+      data-onboarding-target={composer.onboardingTarget === "post-composer" ? "post-composer" : undefined}
       id={METEOR_COMPOSER_FORM_ID}
       onSubmit={composer.onSubmit}
       style={composerLayoutStyle}
@@ -10669,6 +11224,7 @@ function PostThumbnailDraftPreview({ disabled, draft, onEdit, onRemove }) {
 function PostCard({
   archive,
   detailMode = false,
+  onboarding,
   onOpenAuthorProfile,
   onOpenDetail,
   onOpenMedia,
@@ -10707,6 +11263,8 @@ function PostCard({
   const canOpenDetail = Boolean(onOpenDetail && post.id && !detailMode);
   const authorUsername = post.authorUsername;
   const canOpenAuthorProfile = Boolean(onOpenAuthorProfile && authorUsername);
+  const isOnboardingTargetPost =
+    onboarding?.active && onboarding.targetPostId === post.id;
 
   function isCardActionTarget(target) {
     return Boolean(
@@ -10761,6 +11319,7 @@ function PostCard({
       className={`glass-panel post-card-panel post-card group overflow-hidden ${
         canOpenDetail ? "is-clickable" : ""
       }`}
+      data-onboarding-target={isOnboardingTargetPost ? "onboarding-archive-post" : undefined}
       onClick={handleOpenDetail}
       onKeyDown={handleOpenDetailKeyDown}
       role={canOpenDetail ? "link" : undefined}
@@ -10907,6 +11466,11 @@ function PostCard({
           />
           <ActionButton
             active={isArchived}
+            dataOnboardingTarget={
+              isOnboardingTargetPost && onboarding.currentStep === "archive_prompt"
+                ? "onboarding-archive-action"
+                : undefined
+            }
             disabled={isArchiveSaving || !archive?.onToggleArchive}
             icon="✦"
             label={isArchiveSaving ? "Archive中..." : isArchived ? "Archive済み" : "Archive"}
@@ -11135,7 +11699,15 @@ function getActionButtonTone(variant = "default", active = false) {
     : "border-white/10 bg-white/5 hover:border-comet/30 hover:bg-comet/10 hover:text-white";
 }
 
-function ActionButton({ active = false, disabled = false, icon, label, onClick, variant = "default" }) {
+function ActionButton({
+  active = false,
+  dataOnboardingTarget,
+  disabled = false,
+  icon,
+  label,
+  onClick,
+  variant = "default",
+}) {
   function handleClick(event) {
     event.stopPropagation();
     onClick?.(event);
@@ -11147,6 +11719,7 @@ function ActionButton({ active = false, disabled = false, icon, label, onClick, 
         variant,
         active,
       )}`}
+      data-onboarding-target={dataOnboardingTarget}
       disabled={disabled}
       onClick={handleClick}
       type="button"

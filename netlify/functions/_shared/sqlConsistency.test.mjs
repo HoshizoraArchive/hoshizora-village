@@ -504,8 +504,8 @@ test("production post cards do not expose manual AI observation controls", () =>
 
 test("R.Connect renders smartphone notification test card through React instead of DOM injection", () => {
   const requiredAppTokens = [
-    "function PushNotificationTestCard({ session })",
-    "<PushNotificationTestCard session={notifications.session} />",
+    "function PushNotificationTestCard({ onboarding, session })",
+    "<PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />",
     "スマホ通知テスト",
     "この端末でR.Connect通知を表示できるか確認します。",
     "通知を許可",
@@ -572,7 +572,7 @@ test("R.Connect notification card registers this device without client-side Push
     "端末登録: 登録に失敗しました",
     "端末登録: VAPID key未設定",
     "この端末を登録",
-    "<PushNotificationTestCard session={notifications.session} />",
+    "<PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />",
   ];
   const requiredSetupTokens = [
     "fetchPushNotificationConfig",
@@ -722,7 +722,7 @@ test("Push account switching and server test delivery require the current endpoi
     '.eq("endpoint", subscription.endpoint)',
     '.eq("p256dh", subscription.p256dh)',
     '.eq("auth", subscription.auth)',
-    "R.Connect通知のテストです。",
+    "おはちあ！ 星空Villageの通知が届いたよ💕",
   ];
 
   for (const token of appTokens) {

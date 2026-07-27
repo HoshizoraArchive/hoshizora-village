@@ -126,7 +126,7 @@ export async function sendPushNotificationTest({ accessToken }) {
     throw new Error("push-subscription-not-registered");
   }
 
-  await postPushSubscription({
+  return postPushSubscription({
     accessToken,
     endpoint: PUSH_SUBSCRIPTION_TEST_ENDPOINT,
     errorPrefix: "push-subscription-test",
