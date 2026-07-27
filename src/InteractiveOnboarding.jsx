@@ -191,9 +191,15 @@ function findButtonByText(root, text) {
 }
 
 function getProfileEditor() {
-  return typeof document === "undefined"
-    ? null
-    : document.querySelector('[data-onboarding-target="profile-editor"]');
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return (
+    document.querySelector('[data-onboarding-target="profile-editor"]') ??
+    document.querySelector('input[placeholder="名無しの観測者"]')?.closest("form") ??
+    null
+  );
 }
 
 function getProfileAvatarSection(editor) {
