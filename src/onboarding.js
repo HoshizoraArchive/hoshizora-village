@@ -101,15 +101,15 @@ const STEP_DEFINITIONS = {
     ],
   },
   notification_permission: {
-    lines: ["まずは「通知を許可」を押して、", "そのあとに「端末を登録」を押してね！"],
+    lines: ["まずは「通知を許可」を押してね！"],
     target: "push-permission",
   },
   device_registration: {
-    lines: ["まずは「通知を許可」を押して、", "そのあとに「端末を登録」を押してね！"],
+    lines: ["通知を許可できたね！", "次は「この端末を登録」を押してね！"],
     target: "push-register",
   },
   push_test: {
-    lines: ["まずは「通知を許可」を押して、", "そのあとに「端末を登録」を押してね！"],
+    lines: ["端末を登録できたね！", "最後に「テスト通知」を押してみて！"],
     target: "push-test",
   },
   push_test_success: {
