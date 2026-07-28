@@ -1023,7 +1023,7 @@ test("star-letter mutation RPCs authenticate ownership and visible post access",
   }
 });
 
-test("legacy root star-letter CRUD remains compatible with restricted browser columns", () => {
+test("legacy root composer remains compatible while conversation mutations use their RPCs", () => {
   const sql = normalizedSql(starLetterConversationMigrationSql);
   const app = normalizedSql(appJsx);
 
@@ -1039,14 +1039,15 @@ test("legacy root star-letter CRUD remains compatible with restricted browser co
     app,
     /\.from\("star_letters"\) \.insert\(\{ post_id: postid, author_id: session\.user\.id, body, \}\) \.select\(columns\)/i,
   );
-  assert.match(
-    app,
-    /\.from\("star_letters"\) \.update\(\{ body, \}\)[\s\S]*\.select\(columns\)/i,
-  );
-  assert.match(
-    app,
-    /\.from\("star_letters"\) \.delete\(\) \.eq\("id", letter\.id\) \.eq\("author_id", session\.user\.id\)/i,
-  );
+  for (const token of [
+    "updateStarLetter(supabase",
+    "deleteStarLetter(supabase",
+    "createStarLetterReply(supabase",
+    "addStarLetterResonance(supabase",
+    "setStarLetterArchived(supabase",
+  ]) {
+    assert.equal(app.includes(token), true, `conversation UI must use ${token}`);
+  }
   assert.match(sql, /grant insert \(post_id, author_id, body\) on table public\.star_letters to authenticated/i);
   assert.match(sql, /grant update \(body\) on table public\.star_letters to authenticated/i);
 });

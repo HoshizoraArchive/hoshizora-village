@@ -28,8 +28,8 @@ test("共鳴と星文は実DB行を確認してから次へ進み、再開地点
   for (const token of [
     'hasMatchingRow("resonances", "profile_id")',
     'hasMatchingRow("star_letters", "author_id")',
-    'waitForActionResult("resonances", "profile_id", "star_letter_open")',
-    'waitForActionResult("star_letters", "author_id", "archive")',
+    "scheduleDatabaseRefreshes();",
+    'document.addEventListener("submit", handleDocumentSubmit, true)',
     '.select("user_id, current_step, target_post_id, created_at")',
     'progress?.current_step !== "archive_prompt"',
   ]) {
