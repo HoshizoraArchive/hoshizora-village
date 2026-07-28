@@ -571,10 +571,12 @@ RLS方針:
 - 星文共鳴は同じ利用者が同じ星文へ複数回追加できる
 - 1回の操作は利用者単位で一意な`client_request_id`により冪等化し、同じIDで対象や共鳴種別を変えた再利用は拒否する
 - `get_star_letter_thread(post_id)`は総共鳴数、自分の共鳴数、自分のArchive状態を返す
-- 星文共鳴の生行はbrowser roleへ公開せず、集計値だけを取得RPCから返す
+- `star_letter_resonances`はRLSを有効にしたうえでbrowser向けpolicyとtable権限を作らず、RPC以外をdeny-allにする。星文共鳴の生行は公開せず、集計値だけを取得RPCから返す
 - 星文Archiveは`profile_id`と`star_letter_id`で一意にし、複合FKで`post_id`を対象星文の流星便へ固定する
 - `set_star_letter_archive`はArchive／解除を冪等に実行し、Archive通知は作らない
 - 返信、共鳴、Archive、編集、削除RPCは`auth.uid()`と流星便の閲覧可否をDB内で検証し、対象`posts`行をtransaction中`FOR SHARE`して可視性変更との競合を防ぐ
+- `get_star_letter_thread`を`anon`へ公開するのは、公開流星便に紐づく星文を未ログインでも取得するための意図した公開である
+- mutation SECURITY DEFINER RPCを`authenticated`へ公開するのは意図したAPI境界であり、各RPCは`auth.uid()`、対象流星便の可視性、本人性、固定`search_path`、明示的なGRANT／REVOKEで保護する
 - 後続の星文スレッドUIは`src/starLetterConversations.js`の取得・操作関数を利用する
 
 ### archives

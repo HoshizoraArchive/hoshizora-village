@@ -3982,9 +3982,14 @@ create index if not exists star_letter_archives_profile_created_at_idx
 on public.star_letter_archives(profile_id, created_at desc, id);
 create index if not exists star_letter_archives_post_id_idx
 on public.star_letter_archives(post_id);
+create index if not exists star_letter_archives_letter_post_idx
+on public.star_letter_archives(star_letter_id, post_id);
 
 alter table public.notifications
   add column if not exists star_letter_id uuid references public.star_letters(id) on delete set null;
+
+create index if not exists notifications_star_letter_id_idx
+on public.notifications(star_letter_id);
 
 alter table public.notifications
   drop constraint if exists notifications_type_check;
@@ -4844,7 +4849,7 @@ using (
     where p.id = star_letters.post_id
       and (
         (p.visibility = 'public' and p.deleted_at is null)
-        or p.author_id = auth.uid()
+        or p.author_id = (select auth.uid())
       )
   )
 );
@@ -4853,8 +4858,8 @@ drop policy if exists star_letters_insert_logged_in on public.star_letters;
 create policy star_letters_insert_logged_in on public.star_letters
 for insert to authenticated
 with check (
-  auth.uid() is not null
-  and author_id = auth.uid()
+  (select auth.uid()) is not null
+  and author_id = (select auth.uid())
   and deleted_at is null
   and exists (
     select 1
@@ -4862,7 +4867,7 @@ with check (
     where p.id = star_letters.post_id
       and (
         (p.visibility = 'public' and p.deleted_at is null)
-        or p.author_id = auth.uid()
+        or p.author_id = (select auth.uid())
       )
   )
 );
@@ -4871,7 +4876,7 @@ drop policy if exists star_letters_update_own on public.star_letters;
 create policy star_letters_update_own on public.star_letters
 for update to authenticated
 using (
-  author_id = auth.uid()
+  author_id = (select auth.uid())
   and deleted_at is null
   and exists (
     select 1
@@ -4879,12 +4884,12 @@ using (
     where p.id = star_letters.post_id
       and (
         (p.visibility = 'public' and p.deleted_at is null)
-        or p.author_id = auth.uid()
+        or p.author_id = (select auth.uid())
       )
   )
 )
 with check (
-  author_id = auth.uid()
+  author_id = (select auth.uid())
   and deleted_at is null
   and exists (
     select 1
@@ -4892,7 +4897,7 @@ with check (
     where p.id = star_letters.post_id
       and (
         (p.visibility = 'public' and p.deleted_at is null)
-        or p.author_id = auth.uid()
+        or p.author_id = (select auth.uid())
       )
   )
 );
@@ -4901,14 +4906,14 @@ drop policy if exists star_letters_delete_own on public.star_letters;
 create policy star_letters_delete_own on public.star_letters
 for delete to authenticated
 using (
-  author_id = auth.uid()
+  author_id = (select auth.uid())
   and exists (
     select 1
     from public.posts p
     where p.id = star_letters.post_id
       and (
         (p.visibility = 'public' and p.deleted_at is null)
-        or p.author_id = auth.uid()
+        or p.author_id = (select auth.uid())
       )
   )
 );
@@ -4921,4 +4926,4 @@ on public.star_letter_archives;
 create policy star_letter_archives_select_own
 on public.star_letter_archives
 for select to authenticated
-using (profile_id = auth.uid());
+using (profile_id = (select auth.uid()));

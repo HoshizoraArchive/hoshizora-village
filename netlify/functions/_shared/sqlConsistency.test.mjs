@@ -870,6 +870,90 @@ test("star-letter conversation migration and schema keep the normalized foundati
   assert.equal(schemaBlock, migrationBody, "migration and schema.sql star-letter foundation blocks differ");
 });
 
+test("star-letter foreign keys have leading-column indexes and RLS auth calls use init plans", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+  const policyAuthCallCounts = new Map([
+    ["star_letters_select_visible", 1],
+    ["star_letters_insert_logged_in", 3],
+    ["star_letters_update_own", 4],
+    ["star_letters_delete_own", 2],
+    ["star_letter_archives_select_own", 1],
+  ]);
+
+  assert.match(
+    sql,
+    /create index if not exists notifications_star_letter_id_idx on public\.notifications\(star_letter_id\)/i,
+  );
+  assert.match(
+    sql,
+    /create index if not exists star_letter_archives_letter_post_idx on public\.star_letter_archives\(star_letter_id, post_id\)/i,
+  );
+
+  for (const [policyName, expectedCallCount] of policyAuthCallCounts) {
+    const policyDefinition = sql.match(
+      new RegExp(`create policy ${policyName}[\\s\\S]*?(?=drop policy|commit;)`, "i"),
+    )?.[0];
+
+    assert.ok(policyDefinition, `policy definition missing for ${policyName}`);
+    assert.equal(
+      policyDefinition.match(/\(select auth\.uid\(\)\)/gi)?.length ?? 0,
+      expectedCallCount,
+      `unexpected optimized auth.uid() count for ${policyName}`,
+    );
+    assert.doesNotMatch(
+      policyDefinition.replaceAll("(select auth.uid())", ""),
+      /auth\.uid\(\)/i,
+      `direct per-row auth.uid() remains in ${policyName}`,
+    );
+  }
+});
+
+test("star-letter resonance tables remain RPC-only and RPC grants stay explicit", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+  const mutationSignatures = [
+    "create_star_letter_reply(uuid, text, uuid)",
+    "update_star_letter(uuid, text)",
+    "delete_star_letter(uuid)",
+    "add_star_letter_resonance(uuid, uuid, text)",
+    "set_star_letter_archive(uuid, boolean)",
+  ];
+
+  assert.match(sql, /alter table public\.star_letter_resonances enable row level security/i);
+  assert.match(
+    sql,
+    /revoke all on table public\.star_letter_resonances from public, anon, authenticated/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant (?:all|select|insert|update|delete)[\s\S]*?on table public\.star_letter_resonances to (?:public|anon|authenticated)/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /create policy [^;]+ on public\.star_letter_resonances/i,
+  );
+  assert.match(
+    sql,
+    /revoke all on function public\.get_star_letter_thread\(uuid\) from public, anon, authenticated/i,
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.get_star_letter_thread\(uuid\) to anon, authenticated/i,
+  );
+
+  for (const signature of mutationSignatures) {
+    assert.equal(
+      sql.includes(`revoke all on function public.${signature} from public, anon, authenticated`),
+      true,
+      `browser revoke missing for ${signature}`,
+    );
+    assert.equal(
+      sql.includes(`grant execute on function public.${signature} to authenticated`),
+      true,
+      `authenticated grant missing for ${signature}`,
+    );
+  }
+});
+
 test("star-letter relationships reject cross-post parents and cycles without cascading replies", () => {
   const sql = normalizedSql(starLetterConversationMigrationSql);
 
