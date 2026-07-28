@@ -367,12 +367,19 @@ function isMissingDeletedAtError(error) {
 
 function isMissingStarLetterConversationColumnError(error) {
   const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  const mentionsConversationColumn =
+    message.includes("parent_star_letter_id") ||
+    message.includes("edited_at") ||
+    message.includes("deleted_at");
+  const reportsMissingSchema =
+    message.includes("does not exist") ||
+    message.includes("could not find") ||
+    message.includes("schema cache");
+
   return (
     error?.code === "42703" ||
     error?.code === "PGRST204" ||
-    message.includes("parent_star_letter_id") ||
-    message.includes("edited_at") ||
-    message.includes("deleted_at")
+    (mentionsConversationColumn && reportsMissingSchema)
   );
 }
 

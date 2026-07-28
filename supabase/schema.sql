@@ -3924,6 +3924,9 @@ where client_request_id is not null;
 create index if not exists star_letters_parent_created_at_idx
 on public.star_letters(parent_star_letter_id, created_at, id);
 
+create unique index if not exists star_letters_id_post_id_idx
+on public.star_letters(id, post_id);
+
 comment on column public.star_letters.parent_star_letter_id is
   '返信先の星文。nullの既存行はルート星文。同一流星便内だけを許可する。';
 comment on column public.star_letters.client_request_id is
@@ -3942,7 +3945,7 @@ create table if not exists public.star_letter_resonances (
   client_request_id uuid not null,
   created_at timestamptz not null default now(),
   constraint star_letter_resonances_request_key
-    unique (profile_id, star_letter_id, client_request_id)
+    unique (profile_id, client_request_id)
 );
 
 comment on table public.star_letter_resonances is
@@ -3956,11 +3959,21 @@ on public.star_letter_resonances(profile_id, star_letter_id);
 create table if not exists public.star_letter_archives (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references public.profiles(id) on delete cascade,
-  star_letter_id uuid not null references public.star_letters(id) on delete cascade,
+  star_letter_id uuid not null,
   post_id uuid not null references public.posts(id) on delete cascade,
   created_at timestamptz not null default now(),
   constraint star_letter_archives_profile_letter_key unique (profile_id, star_letter_id)
 );
+
+alter table public.star_letter_archives
+  drop constraint if exists star_letter_archives_star_letter_id_fkey;
+alter table public.star_letter_archives
+  drop constraint if exists star_letter_archives_letter_post_fkey;
+alter table public.star_letter_archives
+  add constraint star_letter_archives_letter_post_fkey
+  foreign key (star_letter_id, post_id)
+  references public.star_letters(id, post_id)
+  on delete cascade;
 
 comment on table public.star_letter_archives is
   '利用者ごとの星文Archive。post_idとstar_letter_idを保持し、流星便と対象星文へ戻れる。';
@@ -3973,26 +3986,8 @@ on public.star_letter_archives(post_id);
 alter table public.notifications
   add column if not exists star_letter_id uuid references public.star_letters(id) on delete set null;
 
-do $$
-declare
-  type_constraint_name text;
-begin
-  for type_constraint_name in
-    select c.conname
-    from pg_constraint c
-    join pg_class rel on rel.oid = c.conrelid
-    join pg_namespace nsp on nsp.oid = rel.relnamespace
-    where nsp.nspname = 'public'
-      and rel.relname = 'notifications'
-      and c.contype = 'c'
-      and pg_get_constraintdef(c.oid) like '%type%'
-      and pg_get_constraintdef(c.oid) like '%resonance%'
-  loop
-    execute format('alter table public.notifications drop constraint %I', type_constraint_name);
-  end loop;
-end;
-$$;
-
+alter table public.notifications
+  drop constraint if exists notifications_type_check;
 alter table public.notifications
   add constraint notifications_type_check
   check (type in (
@@ -4005,6 +4000,8 @@ alter table public.notifications
 
 comment on column public.notifications.star_letter_id is
   '星文通知の対象。R.Connectから流星便と星文を特定するために保持する。';
+comment on column public.notifications.type is
+  '通知タイプ。resonance、archive、star_letter、star_letter_reply、star_letter_resonanceを許可する。';
 
 create unique index if not exists notifications_star_letter_resonance_once_idx
 on public.notifications(recipient_id, actor_id, star_letter_id)
@@ -4036,6 +4033,36 @@ $$;
 revoke all on function app_private.can_access_post(uuid, uuid)
 from public, anon, authenticated;
 
+create or replace function app_private.lock_accessible_post(
+  p_post_id uuid,
+  p_user_id uuid
+)
+returns boolean
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_found boolean;
+begin
+  select true
+  into v_found
+  from public.posts p
+  where p.id = p_post_id
+    and (
+      (p.visibility = 'public' and p.deleted_at is null)
+      or (p_user_id is not null and p.author_id = p_user_id)
+    )
+  for share;
+
+  return coalesce(v_found, false);
+end;
+$$;
+
+revoke all on function app_private.lock_accessible_post(uuid, uuid)
+from public, anon, authenticated;
+
 create or replace function app_private.validate_star_letter_relationship()
 returns trigger
 language plpgsql
@@ -4046,14 +4073,30 @@ declare
   v_parent_post_id uuid;
   v_cycle_found boolean;
 begin
+  if auth.uid() is not null
+    and not app_private.lock_accessible_post(new.post_id, auth.uid())
+  then
+    raise exception 'star letter target is not accessible'
+      using errcode = '42501';
+  end if;
+
   if new.parent_star_letter_id is null then
     return new;
   end if;
 
+  -- Serialize relationship changes for one post so concurrent re-parenting
+  -- cannot make a cycle after either transaction has completed its read.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('star_letter_reply_graph'),
+    pg_catalog.hashtext(new.post_id::text)
+  );
+
   select sl.post_id
   into v_parent_post_id
   from public.star_letters sl
-  where sl.id = new.parent_star_letter_id;
+  where sl.id = new.parent_star_letter_id
+    and sl.deleted_at is null
+  for key share;
 
   if v_parent_post_id is null or v_parent_post_id <> new.post_id then
     raise exception 'reply target must belong to the same post'
@@ -4110,6 +4153,13 @@ security definer
 set search_path = ''
 as $$
 begin
+  if auth.uid() is not null
+    and not app_private.lock_accessible_post(new.post_id, auth.uid())
+  then
+    raise exception 'star letter target is not accessible'
+      using errcode = '42501';
+  end if;
+
   if new.body is distinct from old.body then
     new.edited_at := now();
   end if;
@@ -4133,6 +4183,18 @@ security definer
 set search_path = ''
 as $$
 begin
+  -- Browser deletes carry auth.uid() and preserve replies through soft delete.
+  -- Trusted maintenance/service sessions have no user uid and may hard-delete;
+  -- the parent FK keeps child rows and clears only their parent reference.
+  if auth.uid() is null then
+    return old;
+  end if;
+
+  if not app_private.lock_accessible_post(old.post_id, auth.uid()) then
+    raise exception 'star letter target is not accessible'
+      using errcode = '42501';
+  end if;
+
   if old.deleted_at is not null then
     return null;
   end if;
@@ -4372,10 +4434,11 @@ begin
   into v_parent
   from public.star_letters sl
   where sl.id = p_parent_star_letter_id
+    and sl.deleted_at is null
   for share;
 
   if not found
-    or not app_private.can_access_post(v_parent.post_id, v_user_id)
+    or not app_private.lock_accessible_post(v_parent.post_id, v_user_id)
   then
     return query select 'not_found'::text, null::uuid, null::uuid;
     return;
@@ -4461,7 +4524,7 @@ begin
   where sl.id = p_star_letter_id
     and sl.author_id = v_user_id
     and sl.deleted_at is null
-    and app_private.can_access_post(sl.post_id, v_user_id)
+    and app_private.lock_accessible_post(sl.post_id, v_user_id)
   returning sl.updated_at into v_updated_at;
 
   if not found then
@@ -4505,7 +4568,7 @@ begin
 
   if not found
     or v_letter.author_id <> v_user_id
-    or not app_private.can_access_post(v_letter.post_id, v_user_id)
+    or not app_private.lock_accessible_post(v_letter.post_id, v_user_id)
   then
     return query select 'not_found'::text, null::uuid;
     return;
@@ -4563,6 +4626,8 @@ as $$
 declare
   v_user_id uuid := auth.uid();
   v_resonance_id uuid;
+  v_existing_star_letter_id uuid;
+  v_existing_resonance_type text;
   v_post_id uuid;
   v_total bigint;
   v_viewer bigint;
@@ -4586,7 +4651,7 @@ begin
   for share;
 
   if v_post_id is null
-    or not app_private.can_access_post(v_post_id, v_user_id)
+    or not app_private.lock_accessible_post(v_post_id, v_user_id)
   then
     return query select 'not_found'::text, null::uuid, 0::bigint, 0::bigint;
     return;
@@ -4604,19 +4669,33 @@ begin
     p_resonance_type,
     p_client_request_id
   )
-  on conflict (profile_id, star_letter_id, client_request_id)
+  on conflict (profile_id, client_request_id)
   do nothing
   returning id into v_resonance_id;
 
   if v_resonance_id is not null then
     v_created := true;
   else
-    select slr.id
-    into v_resonance_id
+    select
+      slr.id,
+      slr.star_letter_id,
+      slr.resonance_type
+    into
+      v_resonance_id,
+      v_existing_star_letter_id,
+      v_existing_resonance_type
     from public.star_letter_resonances slr
     where slr.profile_id = v_user_id
-      and slr.star_letter_id = p_star_letter_id
       and slr.client_request_id = p_client_request_id;
+
+    if v_resonance_id is null
+      or v_existing_star_letter_id <> p_star_letter_id
+      or v_existing_resonance_type <> p_resonance_type
+    then
+      return query
+      select 'request_conflict'::text, null::uuid, 0::bigint, 0::bigint;
+      return;
+    end if;
   end if;
 
   select
@@ -4675,7 +4754,7 @@ begin
   for share;
 
   if v_post_id is null
-    or not app_private.can_access_post(v_post_id, v_user_id)
+    or not app_private.lock_accessible_post(v_post_id, v_user_id)
   then
     return query select 'not_found'::text, null::uuid, null::uuid, false;
     return;
@@ -4719,13 +4798,12 @@ from public, anon, authenticated;
 grant execute on function public.set_star_letter_archive(uuid, boolean)
 to authenticated;
 
+alter table public.star_letters enable row level security;
 alter table public.star_letter_resonances enable row level security;
 alter table public.star_letter_archives enable row level security;
 
 revoke all on table public.star_letter_resonances
 from public, anon, authenticated;
-grant select on table public.star_letter_resonances
-to anon, authenticated;
 grant select, insert, update, delete on table public.star_letter_resonances
 to service_role;
 
@@ -4736,12 +4814,30 @@ to authenticated;
 grant select, insert, update, delete on table public.star_letter_archives
 to service_role;
 
-revoke update on table public.star_letters from authenticated;
+revoke select, insert, update, delete on table public.star_letters
+from public, anon, authenticated;
+grant select (
+  id,
+  post_id,
+  author_id,
+  parent_star_letter_id,
+  body,
+  created_at,
+  updated_at,
+  edited_at,
+  deleted_at
+) on table public.star_letters to anon, authenticated;
+grant insert (post_id, author_id, body) on table public.star_letters
+to authenticated;
 grant update (body) on table public.star_letters to authenticated;
+grant delete on table public.star_letters to authenticated;
+grant select, insert, update, delete on table public.star_letters
+to service_role;
 
 drop policy if exists star_letters_select_visible on public.star_letters;
 create policy star_letters_select_visible on public.star_letters
-for select using (
+for select to anon, authenticated
+using (
   exists (
     select 1
     from public.posts p
@@ -4819,20 +4915,6 @@ using (
 
 drop policy if exists star_letter_resonances_select_visible
 on public.star_letter_resonances;
-create policy star_letter_resonances_select_visible
-on public.star_letter_resonances
-for select using (
-  exists (
-    select 1
-    from public.star_letters sl
-    join public.posts p on p.id = sl.post_id
-    where sl.id = star_letter_resonances.star_letter_id
-      and (
-        (p.visibility = 'public' and p.deleted_at is null)
-        or p.author_id = auth.uid()
-      )
-  )
-);
 
 drop policy if exists star_letter_archives_select_own
 on public.star_letter_archives;

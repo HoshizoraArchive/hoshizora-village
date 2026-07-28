@@ -854,6 +854,9 @@ test("star-letter conversation migration and schema keep the normalized foundati
     assert.equal(schemaSql.includes(token), true, `schema.sql missing star-letter token ${token}`);
   }
 
+  assert.match(starLetterConversationMigrationSql, /^begin;\s*/i);
+  assert.match(starLetterConversationMigrationSql, /\scommit;\s*$/i);
+
   const migrationBody = starLetterConversationMigrationSql
     .replace(/^begin;\s*/i, "")
     .replace(/\s*commit;\s*$/i, "")
@@ -871,11 +874,15 @@ test("star-letter relationships reject cross-post parents and cycles without cas
   const sql = normalizedSql(starLetterConversationMigrationSql);
 
   assert.match(sql, /v_parent_post_id is null or v_parent_post_id <> new\.post_id/i);
+  assert.match(sql, /pg_advisory_xact_lock[\s\S]*hashtext\(new\.post_id::text\)/i);
+  assert.match(sql, /where sl\.id = new\.parent_star_letter_id[\s\S]*sl\.deleted_at is null[\s\S]*for key share/i);
   assert.match(sql, /with recursive ancestors as/i);
   assert.match(sql, /id = new\.id or cycle/i);
   assert.match(sql, /parent_star_letter_id[\s\S]*references public\.star_letters\(id\)[\s\S]*on delete set null/i);
   assert.match(sql, /where child\.parent_star_letter_id = old\.id/i);
   assert.match(sql, /body = '削除された星文です。'/i);
+  assert.match(sql, /if auth\.uid\(\) is null then return old/i);
+  assert.match(sql, /where sl\.id = p_parent_star_letter_id[\s\S]*sl\.deleted_at is null[\s\S]*for share/i);
   assert.equal(sql.includes("parent_star_letter_id uuid not null"), false);
 });
 
@@ -890,11 +897,33 @@ test("star-letter mutation RPCs authenticate ownership and visible post access",
   const sql = normalizedSql(starLetterConversationMigrationSql);
 
   assert.match(sql, /v_user_id uuid := auth\.uid\(\)/i);
-  assert.match(sql, /app_private\.can_access_post\(v_parent\.post_id, v_user_id\)/i);
+  assert.match(sql, /app_private\.lock_accessible_post\(v_parent\.post_id, v_user_id\)/i);
+  assert.match(
+    sql,
+    /create or replace function app_private\.lock_accessible_post[\s\S]*for share[\s\S]*revoke all on function app_private\.lock_accessible_post\(uuid, uuid\) from public, anon, authenticated/i,
+  );
+  assert.match(sql, /app_private\.lock_accessible_post\(sl\.post_id, v_user_id\)/i);
+  assert.match(sql, /app_private\.lock_accessible_post\(v_post_id, v_user_id\)/i);
   assert.match(sql, /v_letter\.author_id <> v_user_id/i);
   assert.match(sql, /sl\.author_id = v_user_id[\s\S]*sl\.deleted_at is null/i);
-  assert.match(sql, /revoke update on table public\.star_letters from authenticated/i);
+  assert.match(
+    sql,
+    /revoke select, insert, update, delete on table public\.star_letters from public, anon, authenticated/i,
+  );
+  assert.match(
+    sql,
+    /grant select \( id, post_id, author_id, parent_star_letter_id, body, created_at, updated_at, edited_at, deleted_at \) on table public\.star_letters to anon, authenticated/i,
+  );
+  assert.match(sql, /grant insert \(post_id, author_id, body\) on table public\.star_letters to authenticated/i);
   assert.match(sql, /grant update \(body\) on table public\.star_letters to authenticated/i);
+  assert.match(sql, /grant delete on table public\.star_letters to authenticated/i);
+  assert.match(
+    sql,
+    /grant select, insert, update, delete on table public\.star_letters to service_role/i,
+  );
+  assert.match(sql, /alter table public\.star_letters enable row level security/i);
+  assert.doesNotMatch(sql, /grant select on table public\.star_letter_resonances to anon, authenticated/i);
+  assert.doesNotMatch(sql, /create policy star_letter_resonances_select_visible/i);
 
   for (const signature of mutationSignatures) {
     assert.equal(
@@ -910,15 +939,57 @@ test("star-letter mutation RPCs authenticate ownership and visible post access",
   }
 });
 
+test("legacy root star-letter CRUD remains compatible with restricted browser columns", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+  const app = normalizedSql(appJsx);
+
+  assert.match(
+    app,
+    /const star_letter_select_columns = "id, post_id, author_id, parent_star_letter_id, body, created_at, updated_at, edited_at, deleted_at"/i,
+  );
+  assert.doesNotMatch(
+    app,
+    /const star_letter_select_columns = "[^"]*client_request_id/i,
+  );
+  assert.match(
+    app,
+    /\.from\("star_letters"\) \.insert\(\{ post_id: postid, author_id: session\.user\.id, body, \}\) \.select\(columns\)/i,
+  );
+  assert.match(
+    app,
+    /\.from\("star_letters"\) \.update\(\{ body, \}\)[\s\S]*\.select\(columns\)/i,
+  );
+  assert.match(
+    app,
+    /\.from\("star_letters"\) \.delete\(\) \.eq\("id", letter\.id\) \.eq\("author_id", session\.user\.id\)/i,
+  );
+  assert.match(sql, /grant insert \(post_id, author_id, body\) on table public\.star_letters to authenticated/i);
+  assert.match(sql, /grant update \(body\) on table public\.star_letters to authenticated/i);
+});
+
 test("star-letter repeated resonance is idempotent per action and notification is de-duplicated", () => {
   const sql = normalizedSql(starLetterConversationMigrationSql);
 
-  assert.match(sql, /unique \(profile_id, star_letter_id, client_request_id\)/i);
-  assert.match(sql, /on conflict \(profile_id, star_letter_id, client_request_id\) do nothing/i);
+  assert.match(sql, /unique \(profile_id, client_request_id\)/i);
+  assert.match(sql, /on conflict \(profile_id, client_request_id\) do nothing/i);
+  assert.match(
+    sql,
+    /v_existing_star_letter_id <> p_star_letter_id[\s\S]*v_existing_resonance_type <> p_resonance_type[\s\S]*'request_conflict'/i,
+  );
   assert.match(sql, /count\(\*\) filter \(where profile_id = v_user_id\)/i);
   assert.match(sql, /notifications_star_letter_resonance_once_idx/i);
   assert.match(sql, /on conflict \(recipient_id, actor_id, star_letter_id\)[\s\S]*do nothing/i);
   assert.match(sql, /v_recipient_id = new\.profile_id/i);
+});
+
+test("star-letter resonance request ids cannot be replayed against another target or type", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+
+  assert.match(sql, /constraint star_letter_resonances_request_key unique \(profile_id, client_request_id\)/i);
+  assert.match(sql, /where slr\.profile_id = v_user_id and slr\.client_request_id = p_client_request_id/i);
+  assert.match(sql, /v_existing_star_letter_id <> p_star_letter_id/i);
+  assert.match(sql, /v_existing_resonance_type <> p_resonance_type/i);
+  assert.match(sql, /select 'request_conflict'::text, null::uuid, 0::bigint, 0::bigint/i);
 });
 
 test("star-letter Archive is per-user, idempotent, and creates no Archive notification", () => {
@@ -927,9 +998,24 @@ test("star-letter Archive is per-user, idempotent, and creates no Archive notifi
     ?.split("revoke all on function public.set_star_letter_archive")[0] ?? "";
 
   assert.match(sql, /unique \(profile_id, star_letter_id\)/i);
+  assert.match(
+    sql,
+    /foreign key \(star_letter_id, post_id\) references public\.star_letters\(id, post_id\) on delete cascade/i,
+  );
   assert.match(archiveFunction, /on conflict \(profile_id, star_letter_id\) do update/i);
   assert.match(archiveFunction, /delete from public\.star_letter_archives/i);
   assert.equal(archiveFunction.includes("public.notifications"), false);
+});
+
+test("star-letter notification constraint replacement targets only the known type constraint", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+
+  assert.match(sql, /drop constraint if exists notifications_type_check/i);
+  assert.doesNotMatch(sql, /pg_get_constraintdef\(c\.oid\)[\s\S]*like '%resonance%'/i);
+  assert.match(
+    sql,
+    /add constraint notifications_type_check check \(type in \(\s*'resonance', 'archive', 'star_letter', 'star_letter_reply', 'star_letter_resonance'\s*\)\)/i,
+  );
 });
 
 test("star-letter notification types use the existing R.Connect and Push queue", () => {
@@ -954,6 +1040,23 @@ test("star-letter verification SQL covers permissions and live-data invariants",
     "11_duplicate_star_letter_archives",
     "12_self_star_letter_notifications",
     "13_duplicate_star_letter_resonance_notifications",
+    "16_archive_letter_post_foreign_key",
+    "17_browser_table_level_write_grants",
+    "18_authenticated_star_letter_insert_columns",
+    "19_forbidden_star_letter_insert_columns",
+    "20_relationship_concurrency_guard",
+    "21_private_helper_execute_grants",
+    "22_authenticated_star_letter_select_columns",
+    "23_private_star_letter_columns",
+    "24_service_role_table_grants",
+    "25_notification_trigger_chain",
+    "26_notification_type_constraint",
+    "27_notification_star_letter_post_mismatch",
+    "28_mutation_post_lock",
+    "29_authenticated_star_letter_update_columns",
+    "30_resonance_request_key",
+    "31_duplicate_resonance_request_ids",
+    "32_star_letter_delete_grants",
   ]) {
     assert.equal(starLetterConversationVerificationSql.includes(token), true, `verification SQL missing ${token}`);
   }

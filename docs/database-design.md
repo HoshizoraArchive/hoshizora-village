@@ -556,21 +556,25 @@ RLS方針:
 RLS方針:
 
 - 見える流星便に紐づく星文はselect可能
-- ログインユーザーのみ、自分の星文をinsert可能
+- browser roleのSELECTは表示に必要な列だけへ付与し、冪等化用`client_request_id`は公開しない
+- ログインユーザーの直接insertは、既存ルート星文に必要な`post_id / author_id / body`だけを許可する
 - update / delete は星文を書いた本人のみ
-- 返信先は同じ流星便の星文に限定し、循環参照をDB triggerで拒否する
+- 返信は専用RPCだけから作成し、削除済み星文を新しい返信先にはできない
+- 返信先は同じ流星便の星文に限定し、流星便単位のtransaction advisory lockとDB triggerの再帰検査で、並行更新を含む循環参照を拒否する
 - 返信を持つ星文の削除は本文を固定表示へ置き換えるsoft deleteとし、返信を連鎖削除しない
+- 運営の信頼済みDB/service処理は必要時に物理削除でき、子返信は`ON DELETE SET NULL`で維持する
 
 ### star_letter_resonances / star_letter_archives
 
 星文単位の共鳴とArchiveは、流星便単位の`resonances` / `archives`を変更せず、専用の正規化テーブルへ保存します。
 
 - 星文共鳴は同じ利用者が同じ星文へ複数回追加できる
-- 1回の操作は`client_request_id`で冪等化し、再試行だけを重複させない
+- 1回の操作は利用者単位で一意な`client_request_id`により冪等化し、同じIDで対象や共鳴種別を変えた再利用は拒否する
 - `get_star_letter_thread(post_id)`は総共鳴数、自分の共鳴数、自分のArchive状態を返す
-- 星文Archiveは`profile_id`と`star_letter_id`で一意にし、`post_id`も保持する
+- 星文共鳴の生行はbrowser roleへ公開せず、集計値だけを取得RPCから返す
+- 星文Archiveは`profile_id`と`star_letter_id`で一意にし、複合FKで`post_id`を対象星文の流星便へ固定する
 - `set_star_letter_archive`はArchive／解除を冪等に実行し、Archive通知は作らない
-- 返信、共鳴、Archive、編集、削除RPCは`auth.uid()`と流星便の閲覧可否をDB内で検証する
+- 返信、共鳴、Archive、編集、削除RPCは`auth.uid()`と流星便の閲覧可否をDB内で検証し、対象`posts`行をtransaction中`FOR SHARE`して可視性変更との競合を防ぐ
 - 後続の星文スレッドUIは`src/starLetterConversations.js`の取得・操作関数を利用する
 
 ### archives
