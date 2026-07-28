@@ -9,7 +9,7 @@ const migration = readFileSync(
 
 test("オンボーディング開始前の既存投稿では初投稿案内を完了しない", () => {
   assert.equal(migration.includes("p.created_at >= v_progress.created_at"), true);
-  assert.equal(migration.includes("existing_post_detected"), false);
+  assert.equal(/p_action\s*=\s*['\"]existing_post_detected['\"]/.test(migration), false);
   assert.equal(
     migration.includes("advance_initial_onboarding existing_post_detected branch did not match expected definition"),
     true,

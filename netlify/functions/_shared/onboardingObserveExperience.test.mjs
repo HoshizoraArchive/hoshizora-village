@@ -30,7 +30,7 @@ test("共鳴と星文は実DB行を確認してから次へ進み、再開地点
     'hasMatchingRow("star_letters", "author_id")',
     'waitForActionResult("resonances", "profile_id", "star_letter_open")',
     'waitForActionResult("star_letters", "author_id", "archive")',
-    '.select("user_id, current_step, target_post_id")',
+    '.select("user_id, current_step, target_post_id, created_at")',
     'progress?.current_step !== "archive_prompt"',
   ]) {
     assert.equal(source.includes(token), true, `missing verified observe behavior: ${token}`);
