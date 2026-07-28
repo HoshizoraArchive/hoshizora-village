@@ -92,7 +92,28 @@ async function markRunFailed(supabase, runId, errorCode) {
       error_code: String(errorCode || "unknown").slice(0, 120),
       updated_at: new Date().toISOString(),
     })
-    .eq("id", runId);
+    .eq("id", runId)
+    .eq("status", "processing");
+}
+
+async function completeRun({ supabase, runId, authorId, generated }) {
+  const { data, error } = await supabase.rpc("complete_chia_daily_meteor_run", {
+    p_run_id: runId,
+    p_author_id: authorId,
+    p_body: generated.body,
+    p_source: generated.source,
+    p_error_code: generated.aiErrorCode,
+  });
+
+  if (error) {
+    throw new Error(`completion_failed:${error.code ?? "unknown"}`);
+  }
+
+  if (!data?.post_id || !["posted", "already_posted"].includes(data.outcome)) {
+    throw new Error(`completion_rejected:${data?.outcome ?? "unknown"}`);
+  }
+
+  return data;
 }
 
 async function generateAiBody(config, slotInfo) {
@@ -209,54 +230,26 @@ export default async function handler() {
     }
 
     const generated = await buildPostBody(config, slotInfo);
-    const { data: post, error: postError } = await supabase
-      .from("posts")
-      .insert({
-        author_id: profile.id,
-        type: "text",
-        body: generated.body,
-        visibility: "public",
-      })
-      .select("id")
-      .single();
-
-    if (postError || !post?.id) {
-      throw new Error(`post_insert_failed:${postError?.code ?? "unknown"}`);
-    }
-
-    const { error: runUpdateError } = await supabase
-      .from("chia_daily_meteor_runs")
-      .update({
-        status: "posted",
-        post_id: post.id,
-        source: generated.source,
-        body: generated.body,
-        error_code: generated.aiErrorCode,
-        posted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", runId);
-
-    if (runUpdateError) {
-      console.error("chia_daily_meteor_run_update_failed", {
-        requestId,
-        runId,
-        code: runUpdateError.code ?? "unknown",
-      });
-    }
+    const completion = await completeRun({
+      supabase,
+      runId,
+      authorId: profile.id,
+      generated,
+    });
 
     console.log("chia_daily_meteor_posted", {
       requestId,
       runId,
-      postId: post.id,
+      postId: completion.post_id,
       slot: slotInfo.slot,
       localDate: slotInfo.localDate,
       source: generated.source,
+      outcome: completion.outcome,
     });
 
     return jsonResponse(200, {
-      outcome: "posted",
-      postId: post.id,
+      outcome: completion.outcome,
+      postId: completion.post_id,
       slot: slotInfo.slot,
       localDate: slotInfo.localDate,
       source: generated.source,
