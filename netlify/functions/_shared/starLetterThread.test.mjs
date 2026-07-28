@@ -82,7 +82,16 @@ test("thread UI uses the existing conversation RPC layer and target URL without 
   }
 
   assert.equal(source.includes('from("star_letter_resonances")'), false, "browser must use the RPC, not the resonance table");
-  assert.equal(source.includes('from("star_letter_archives")'), false, "browser must use the RPC, not the Archive table");
+  assert.match(
+    source,
+    /\.from\("star_letter_archives"\)[\s\S]{0,160}\.select\("id, profile_id, star_letter_id, post_id, created_at"\)/,
+    "browser may read only the signed-in user's archived star letters",
+  );
+  assert.doesNotMatch(
+    source,
+    /\.from\("star_letter_archives"\)[\s\S]{0,180}\.(insert|update|upsert|delete)\(/,
+    "browser mutations must continue to use the dedicated Archive RPC",
+  );
 });
 
 test("thread UI exposes a direct retry action for recoverable fetch failures", () => {

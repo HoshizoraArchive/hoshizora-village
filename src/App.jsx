@@ -1726,6 +1726,10 @@ function App() {
   const [archivesError, setArchivesError] = useState("");
   const [archivesMessage, setArchivesMessage] = useState("");
   const [archiveSavingPostId, setArchiveSavingPostId] = useState(null);
+  const [archiveView, setArchiveView] = useState("posts");
+  const [archivedStarLetters, setArchivedStarLetters] = useState([]);
+  const [archivedStarLettersLoading, setArchivedStarLettersLoading] = useState(false);
+  const [archivedStarLettersError, setArchivedStarLettersError] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsError, setNotificationsError] = useState("");
@@ -3198,6 +3202,14 @@ function App() {
       isMounted = false;
     };
   }, [session?.user?.id, profileFrames]);
+
+  useEffect(() => {
+    if (activeTab !== "archive") {
+      return;
+    }
+
+    void refreshArchivedStarLetters();
+  }, [activeTab, session?.user?.id, profileFrames]);
 
   useEffect(() => {
     let isMounted = true;
@@ -5659,6 +5671,138 @@ function App() {
     }
   }
 
+  async function refreshArchivedStarLetters() {
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      setArchivedStarLetters([]);
+      setArchivedStarLettersLoading(false);
+      setArchivedStarLettersError("");
+      return false;
+    }
+
+    setArchivedStarLettersLoading(true);
+    setArchivedStarLettersError("");
+
+    const { data: archiveRows, error: archiveError } = await supabase
+      .from("star_letter_archives")
+      .select("id, profile_id, star_letter_id, post_id, created_at")
+      .eq("profile_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (archiveError) {
+      setArchivedStarLetters([]);
+      setArchivedStarLettersLoading(false);
+      setArchivedStarLettersError(getUserFacingError(archiveError, ERROR_OPERATION.ARCHIVE_LOAD));
+      return false;
+    }
+
+    const archiveItems = archiveRows ?? [];
+
+    if (archiveItems.length === 0) {
+      setArchivedStarLetters([]);
+      setArchivedStarLettersLoading(false);
+      return true;
+    }
+
+    const starLetterIds = [...new Set(archiveItems.map((item) => item.star_letter_id).filter(Boolean))];
+    const postIds = [...new Set(archiveItems.map((item) => item.post_id).filter(Boolean))];
+    const { data: letterRows, error: letterError } = await supabase
+      .from("star_letters")
+      .select("id, post_id, author_id, parent_star_letter_id, body, created_at, updated_at, edited_at, deleted_at")
+      .in("id", starLetterIds);
+
+    if (letterError) {
+      setArchivedStarLetters([]);
+      setArchivedStarLettersLoading(false);
+      setArchivedStarLettersError(getUserFacingError(letterError, ERROR_OPERATION.STAR_LETTER_LOAD));
+      return false;
+    }
+
+    const { data: postRows, error: postsError } = await runPostQuery((columns, supportsSoftDelete) => {
+      let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).in("id", postIds));
+
+      if (supportsSoftDelete) {
+        query = query.is("deleted_at", null);
+      }
+
+      return query;
+    });
+
+    if (postsError) {
+      setArchivedStarLetters([]);
+      setArchivedStarLettersLoading(false);
+      setArchivedStarLettersError(getUserFacingError(postsError, ERROR_OPERATION.POST_LOAD));
+      return false;
+    }
+
+    const authorIds = [
+      ...new Set(
+        [...(letterRows ?? []), ...(postRows ?? [])]
+          .map((row) => row.author_id)
+          .filter(Boolean),
+      ),
+    ];
+    const profilesById = new Map();
+
+    if (authorIds.length > 0) {
+      const { data: profileRows, error: profileRowsError } = await runProfileQuery(
+        (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
+        PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+        PROFILE_BASIC_SELECT_COLUMNS,
+      );
+
+      if (profileRowsError) {
+        setArchivedStarLetters([]);
+        setArchivedStarLettersLoading(false);
+        setArchivedStarLettersError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
+        return false;
+      }
+
+      for (const profileRow of profileRows ?? []) {
+        profilesById.set(profileRow.id, profileRow);
+      }
+    }
+
+    const lettersById = new Map((letterRows ?? []).map((letter) => [letter.id, letter]));
+    const postsById = new Map((postRows ?? []).map((post) => [post.id, post]));
+    const nextItems = archiveItems
+      .map((archiveItem) => {
+        const letter = lettersById.get(archiveItem.star_letter_id);
+
+        if (!letter) {
+          return null;
+        }
+
+        const sourcePost = postsById.get(archiveItem.post_id);
+        const mappedLetter = mapStarLetter(
+          {
+            ...letter,
+            conversationAvailable: true,
+            is_archived: true,
+          },
+          profilesById.get(letter.author_id),
+          profileFrames,
+        );
+
+        return {
+          ...mappedLetter,
+          archiveId: archiveItem.id,
+          archivedAt: archiveItem.created_at,
+          archiveTime: formatNotificationTime(archiveItem.created_at),
+          sourcePost: sourcePost
+            ? mapSavedPost(sourcePost, profilesById.get(sourcePost.author_id), profileFrames)
+            : null,
+        };
+      })
+      .filter(Boolean);
+
+    setArchivedStarLetters(nextItems);
+    setArchivedStarLettersLoading(false);
+    return true;
+  }
+
   async function handleToggleStarLetterArchive(letter) {
     setStarLettersMessage("");
     setStarLettersError("");
@@ -5672,6 +5816,17 @@ function App() {
 
     try {
       await setStarLetterArchived(supabase, { starLetterId: letter.id, archived: !letter.isArchived });
+
+      if (letter.isArchived) {
+        setArchivedStarLetters((currentItems) => currentItems.filter((item) => item.id !== letter.id));
+        setStarLettersMessage("星文のArchiveを解除しました。");
+      } else {
+        if (activeTab === "archive") {
+          await refreshArchivedStarLetters();
+        }
+        setStarLettersMessage("星文をArchiveしました。");
+      }
+
       await refreshStarLettersForPost(letter.postId);
     } catch (error) {
       setStarLettersError(getUserFacingError(error, ERROR_OPERATION.ARCHIVE_SAVE));
@@ -6419,14 +6574,22 @@ function App() {
     savingPostId: resonanceSavingPostId,
   };
   const archiveState = {
+    activeView: archiveView,
     archivedPostIds: archivedPosts.map((post) => post.id),
     error: archivesError,
     items: archivedPosts,
     loading: archivesLoading,
     message: archivesMessage,
+    onOpenStarLetterThread: handleOpenStarLetterThread,
     onToggleArchive: handleToggleArchive,
+    onToggleStarLetterArchive: handleToggleStarLetterArchive,
+    onViewChange: setArchiveView,
     savingPostId: archiveSavingPostId,
     session,
+    starLetterItems: archivedStarLetters,
+    starLetterError: archivedStarLettersError,
+    starLetterLoading: archivedStarLettersLoading,
+    starLetterSavingIds: starLetterArchivingIds,
     onboarding: onboardingState,
   };
   const postActions = {
@@ -8528,6 +8691,72 @@ function OwnPostsPanel({
   );
 }
 
+function ArchivedStarLetterCard({ archive, item }) {
+  const sourcePost = item.sourcePost;
+  const sourcePreview = sourcePost?.body?.trim() || "画像・動画を含む流星便";
+  const isSaving = archive.starLetterSavingIds?.has(item.id);
+
+  return (
+    <article className="glass-panel overflow-hidden p-4 sm:p-5">
+      <div className="flex gap-3">
+        <AvatarFrame
+          avatar={item.avatar}
+          avatarUrl={item.avatarUrl}
+          className="h-10 w-10 rounded-2xl text-xs"
+          frame={item.avatarFrame}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-black text-white">{item.name}</span>
+            <span className="text-xs text-slate-500">{item.handle}</span>
+            <span className="text-xs text-slate-500">· {item.time}</span>
+            <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-1 text-[10px] font-black text-comet">
+              星文
+            </span>
+          </div>
+          <p className={`mt-3 whitespace-pre-wrap text-sm leading-7 ${item.isDeleted ? "text-slate-500" : "text-slate-200"}`}>
+            <LinkedText>{item.isDeleted ? "削除された星文です。" : item.body}</LinkedText>
+          </p>
+
+          <div className="mt-4 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3">
+            <p className="text-[11px] font-black text-slate-500">元の流星便</p>
+            {sourcePost ? (
+              <>
+                <p className="mt-1 text-xs font-black text-slate-300">{sourcePost.name} {sourcePost.handle}</p>
+                <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-6 text-slate-400">
+                  {sourcePreview}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-6 text-slate-500">元の流星便は現在表示できません。</p>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              className="min-h-9 rounded-full border border-comet/25 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!item.postId}
+              onClick={() => archive.onOpenStarLetterThread?.(item.postId, item.id)}
+              type="button"
+            >
+              この会話を見る
+            </button>
+            <button
+              className="min-h-9 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSaving}
+              onClick={() => archive.onToggleStarLetterArchive?.(item)}
+              type="button"
+            >
+              {isSaving ? "解除中..." : "Archive解除"}
+            </button>
+            <span className="text-[11px] text-slate-600">Archive {item.archiveTime}</span>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function ArchiveScreen({
   archive,
   onboarding,
@@ -8539,33 +8768,65 @@ function ArchiveScreen({
   resonance,
   starLetters,
 }) {
+  const isStarLetterView = archive.activeView === "starLetters";
+  const loading = isStarLetterView ? archive.starLetterLoading : archive.loading;
+  const error = isStarLetterView ? archive.starLetterError || starLetters?.error : archive.error;
+  const message = isStarLetterView ? starLetters?.message : archive.message;
+
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel mb-4 p-5 sm:p-6">
         <p className="text-xs font-bold normal-case text-comet">Archive</p>
         <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">Archive</h2>
         <p className="mt-4 text-sm leading-7 text-slate-300">
-          自分の星空に残しておきたい流星便を集めます。
+          自分の星空に残しておきたい流星便と星文を集めます。
         </p>
+        {archive.session ? (
+          <div aria-label="Archiveの種類" className="mt-5 grid grid-cols-2 rounded-2xl border border-white/10 bg-night-950/45 p-1" role="tablist">
+            <button
+              aria-selected={!isStarLetterView}
+              className={`min-h-11 rounded-xl px-3 text-xs font-black transition ${
+                !isStarLetterView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+              }`}
+              onClick={() => archive.onViewChange?.("posts")}
+              role="tab"
+              type="button"
+            >
+              流星便 <span className="ml-1 text-[10px] opacity-70">{archive.items.length}</span>
+            </button>
+            <button
+              aria-selected={isStarLetterView}
+              className={`min-h-11 rounded-xl px-3 text-xs font-black transition ${
+                isStarLetterView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+              }`}
+              onClick={() => archive.onViewChange?.("starLetters")}
+              role="tab"
+              type="button"
+            >
+              星文 <span className="ml-1 text-[10px] opacity-70">{archive.starLetterItems.length}</span>
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {!archive.session ? (
         <section className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
-          ログインすると、Archiveした流星便を確認できます。
+          ログインすると、Archiveした流星便と星文を確認できます。
         </section>
       ) : (
         <section className="space-y-5 px-3 pb-10 sm:px-5">
-          {(archive.loading || archive.error || archive.message) && (
+          {(loading || error || message) && (
             <p
               className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
-                archive.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+                error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
               }`}
+              role={error ? "alert" : "status"}
             >
-              {archive.error || archive.message || "Archiveを読み込み中..."}
+              {error || message || (isStarLetterView ? "星文Archiveを読み込み中..." : "Archiveを読み込み中...")}
             </p>
           )}
 
-          {postActions?.message || postActions?.error ? (
+          {!isStarLetterView && (postActions?.message || postActions?.error) ? (
             <p
               className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
                 postActions.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
@@ -8575,7 +8836,17 @@ function ArchiveScreen({
             </p>
           ) : null}
 
-          {!archive.loading && !archive.error && archive.items.length === 0 ? (
+          {isStarLetterView ? (
+            !loading && !error && archive.starLetterItems.length === 0 ? (
+              <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+                まだArchiveされた星文はありません。
+              </div>
+            ) : (
+              archive.starLetterItems.map((item) => (
+                <ArchivedStarLetterCard archive={archive} item={item} key={item.archiveId ?? item.id} />
+              ))
+            )
+          ) : !loading && !error && archive.items.length === 0 ? (
             <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
               まだArchiveされた流星便はありません。
             </div>
