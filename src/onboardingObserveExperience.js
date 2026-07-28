@@ -7,6 +7,8 @@ const INJECTED_LINES_ATTRIBUTE = "data-onboarding-observe-lines";
 const INJECTED_SKIP_ATTRIBUTE = "data-onboarding-observe-skip";
 const ORIGINAL_LINES_ATTRIBUTE = "data-onboarding-observe-original-lines";
 const DYNAMIC_TARGET_ATTRIBUTE = "data-onboarding-observe-target";
+const DATABASE_REFRESH_INTERVAL_MS = 800;
+const MUTATION_REFRESH_THROTTLE_MS = 250;
 
 const STAGE_DEFINITIONS = {
   resonance: {
@@ -45,9 +47,13 @@ let activeContextKey = "";
 let activeStage = "";
 let activeUserId = "";
 let activeTargetPostId = "";
-let contextRequestId = 0;
-let actionRequestId = 0;
+let activeStartedAt = "";
+let skippedStarLetterContextKey = "";
+let contextReadInFlight = false;
+let contextReadQueued = false;
+let lastContextReadAt = 0;
 let scheduledFrameId = null;
+let scheduledRefreshTimerIds = [];
 
 function getGuide() {
   return document.querySelector(GUIDE_SELECTOR);
@@ -58,7 +64,11 @@ function getTargetPostCard() {
 }
 
 function findActionButton(card, matcher) {
-  return [...(card?.querySelectorAll("button") ?? [])].find((button) => matcher(button.textContent?.trim() ?? "")) ?? null;
+  return (
+    [...(card?.querySelectorAll("button") ?? [])].find((button) =>
+      matcher(button.textContent?.trim() ?? ""),
+    ) ?? null
+  );
 }
 
 function getObserveTarget(stage) {
@@ -73,7 +83,7 @@ function getObserveTarget(stage) {
   }
 
   if (stage === "star_letter_open") {
-    return findActionButton(card, (label) => label.startsWith("星文"));
+    return findActionButton(card, (label) => label.includes("星文"));
   }
 
   if (stage === "star_letter_write") {
@@ -124,10 +134,18 @@ function restoreDefaultArchiveTarget() {
   archiveButton?.setAttribute("data-onboarding-target", ACTIVE_TARGET_NAME);
 }
 
+function clearScheduledRefreshes() {
+  for (const timerId of scheduledRefreshTimerIds) {
+    window.clearTimeout(timerId);
+  }
+  scheduledRefreshTimerIds = [];
+}
+
 function cleanupObserveExperience() {
   clearGuideTargets();
   restoreDialogue();
   restoreDefaultArchiveTarget();
+  clearScheduledRefreshes();
 
   const guide = document.querySelector(".onboarding-guide[data-onboarding-observe-stage]");
   guide?.removeAttribute("data-onboarding-observe-stage");
@@ -136,7 +154,8 @@ function cleanupObserveExperience() {
   activeStage = "";
   activeUserId = "";
   activeTargetPostId = "";
-  actionRequestId += 1;
+  activeStartedAt = "";
+  skippedStarLetterContextKey = "";
 }
 
 function createInjectedLines(definition) {
@@ -169,7 +188,10 @@ function createSkipButton(label) {
     "mt-2 min-h-9 w-full rounded-2xl border border-white/15 bg-white/5 px-3 text-[11px] font-black text-slate-200 transition hover:bg-white/10";
   button.textContent = label;
   button.type = "button";
-  button.addEventListener("click", () => setObserveStage("archive"));
+  button.addEventListener("click", () => {
+    skippedStarLetterContextKey = activeContextKey;
+    setObserveStage("archive");
+  });
   return button;
 }
 
@@ -252,7 +274,7 @@ function applyObserveGuide() {
 }
 
 async function hasMatchingRow(table, userColumn) {
-  if (!activeUserId || !activeTargetPostId) {
+  if (!activeUserId || !activeTargetPostId || !activeStartedAt) {
     return false;
   }
 
@@ -261,18 +283,19 @@ async function hasMatchingRow(table, userColumn) {
     .select("id")
     .eq(userColumn, activeUserId)
     .eq("post_id", activeTargetPostId)
+    .gte("created_at", activeStartedAt)
     .limit(1);
 
   return !error && Boolean(data?.length);
 }
 
-async function determineInitialStage() {
+async function determineDatabaseStage() {
   const [hasResonance, hasStarLetter] = await Promise.all([
     hasMatchingRow("resonances", "profile_id"),
     hasMatchingRow("star_letters", "author_id"),
   ]);
 
-  if (hasStarLetter) {
+  if (hasStarLetter || skippedStarLetterContextKey === activeContextKey) {
     return "archive";
   }
 
@@ -287,58 +310,75 @@ async function readObserveContext() {
     return;
   }
 
-  const requestId = ++contextRequestId;
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user?.id ?? "";
 
-  if (!userId || requestId !== contextRequestId) {
+  if (!userId || !getGuide()) {
     cleanupObserveExperience();
     return;
   }
 
   const { data: progress, error } = await supabase
     .from("user_onboarding_progress")
-    .select("user_id, current_step, target_post_id")
+    .select("user_id, current_step, target_post_id, created_at")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (
     error ||
-    requestId !== contextRequestId ||
     progress?.current_step !== "archive_prompt" ||
-    !progress?.target_post_id
+    !progress?.target_post_id ||
+    !progress?.created_at ||
+    !getGuide()
   ) {
     cleanupObserveExperience();
     return;
   }
 
-  const nextContextKey = `${userId}:${progress.target_post_id}`;
+  const nextContextKey = `${userId}:${progress.target_post_id}:${progress.created_at}`;
 
   if (nextContextKey !== activeContextKey) {
     activeContextKey = nextContextKey;
     activeUserId = userId;
     activeTargetPostId = progress.target_post_id;
-    activeStage = await determineInitialStage();
+    activeStartedAt = progress.created_at;
+    skippedStarLetterContextKey = "";
   }
 
+  const databaseStage = await determineDatabaseStage();
+  const starLetterFormIsOpen = Boolean(getObserveTarget("star_letter_write"));
+  const nextStage =
+    databaseStage === "star_letter_open" && activeStage === "star_letter_write" && starLetterFormIsOpen
+      ? "star_letter_write"
+      : databaseStage;
+
+  activeStage = nextStage;
+  lastContextReadAt = Date.now();
   applyObserveGuide();
 }
 
-async function waitForActionResult(table, userColumn, successStage) {
-  const requestId = ++actionRequestId;
-
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-
-    if (requestId !== actionRequestId || !getGuide()) {
-      return;
-    }
-
-    if (await hasMatchingRow(table, userColumn)) {
-      setObserveStage(successStage);
-      return;
-    }
+function requestContextSynchronization() {
+  if (contextReadInFlight) {
+    contextReadQueued = true;
+    return;
   }
+
+  contextReadInFlight = true;
+  void readObserveContext().finally(() => {
+    contextReadInFlight = false;
+
+    if (contextReadQueued) {
+      contextReadQueued = false;
+      requestContextSynchronization();
+    }
+  });
+}
+
+function scheduleDatabaseRefreshes(delays = [150, 400, 800, 1400]) {
+  clearScheduledRefreshes();
+  scheduledRefreshTimerIds = delays.map((delay) =>
+    window.setTimeout(requestContextSynchronization, delay),
+  );
 }
 
 function handleDocumentClick(event) {
@@ -352,11 +392,11 @@ function handleDocumentClick(event) {
   const label = button.textContent?.trim() ?? "";
 
   if (activeStage === "resonance" && label.includes("共鳴")) {
-    void waitForActionResult("resonances", "profile_id", "star_letter_open");
+    scheduleDatabaseRefreshes();
     return;
   }
 
-  if (activeStage === "star_letter_open" && label.startsWith("星文")) {
+  if (activeStage === "star_letter_open" && label.includes("星文")) {
     window.setTimeout(() => setObserveStage("star_letter_write"), 60);
   }
 }
@@ -378,7 +418,7 @@ function handleDocumentSubmit(event) {
     return;
   }
 
-  void waitForActionResult("star_letters", "author_id", "archive");
+  scheduleDatabaseRefreshes();
 }
 
 function scheduleSynchronization() {
@@ -388,19 +428,12 @@ function scheduleSynchronization() {
 
   scheduledFrameId = window.requestAnimationFrame(() => {
     scheduledFrameId = null;
+    applyObserveGuide();
 
-    if (activeContextKey && getGuide()) {
-      applyObserveGuide();
-      return;
+    if (Date.now() - lastContextReadAt >= MUTATION_REFRESH_THROTTLE_MS) {
+      requestContextSynchronization();
     }
-
-    void readObserveContext();
   });
-}
-
-function refreshContext() {
-  activeContextKey = "";
-  scheduleSynchronization();
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
@@ -415,13 +448,20 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 
   document.addEventListener("click", handleDocumentClick);
   document.addEventListener("submit", handleDocumentSubmit, true);
-  window.addEventListener("load", refreshContext);
-  window.addEventListener("focus", refreshContext);
+  window.addEventListener("load", requestContextSynchronization);
+  window.addEventListener("focus", requestContextSynchronization);
+  window.addEventListener("hoshizora:onboarding-observe-refresh", requestContextSynchronization);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      refreshContext();
+      requestContextSynchronization();
     }
   });
 
-  scheduleSynchronization();
+  window.setInterval(() => {
+    if (getGuide()) {
+      requestContextSynchronization();
+    }
+  }, DATABASE_REFRESH_INTERVAL_MS);
+
+  requestContextSynchronization();
 }
