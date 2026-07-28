@@ -6,6 +6,8 @@ import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./onboardingFirstPostExample.js";
 import "./onboardingStarLetterButtonCompatibility.js";
+import "./onboardingObserveBootstrap.js";
+import "./onboardingObserveArchiveGate.js";
 import "./onboardingObserveExperience.js";
 import "./onboardingObserveRecovery.js";
 import "./onboardingVisibilityRecovery.js";
