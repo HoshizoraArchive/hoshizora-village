@@ -51,6 +51,8 @@ test("buildPushPayload falls back for every current notification type", () => {
   assert.equal(JSON.parse(buildPushPayload({ type: "resonance", message: "" })).body, "共鳴が届きました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "archive", message: "" })).body, "Archiveに追加されました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "star_letter", message: "" })).body, "星文が届きました。");
+  assert.equal(JSON.parse(buildPushPayload({ type: "star_letter_reply", message: "" })).body, "星文に返信が届きました。");
+  assert.equal(JSON.parse(buildPushPayload({ type: "star_letter_resonance", message: "" })).body, "星文に共鳴が届きました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "unknown", message: "" })).body, "R.Connectに新しい通知があります。");
 });
 

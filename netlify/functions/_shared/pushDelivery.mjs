@@ -10,6 +10,8 @@ const FALLBACK_BODY_BY_TYPE = {
   resonance: "共鳴が届きました。",
   archive: "Archiveに追加されました。",
   star_letter: "星文が届きました。",
+  star_letter_reply: "星文に返信が届きました。",
+  star_letter_resonance: "星文に共鳴が届きました。",
 };
 
 export function readPushDeliveryConfig() {

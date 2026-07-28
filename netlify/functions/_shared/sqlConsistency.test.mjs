@@ -10,10 +10,15 @@ const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/2
 const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708113000_add_push_subscriptions.sql", "utf8");
 const pushNotificationJobsMigrationSql = readFileSync("supabase/migrations/20260708124500_add_push_notification_jobs.sql", "utf8");
 const legalConsentsMigrationSql = readFileSync("supabase/migrations/20260710120000_add_legal_consents.sql", "utf8");
+const starLetterConversationMigrationSql = readFileSync(
+  "supabase/migrations/20260728210000_add_star_letter_conversation_foundation.sql",
+  "utf8",
+);
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
 const legalConsentVerificationSql = readFileSync("docs/legal-consent-verification.sql", "utf8");
+const starLetterConversationVerificationSql = readFileSync("docs/star-letter-conversation-verification.sql", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
 const appJsx = readFileSync("src/App.jsx", "utf8");
 const mainJsx = readFileSync("src/main.jsx", "utf8");
@@ -814,7 +819,7 @@ test("R.Connect Push delivery Function sends all notification types without expo
   assert.equal(pushDispatchFunction.includes("PUSH_VAPID_PRIVATE_KEY"), false);
   assert.equal(pushDispatchFunction.includes("logPushDeliveryFailure"), true);
 
-  for (const token of ["resonance", "archive", "star_letter"]) {
+  for (const token of ["resonance", "archive", "star_letter", "star_letter_reply", "star_letter_resonance"]) {
     assert.equal(pushDeliverySharedFunction.includes(token), true, `push delivery fallback missing ${token}`);
   }
 
@@ -824,6 +829,136 @@ test("R.Connect Push delivery Function sends all notification types without expo
   assert.equal(pushDeliverySharedFunction.includes("status === 404 || status === 410"), true);
   assert.equal(pushDispatchFunction.includes("ai-observation"), false);
   assert.equal(pushDispatchFunction.includes("hoshizora_chia"), false);
+});
+
+test("star-letter conversation migration and schema keep the normalized foundation in sync", () => {
+  const tokens = [
+    "parent_star_letter_id uuid",
+    "client_request_id uuid",
+    "deleted_at timestamptz",
+    "create table if not exists public.star_letter_resonances",
+    "create table if not exists public.star_letter_archives",
+    "constraint star_letter_archives_profile_letter_key unique (profile_id, star_letter_id)",
+    "star_letter_id uuid references public.star_letters(id) on delete set null",
+    "public.get_star_letter_thread",
+    "public.create_star_letter_reply",
+    "public.update_star_letter",
+    "public.delete_star_letter",
+    "public.add_star_letter_resonance",
+    "public.set_star_letter_archive",
+    "set search_path = ''",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(starLetterConversationMigrationSql.includes(token), true, `star-letter migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing star-letter token ${token}`);
+  }
+
+  const migrationBody = starLetterConversationMigrationSql
+    .replace(/^begin;\s*/i, "")
+    .replace(/\s*commit;\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const schemaBlock = schemaSql
+    .split("-- Issue #108: star-letter conversation foundation.")[1]
+    ?.replace(/\s+/g, " ")
+    .trim();
+
+  assert.equal(schemaBlock, migrationBody, "migration and schema.sql star-letter foundation blocks differ");
+});
+
+test("star-letter relationships reject cross-post parents and cycles without cascading replies", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+
+  assert.match(sql, /v_parent_post_id is null or v_parent_post_id <> new\.post_id/i);
+  assert.match(sql, /with recursive ancestors as/i);
+  assert.match(sql, /id = new\.id or cycle/i);
+  assert.match(sql, /parent_star_letter_id[\s\S]*references public\.star_letters\(id\)[\s\S]*on delete set null/i);
+  assert.match(sql, /where child\.parent_star_letter_id = old\.id/i);
+  assert.match(sql, /body = '削除された星文です。'/i);
+  assert.equal(sql.includes("parent_star_letter_id uuid not null"), false);
+});
+
+test("star-letter mutation RPCs authenticate ownership and visible post access", () => {
+  const mutationSignatures = [
+    "create_star_letter_reply(uuid, text, uuid)",
+    "update_star_letter(uuid, text)",
+    "delete_star_letter(uuid)",
+    "add_star_letter_resonance(uuid, uuid, text)",
+    "set_star_letter_archive(uuid, boolean)",
+  ];
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+
+  assert.match(sql, /v_user_id uuid := auth\.uid\(\)/i);
+  assert.match(sql, /app_private\.can_access_post\(v_parent\.post_id, v_user_id\)/i);
+  assert.match(sql, /v_letter\.author_id <> v_user_id/i);
+  assert.match(sql, /sl\.author_id = v_user_id[\s\S]*sl\.deleted_at is null/i);
+  assert.match(sql, /revoke update on table public\.star_letters from authenticated/i);
+  assert.match(sql, /grant update \(body\) on table public\.star_letters to authenticated/i);
+
+  for (const signature of mutationSignatures) {
+    assert.equal(
+      sql.includes(`revoke all on function public.${signature} from public, anon, authenticated`),
+      true,
+      `browser revoke missing for ${signature}`,
+    );
+    assert.equal(
+      sql.includes(`grant execute on function public.${signature} to authenticated`),
+      true,
+      `authenticated grant missing for ${signature}`,
+    );
+  }
+});
+
+test("star-letter repeated resonance is idempotent per action and notification is de-duplicated", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+
+  assert.match(sql, /unique \(profile_id, star_letter_id, client_request_id\)/i);
+  assert.match(sql, /on conflict \(profile_id, star_letter_id, client_request_id\) do nothing/i);
+  assert.match(sql, /count\(\*\) filter \(where profile_id = v_user_id\)/i);
+  assert.match(sql, /notifications_star_letter_resonance_once_idx/i);
+  assert.match(sql, /on conflict \(recipient_id, actor_id, star_letter_id\)[\s\S]*do nothing/i);
+  assert.match(sql, /v_recipient_id = new\.profile_id/i);
+});
+
+test("star-letter Archive is per-user, idempotent, and creates no Archive notification", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+  const archiveFunction = sql.split("create or replace function public.set_star_letter_archive")[1]
+    ?.split("revoke all on function public.set_star_letter_archive")[0] ?? "";
+
+  assert.match(sql, /unique \(profile_id, star_letter_id\)/i);
+  assert.match(archiveFunction, /on conflict \(profile_id, star_letter_id\) do update/i);
+  assert.match(archiveFunction, /delete from public\.star_letter_archives/i);
+  assert.equal(archiveFunction.includes("public.notifications"), false);
+});
+
+test("star-letter notification types use the existing R.Connect and Push queue", () => {
+  const sql = normalizedSql(starLetterConversationMigrationSql);
+
+  assert.match(sql, /'star_letter_reply'/i);
+  assert.match(sql, /'star_letter_resonance'/i);
+  assert.match(sql, /v_recipient_id = new\.author_id/i);
+  assert.match(sql, /v_recipient_id = new\.profile_id/i);
+  assert.equal(sql.includes("insert into public.push_notification_jobs"), false);
+  assert.equal(schemaSql.includes("after insert on public.notifications"), true);
+});
+
+test("star-letter verification SQL covers permissions and live-data invariants", () => {
+  for (const token of [
+    "04_rpc_security",
+    "05_mutation_rpc_browser_grants",
+    "07_rls_enabled",
+    "08_cross_post_replies",
+    "09_reply_cycles",
+    "10_archive_post_mismatch",
+    "11_duplicate_star_letter_archives",
+    "12_self_star_letter_notifications",
+    "13_duplicate_star_letter_resonance_notifications",
+  ]) {
+    assert.equal(starLetterConversationVerificationSql.includes(token), true, `verification SQL missing ${token}`);
+  }
+
+  assert.doesNotMatch(starLetterConversationVerificationSql, /\b(insert|update|delete|truncate)\b\s+(into|from|public\.)/i);
 });
 
 test("Legal documents are stored as exact public markdown routes", () => {

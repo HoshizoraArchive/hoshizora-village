@@ -461,6 +461,8 @@ MVPでは、共鳴された時、Archiveされた時、星文が届いた時に�
 - `resonance`
 - `archive`
 - `star_letter`
+- `star_letter_reply`
+- `star_letter_resonance`
 
 RLS方針:
 
@@ -486,6 +488,9 @@ RLS方針:
 - `star_letters.author_id` を `actor_id` として保存する
 - 自分の流星便に自分で星文した場合は通知を作らない
 - 星文通知のmessageはMVPでは `あなたの流星便に星文が届きました。` の固定文にする
+- 返信は親星文の作者へ`star_letter_reply`として通知し、自分自身への通知は作らない
+- 星文共鳴は星文の作者へ`star_letter_resonance`として通知する。同じ相手・星文からの反復共鳴は通知を1件にまとめる
+- 星文Archiveでは通知を作らない
 
 補足:
 
@@ -541,6 +546,10 @@ RLS方針:
 - `post_id`: 対象流星便
 - `author_id`: 星文を書いたユーザー
 - `body`: 星文本文
+- `parent_star_letter_id`: 返信先。`null`の既存行はルート星文
+- `client_request_id`: 返信作成の再試行を冪等にするUUID
+- `edited_at`: 本文の最終編集時刻
+- `deleted_at`: 返信を持つ星文をsoft deleteした時刻
 - `created_at`: 作成日時
 - `updated_at`: 更新日時
 
@@ -549,6 +558,20 @@ RLS方針:
 - 見える流星便に紐づく星文はselect可能
 - ログインユーザーのみ、自分の星文をinsert可能
 - update / delete は星文を書いた本人のみ
+- 返信先は同じ流星便の星文に限定し、循環参照をDB triggerで拒否する
+- 返信を持つ星文の削除は本文を固定表示へ置き換えるsoft deleteとし、返信を連鎖削除しない
+
+### star_letter_resonances / star_letter_archives
+
+星文単位の共鳴とArchiveは、流星便単位の`resonances` / `archives`を変更せず、専用の正規化テーブルへ保存します。
+
+- 星文共鳴は同じ利用者が同じ星文へ複数回追加できる
+- 1回の操作は`client_request_id`で冪等化し、再試行だけを重複させない
+- `get_star_letter_thread(post_id)`は総共鳴数、自分の共鳴数、自分のArchive状態を返す
+- 星文Archiveは`profile_id`と`star_letter_id`で一意にし、`post_id`も保持する
+- `set_star_letter_archive`はArchive／解除を冪等に実行し、Archive通知は作らない
+- 返信、共鳴、Archive、編集、削除RPCは`auth.uid()`と流星便の閲覧可否をDB内で検証する
+- 後続の星文スレッドUIは`src/starLetterConversations.js`の取得・操作関数を利用する
 
 ### archives
 

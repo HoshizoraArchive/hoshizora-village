@@ -365,6 +365,17 @@ function isMissingDeletedAtError(error) {
   return error?.code === "42703" || error?.code === "PGRST204" || message.includes("deleted_at");
 }
 
+function isMissingStarLetterConversationColumnError(error) {
+  const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
+  return (
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    message.includes("parent_star_letter_id") ||
+    message.includes("edited_at") ||
+    message.includes("deleted_at")
+  );
+}
+
 function isMissingPostMediaError(error) {
   const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
   return error?.code === "42P01" || error?.code === "PGRST205" || message.includes("post_media");
@@ -791,6 +802,20 @@ async function runProfileQuery(buildQuery, columnsWithFrame, fallbackColumns) {
     ...result,
     supportsProfileFrames: true,
   };
+}
+
+const STAR_LETTER_SELECT_COLUMNS =
+  "id, post_id, author_id, parent_star_letter_id, body, created_at, updated_at, edited_at, deleted_at";
+const STAR_LETTER_LEGACY_SELECT_COLUMNS = "id, post_id, author_id, body, created_at, updated_at";
+
+async function runStarLetterQuery(buildQuery) {
+  const result = await buildQuery(STAR_LETTER_SELECT_COLUMNS);
+
+  if (result.error && isMissingStarLetterConversationColumnError(result.error)) {
+    return buildQuery(STAR_LETTER_LEGACY_SELECT_COLUMNS);
+  }
+
+  return result;
 }
 
 async function createMeteorMediaSignedUrl(bucket, storagePath) {
@@ -1441,6 +1466,14 @@ function formatNotificationMessage(notification) {
     return `${actorName}さんがあなたの流星便に星文を送りました。`;
   }
 
+  if (notification.type === "star_letter_reply") {
+    return `${actorName}さんがあなたの星文に返信しました。`;
+  }
+
+  if (notification.type === "star_letter_resonance") {
+    return `${actorName}さんがあなたの星文に共鳴しました。`;
+  }
+
   return notification.message;
 }
 
@@ -1530,7 +1563,9 @@ function mapStarLetter(letter, authorProfile, profileFrames = []) {
     id: letter.id,
     postId: letter.post_id,
     authorId: letter.author_id,
+    parentStarLetterId: letter.parent_star_letter_id ?? null,
     body: letter.body,
+    isDeleted: Boolean(letter.deleted_at),
     name: displayName,
     handle: authorProfile?.username ? `@${authorProfile.username}` : "@star_letter",
     avatar: getAvatarText(displayName),
@@ -1540,6 +1575,7 @@ function mapStarLetter(letter, authorProfile, profileFrames = []) {
     time: formatNotificationTime(letter.created_at),
     createdAt: letter.created_at,
     updatedAt: letter.updated_at ?? null,
+    editedAt: letter.edited_at ?? null,
   };
 }
 
@@ -2841,11 +2877,13 @@ function App() {
       setStarLettersLoading(true);
       setStarLettersError("");
 
-      const { data, error } = await supabase
-        .from("star_letters")
-        .select("id, post_id, author_id, body, created_at, updated_at")
-        .in("post_id", postIds)
-        .order("created_at", { ascending: true });
+      const { data, error } = await runStarLetterQuery((columns) =>
+        supabase
+          .from("star_letters")
+          .select(columns)
+          .in("post_id", postIds)
+          .order("created_at", { ascending: true }),
+      );
 
       if (!isMounted) {
         return;
@@ -5310,11 +5348,13 @@ function App() {
   }
 
   async function refreshStarLettersForPost(postId) {
-    const { data, error } = await supabase
-      .from("star_letters")
-      .select("id, post_id, author_id, body, created_at, updated_at")
-      .eq("post_id", postId)
-      .order("created_at", { ascending: true });
+    const { data, error } = await runStarLetterQuery((columns) =>
+      supabase
+        .from("star_letters")
+        .select(columns)
+        .eq("post_id", postId)
+        .order("created_at", { ascending: true }),
+    );
 
     if (error) {
       setStarLettersError(getUserFacingError(error, ERROR_OPERATION.STAR_LETTER_LOAD));
@@ -5429,15 +5469,17 @@ function App() {
 
     setStarLetterSavingPostId(postId);
 
-    const { data, error } = await supabase
-      .from("star_letters")
-      .insert({
-        post_id: postId,
-        author_id: session.user.id,
-        body,
-      })
-      .select("id, post_id, author_id, body, created_at, updated_at")
-      .single();
+    const { data, error } = await runStarLetterQuery((columns) =>
+      supabase
+        .from("star_letters")
+        .insert({
+          post_id: postId,
+          author_id: session.user.id,
+          body,
+        })
+        .select(columns)
+        .single(),
+    );
 
     setStarLetterSavingPostId(null);
 
@@ -5489,16 +5531,17 @@ function App() {
 
     setStarLetterUpdatingId(letter.id);
 
-    const { data, error } = await supabase
-      .from("star_letters")
-      .update({
-        body,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", letter.id)
-      .eq("author_id", session.user.id)
-      .select("id, post_id, author_id, body, created_at, updated_at")
-      .single();
+    const { data, error } = await runStarLetterQuery((columns) =>
+      supabase
+        .from("star_letters")
+        .update({
+          body,
+        })
+        .eq("id", letter.id)
+        .eq("author_id", session.user.id)
+        .select(columns)
+        .single(),
+    );
 
     setStarLetterUpdatingId(null);
 
@@ -11601,7 +11644,7 @@ function StarLetterItem({ letter, starLetters }) {
             <span className="text-xs text-slate-500">{letter.handle}</span>
             <span className="text-xs text-slate-500">· {letter.time}</span>
           </div>
-          {isEditing ? (
+          {isEditing && !letter.isDeleted ? (
             <form className="mt-3" onSubmit={(event) => starLetters?.onUpdate?.(event, letter)}>
               <textarea
                 className="min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-night-950/70 p-3 text-sm leading-7 text-white outline-none placeholder:text-slate-500 focus:border-comet/40 focus:ring-4 focus:ring-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
@@ -11644,7 +11687,7 @@ function StarLetterItem({ letter, starLetters }) {
               <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-200">
                 <LinkedText>{letter.body}</LinkedText>
               </p>
-              {isOwner && (
+              {isOwner && !letter.isDeleted && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     className={`min-h-8 rounded-full border px-3 text-[11px] font-black transition ${getActionButtonTone("edit")}`}
