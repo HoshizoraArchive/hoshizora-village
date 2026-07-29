@@ -4,13 +4,19 @@ import test from "node:test";
 
 const mainSource = readFileSync("src/main.jsx", "utf8");
 const cssSource = readFileSync("src/observePolish.css", "utf8");
+const logoSource = readFileSync("src/observeLogoData.js", "utf8");
 
 test("observe screen polish stays scoped and preserves the starry background", () => {
+  assert.match(mainSource, /import "\.\/observeLogoData\.js";/);
   assert.match(
     mainSource,
     /import "\.\/titlePlateSquareFix\.css";\s*import "\.\/observePolish\.css";/,
   );
-  assert.match(cssSource, /\.observe-screen::before[\s\S]*content: "星空Village"/);
+  assert.match(cssSource, /\.observe-screen::before[\s\S]*background-image: var\(--observe-logo-image\)/);
+  assert.match(cssSource, /\.observe-screen::before[\s\S]*background-color: transparent/);
+  assert.match(cssSource, /\.observe-screen::before[\s\S]*content: ""/);
+  assert.match(logoSource, /data:image\/png;base64/);
+  assert.match(logoSource, /--observe-logo-image/);
   assert.match(cssSource, /\.observe-screen[\s\S]*border-inline: 0/);
   assert.match(
     cssSource,
