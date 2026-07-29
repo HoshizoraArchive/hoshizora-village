@@ -16,6 +16,7 @@ export default function ProfileTitleEmblem({ decorative = false, size = "compact
       }`}
       height="1024"
       src={title.emblemPath}
+      style={{ order: -1 }}
       width="1024"
     />
   );
