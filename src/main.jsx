@@ -12,6 +12,7 @@ import "./onboardingObserveExperience.js";
 import "./onboardingObserveRecovery.js";
 import "./onboardingVisibilityRecovery.js";
 import "./index.css";
+import "./titlePlateSquareFix.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
