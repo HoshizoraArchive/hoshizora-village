@@ -10,7 +10,7 @@ import { pushHttpError } from "./pushNotifications.mjs";
 
 export function buildPushSubscriptionTestPayload() {
   return JSON.stringify({
-    title: "星空ちあ｜街の案内人",
+    title: "星空ちあ",
     body: "おはちあ！ 星空Villageの通知が届いたよ💕",
     icon: PUSH_DEFAULT_ICON,
     badge: PUSH_DEFAULT_BADGE,

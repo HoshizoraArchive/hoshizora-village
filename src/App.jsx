@@ -12,6 +12,12 @@ import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import VillageGuideAdminScreen from "./VillageGuideAdmin";
 import StarMovieObservationMode from "./StarMovieObservationMode";
 import InteractiveOnboarding from "./InteractiveOnboarding";
+import ProfileTitleBadge from "./ProfileTitleBadge";
+import {
+  PROFILE_TITLES_RELATION_SELECT,
+  getPrimaryProfileTitle,
+  isMissingProfileTitlesSchemaError,
+} from "./profileTitles";
 import {
   getPushNotificationPermission,
   getPushNotificationPermissionLabel,
@@ -809,18 +815,29 @@ async function runPostQuery(buildQuery) {
 }
 
 async function runProfileQuery(buildQuery, columnsWithFrame, fallbackColumns) {
-  const result = await buildQuery(columnsWithFrame, true);
+  let supportsProfileFrames = true;
+  let supportsProfileTitles = true;
+  let result = await buildQuery(`${columnsWithFrame}, ${PROFILE_TITLES_RELATION_SELECT}`, true);
 
   if (result.error && isMissingProfileFrameSchemaError(result.error)) {
-    return {
-      ...(await buildQuery(fallbackColumns, false)),
-      supportsProfileFrames: false,
-    };
+    supportsProfileFrames = false;
+    result = await buildQuery(`${fallbackColumns}, ${PROFILE_TITLES_RELATION_SELECT}`, false);
+  }
+
+  if (result.error && isMissingProfileTitlesSchemaError(result.error)) {
+    supportsProfileTitles = false;
+    result = await buildQuery(supportsProfileFrames ? columnsWithFrame : fallbackColumns, supportsProfileFrames);
+  }
+
+  if (result.error && supportsProfileFrames && isMissingProfileFrameSchemaError(result.error)) {
+    supportsProfileFrames = false;
+    result = await buildQuery(fallbackColumns, false);
   }
 
   return {
     ...result,
-    supportsProfileFrames: true,
+    supportsProfileFrames,
+    supportsProfileTitles,
   };
 }
 
@@ -1522,6 +1539,7 @@ function mapSavedPost(post, authorProfile, profileFrames = []) {
     avatarUrl: authorProfile?.avatar_url ?? null,
     avatarFrame,
     avatarFrameId: authorProfile?.active_frame_id ?? null,
+    primaryTitle: getPrimaryProfileTitle(authorProfile),
     createdAt: post.created_at,
     deletedAt: post.deleted_at ?? null,
     time: formatPostTime(post.created_at),
@@ -1553,6 +1571,7 @@ function applyAuthorProfileToPost(post, authorProfile, profileFrames = []) {
     avatarUrl: authorProfile.avatar_url ?? null,
     avatarFrame,
     avatarFrameId: authorProfile.active_frame_id ?? null,
+    primaryTitle: getPrimaryProfileTitle(authorProfile),
   };
 }
 
@@ -1581,6 +1600,7 @@ function applyAuthorProfileToStarLetter(letter, authorProfile, profileFrames = [
     avatarUrl: authorProfile.avatar_url ?? null,
     avatarFrame,
     avatarFrameId: authorProfile.active_frame_id ?? null,
+    primaryTitle: getPrimaryProfileTitle(authorProfile),
   };
 }
 
@@ -1605,6 +1625,7 @@ function mapStarLetter(letter, authorProfile, profileFrames = []) {
     avatarUrl: authorProfile?.avatar_url ?? null,
     avatarFrame,
     avatarFrameId: authorProfile?.active_frame_id ?? null,
+    primaryTitle: getPrimaryProfileTitle(authorProfile),
     time: formatNotificationTime(letter.created_at),
     createdAt: letter.created_at,
     updatedAt: letter.updated_at ?? null,
@@ -4299,6 +4320,7 @@ function App() {
 
     const nextProfile = {
       ...data,
+      profile_titles: profile?.profile_titles ?? [],
       notify_authors_when_i_archive: profileForm.notify_authors_when_i_archive ?? true,
       notify_authors_when_i_resonate: profileForm.notify_authors_when_i_resonate ?? true,
     };
@@ -8310,6 +8332,7 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
   const avatar = getAvatarText(displayName);
   const visibleTags = (tags ?? []).filter((tag) => tag?.label);
   const canOpenAvatar = Boolean(profile.avatar_url);
+  const primaryTitle = getPrimaryProfileTitle(profile);
 
   return (
     <section className="glass-panel overflow-hidden">
@@ -8339,6 +8362,7 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
         <div className="mt-3">
           <p className="text-xs font-black text-comet">My Constellation</p>
           <h2 className="mt-1 text-lg font-black text-white">{displayName}</h2>
+          <ProfileTitleBadge size="profile" title={primaryTitle} />
           <p className="text-sm text-slate-400">{username}</p>
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
           {profile.constellation_note && (
@@ -9004,6 +9028,7 @@ function SentStarLetterCard({ item, onOpenStarLetterThread }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-black text-white">{item.name}</span>
+            <ProfileTitleBadge size="compact" title={item.primaryTitle} />
             <span className="text-xs text-slate-500">{item.handle}</span>
             <span className="text-xs text-slate-500">· {item.time}</span>
             <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-1 text-[10px] font-black text-comet">
@@ -9192,6 +9217,7 @@ function ArchivedStarLetterCard({ archive, item }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-black text-white">{item.name}</span>
+            <ProfileTitleBadge size="compact" title={item.primaryTitle} />
             <span className="text-xs text-slate-500">{item.handle}</span>
             <span className="text-xs text-slate-500">· {item.time}</span>
             <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-1 text-[10px] font-black text-comet">
@@ -9794,6 +9820,7 @@ function ProfileCard({ profile }) {
   const avatar = displayName.trim().charAt(0) || defaultProfileView.avatar;
   const canShareStarProfile = Boolean(profile.data?.username);
   const canOpenAvatar = Boolean(avatarUrl);
+  const primaryTitle = getPrimaryProfileTitle(profile.data);
   const statusMessage = profile.error || profile.shareError || profile.message || profile.shareMessage;
 
   return (
@@ -9838,6 +9865,7 @@ function ProfileCard({ profile }) {
         </div>
         <div className="mt-3">
           <h2 className="text-lg font-black text-white">{displayName}</h2>
+          <ProfileTitleBadge size="profile" title={primaryTitle} />
           <p className="text-sm text-slate-400">{username}</p>
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
           {constellationNote && (
@@ -12440,6 +12468,7 @@ function PostCard({
               ) : (
                 <h3 className="font-black text-white">{post.name}</h3>
               )}
+              <ProfileTitleBadge size="compact" title={post.primaryTitle} />
               <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
                 {post.badge}
               </span>
@@ -12710,6 +12739,7 @@ function StarLetterItem({ letter, starLetters }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-sm font-black text-white">{letter.name}</span>
+            <ProfileTitleBadge size="compact" title={letter.primaryTitle} />
             <span className="text-xs text-slate-500">{letter.handle}</span>
             <span className="text-xs text-slate-500">· {letter.time}</span>
             {letter.isDeleted ? <span className="text-[11px] font-bold text-slate-500">削除済み</span> : null}

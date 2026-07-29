@@ -332,6 +332,7 @@ test("first-post welcome migration keeps the once-only record and completion pat
     .trim();
   const schemaBlock = schemaSql
     .split("-- 20260729093000_add_chia_first_post_welcomes.sql\n")[1]
+    ?.split("-- 20260729120000_add_profile_titles.sql")[0]
     ?.trim();
 
   assert.equal(schemaBlock, migrationBody, "first-post migration and schema block must stay synchronized");

@@ -12,7 +12,7 @@ PR #68 の本番成功条件は次の通りです。
 3. `not_before_at` 到達後、scheduled Function `ai-observation-dispatch-due` がdue jobをworkerへdispatchする。
 4. worker完了時に `public.observations` が作成される。
 5. 自動観測では `public.resonances` に星空ちあ名義の `silent` 共鳴が1件作成される。
-6. 投稿者にはR.Connectで「星空ちあ｜街の案内人さんがあなたの流星便に共鳴しました。」通知が届く。
+6. 投稿者にはR.Connectで「星空ちあさんがあなたの流星便に共鳴しました。」通知が届く。
 
 星文は毎回作成しません。`star_letters` が0件でも、`observations` と `silent` 共鳴が作成されていれば自動観測MVPとしては正常です。
 

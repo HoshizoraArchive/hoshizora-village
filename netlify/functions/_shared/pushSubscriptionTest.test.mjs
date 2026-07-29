@@ -153,7 +153,7 @@ test("server Push test payload contains only the fixed test message", () => {
   const payload = JSON.parse(buildPushSubscriptionTestPayload());
 
   assert.deepEqual(payload, {
-    title: "星空ちあ｜街の案内人",
+    title: "星空ちあ",
     body: "おはちあ！ 星空Villageの通知が届いたよ💕",
     icon: "/images/icons/hoshizora-village-icon-192.png",
     badge: "/images/icons/favicon-32.png",
