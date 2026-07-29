@@ -1,0 +1,78 @@
+/*
+ * Targeted follow-up for the celestial guide title.
+ * Loaded after index.css so the experiment remains easy to review and revert.
+ */
+
+.profile-title-badge-celestial-guide,
+.profile-title-badge-compact.profile-title-badge-celestial-guide,
+.profile-title-badge-profile.profile-title-badge-celestial-guide {
+  border-radius: 0.125rem;
+}
+
+.profile-avatar-title-layout {
+  min-height: 5.25rem;
+}
+
+.profile-avatar-title-plate {
+  left: 3.85rem;
+  bottom: -0.25rem;
+  max-width: calc(100% - 3.85rem);
+}
+
+.profile-avatar-title-plate .profile-title-badge-profile {
+  min-height: 1.9rem;
+  padding: 0.32rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.profile-title-badge-celestial-guide::before {
+  width: 29%;
+  height: 265%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(255 239 184 / 0.18) 22%,
+    rgb(255 253 238 / 0.98) 50%,
+    rgb(255 224 145 / 0.3) 72%,
+    transparent 100%
+  );
+  box-shadow: 0 0 10px rgb(255 241 195 / 0.45);
+  filter: blur(0.15px);
+  animation: profileTitleGuideShimmerStrong 3.4s ease-in-out infinite;
+}
+
+@keyframes profileTitleGuideShimmerStrong {
+  0%,
+  50% {
+    opacity: 0;
+    transform: translate3d(-300%, 48%, 0) rotate(-34deg) scale(0.68);
+  }
+
+  58% {
+    opacity: 0.42;
+    transform: translate3d(-175%, 24%, 0) rotate(-34deg) scale(0.82);
+  }
+
+  70% {
+    opacity: 0.88;
+    transform: translate3d(-18%, -12%, 0) rotate(-34deg) scale(1.04);
+  }
+
+  82% {
+    opacity: 0.24;
+    transform: translate3d(150%, -48%, 0) rotate(-34deg) scale(1.18);
+  }
+
+  88%,
+  100% {
+    opacity: 0;
+    transform: translate3d(220%, -62%, 0) rotate(-34deg) scale(1.24);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-title-badge-celestial-guide::before {
+    animation: none;
+  }
+}
