@@ -215,6 +215,26 @@ RLS方針:
 - migration本体には星空ちあのUUIDをハードコードしません
 - 付与と装着は `docs/profile-frame-operations.sql` のSQL例で、`username = 'chia_hoshizora'` と `email = 'akaibuhoshizora+chia@gmail.com'` を確認してから実行します
 
+### titles / profile_titles
+
+表示名へ文字列を連結せず、複数保有とprimary表示に対応するプロフィール称号です。
+
+- `titles.key`: 運営操作やUI variantで使う安定した称号キー
+- `titles.label`: HTMLテキストとして表示する称号名
+- `titles.variant`: `standard`、`celestial_guide` などの表示variant
+- `titles.emblem_path`: 任意の透過PNG素材パス
+- `profile_titles`: `profile_id + title_id` を主キーとする保有関係
+- `profile_titles_one_primary_per_profile_idx`: primary称号を1プロフィール最大1件に制限
+
+有効な称号カタログと付与関係は `anon` / `authenticated` がselectできます。
+browser roleにはinsert / update / deleteをgrantせず、付与・剥奪はmigrationまたは
+service roleに限定します。UIは既存のプロフィール一括queryへ称号relationを含め、
+流星便や星文ごとのN+1 queryを追加しません。
+
+初期seedは `celestial_guide` と `beta_tester` です。`username =
+'chia_hoshizora'` のプロフィールには `celestial_guide` をprimaryとして冪等に付与し、
+表示名が旧表記と完全一致する場合だけ `星空ちあ` へ変更します。
+
 ### posts
 
 流星便を保存します。

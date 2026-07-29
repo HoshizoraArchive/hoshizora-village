@@ -626,7 +626,7 @@ export default function InteractiveOnboarding({
           style={dialogueStyle}
         >
           <div className="flex items-start justify-between gap-3">
-            <p className="text-[11px] font-black tracking-[0.12em] text-comet">星空ちあ｜街の案内人</p>
+            <p className="text-[11px] font-black tracking-[0.12em] text-comet">星空ちあ</p>
             <button
               aria-label="ちあの案内を小さくする"
               className="-mr-1 -mt-1 min-h-8 shrink-0 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] font-black text-slate-300 transition hover:bg-white/10 hover:text-white"
