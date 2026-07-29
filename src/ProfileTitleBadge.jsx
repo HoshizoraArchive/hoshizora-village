@@ -43,15 +43,6 @@ export default function ProfileTitleBadge({ size = "compact", title }) {
         isProfileSize ? "profile-title-badge-profile" : "profile-title-badge-compact"
       }`}
     >
-      {title.emblemPath ? (
-        <img
-          alt={CELESTIAL_GUIDE_ALT}
-          className="profile-title-guide-emblem"
-          height="1024"
-          src={title.emblemPath}
-          width="1024"
-        />
-      ) : null}
       <span className="profile-title-guide-label">{title.label}</span>
       <GuideStars />
     </span>

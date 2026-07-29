@@ -11,6 +11,7 @@ import {
 
 const appSource = readFileSync("src/App.jsx", "utf8");
 const badgeSource = readFileSync("src/ProfileTitleBadge.jsx", "utf8");
+const emblemSource = readFileSync("src/ProfileTitleEmblem.jsx", "utf8");
 const cssSource = readFileSync("src/index.css", "utf8");
 const runtimeIdentitySource = [
   appSource,
@@ -176,23 +177,43 @@ test("celestial guide keeps its dedicated variant and emblem path", () => {
   assert.equal(primary?.emblemPath, "/assets/titles/chia-celestial-guide-emblem.png");
 });
 
-test("profile title UI supports compact and profile displays without duplicated conditions", () => {
+test("profile title UI keeps the guide emblem and title as independent elements", () => {
+  const emblemCssBlock = cssSource.split(".profile-title-emblem {")[1]?.split("}")[0] ?? "";
+
   assert.match(badgeSource, /size = "compact"/);
   assert.match(badgeSource, /isProfileSize = size === "profile"/);
+  assert.doesNotMatch(badgeSource, /<img/);
+  assert.doesNotMatch(badgeSource, /emblemPath/);
   assert.match(badgeSource, /星空ちあ 街の案内人の紋章/);
-  assert.match(badgeSource, /width="1024"/);
-  assert.match(badgeSource, /height="1024"/);
+  assert.match(emblemSource, /alt=\{decorative \? "" : CELESTIAL_GUIDE_ALT\}/);
+  assert.match(emblemSource, /width="1024"/);
+  assert.match(emblemSource, /height="1024"/);
+  assert.match(emblemSource, /decorative = false/);
+  assert.match(emblemSource, /aria-hidden=\{decorative \? "true" : undefined\}/);
   assert.match(badgeSource, /aria-hidden="true"/);
   assert.match(cssSource, /\.profile-title-badge-compact/);
   assert.match(cssSource, /\.profile-title-badge-profile/);
+  assert.match(cssSource, /\.profile-title-emblem-compact/);
+  assert.match(cssSource, /\.profile-title-emblem-profile/);
+  assert.match(cssSource, /\.profile-title-profile-layout[\s\S]*flex-wrap: wrap/);
+  assert.match(cssSource, /\.profile-title-layout-break[\s\S]*flex-basis: 100%/);
+  assert.doesNotMatch(emblemCssBlock, /background|border|box-shadow/);
   assert.match(cssSource, /prefers-reduced-motion[\s\S]*profile-title-badge-celestial-guide/);
 });
 
 test("My Constellation, public profiles, meteor cards, and star letters render primary titles", () => {
   assert.match(appSource, /function ProfileCard[\s\S]*ProfileTitleBadge size="profile"/);
   assert.match(appSource, /function PublicProfileCard[\s\S]*ProfileTitleBadge size="profile"/);
+  assert.match(appSource, /function ProfileCard[\s\S]*ProfileTitleEmblem size="profile"/);
+  assert.match(appSource, /function PublicProfileCard[\s\S]*ProfileTitleEmblem size="profile"/);
+  assert.match(
+    appSource,
+    /function ProfileCard[\s\S]*ProfileTitleEmblem size="profile"[\s\S]*profile-title-layout-break[\s\S]*ProfileTitleBadge size="profile"/,
+  );
   assert.match(appSource, /function PostCard[\s\S]*ProfileTitleBadge size="compact" title=\{post\.primaryTitle\}/);
+  assert.match(appSource, /function PostCard[\s\S]*ProfileTitleEmblem decorative size="compact" title=\{post\.primaryTitle\}/);
   assert.match(appSource, /function StarLetterItem[\s\S]*ProfileTitleBadge size="compact" title=\{letter\.primaryTitle\}/);
+  assert.match(appSource, /function StarLetterItem[\s\S]*ProfileTitleEmblem decorative size="compact" title=\{letter\.primaryTitle\}/);
   assert.match(appSource, /min-w-0 flex-1/);
   assert.match(appSource, /flex flex-wrap items-center/);
 });

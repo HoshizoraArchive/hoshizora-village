@@ -164,11 +164,10 @@
 
   .profile-title-badge-profile {
     width: fit-content;
-    min-height: 2.75rem;
-    gap: 0.6rem;
+    min-height: 2rem;
     margin-top: 0.55rem;
     margin-bottom: 0.45rem;
-    padding: 0.35rem 1rem 0.35rem 0.45rem;
+    padding: 0.35rem 1rem;
     border-radius: 0.8rem;
     font-size: 0.875rem;
   }
@@ -178,18 +177,33 @@
     padding: 0.35rem 0.75rem;
   }
 
-  .profile-title-guide-emblem {
-    position: relative;
-    z-index: 1;
+  .profile-title-emblem {
     flex: none;
-    width: 1.15rem;
-    height: 1.15rem;
+    display: block;
     object-fit: contain;
   }
 
-  .profile-title-badge-profile .profile-title-guide-emblem {
-    width: 2.15rem;
-    height: 2.15rem;
+  .profile-title-emblem-compact {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  .profile-title-emblem-profile {
+    width: clamp(2.25rem, 5vw, 2.75rem);
+    height: clamp(2.25rem, 5vw, 2.75rem);
+  }
+
+  .profile-title-profile-layout {
+    display: flex;
+    max-width: 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .profile-title-layout-break {
+    flex-basis: 100%;
+    height: 0;
   }
 
   .profile-title-guide-label {
