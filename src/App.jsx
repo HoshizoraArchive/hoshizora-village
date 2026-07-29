@@ -1675,6 +1675,13 @@ function App() {
   const [ownPosts, setOwnPosts] = useState([]);
   const [ownPostsLoading, setOwnPostsLoading] = useState(false);
   const [ownPostsError, setOwnPostsError] = useState("");
+  const [myConstellationView, setMyConstellationView] = useState("posts");
+  const [resonatedPosts, setResonatedPosts] = useState([]);
+  const [resonatedPostsLoading, setResonatedPostsLoading] = useState(false);
+  const [resonatedPostsError, setResonatedPostsError] = useState("");
+  const [sentStarLetters, setSentStarLetters] = useState([]);
+  const [sentStarLettersLoading, setSentStarLettersLoading] = useState(false);
+  const [sentStarLettersError, setSentStarLettersError] = useState("");
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState("");
   const [postDraft, setPostDraft] = useState("");
@@ -1763,12 +1770,13 @@ function App() {
   const meteorTagRouteName = route.name === "meteorTag" ? route.tagName : null;
   const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
+  const resonatedPostIdsKey = resonatedPosts.map((post) => post.id).filter(Boolean).join("|");
   const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
   const publicProfilePostIdsKey = publicProfilePosts.map((post) => post.id).filter(Boolean).join("|");
   const meteorTagPostIdsKey = meteorTagPosts.map((post) => post.id).filter(Boolean).join("|");
   const allPostIdsKey = [
     ...new Set(
-      [...savedPosts, ...ownPosts, ...archivedPosts, ...publicProfilePosts, ...meteorTagPosts, detailPost]
+      [...savedPosts, ...ownPosts, ...resonatedPosts, ...archivedPosts, ...publicProfilePosts, ...meteorTagPosts, detailPost]
         .filter(Boolean)
         .map((post) => post.id)
         .filter(Boolean),
@@ -2135,6 +2143,47 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+    const postIds = resonatedPostIdsKey ? resonatedPostIdsKey.split("|") : [];
+
+    if (postIds.length === 0) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readResonatedPostResonances() {
+      const { data, error } = await supabase
+        .from("resonances")
+        .select("id, post_id, profile_id")
+        .in("post_id", postIds);
+
+      if (!isMounted || error) {
+        return;
+      }
+
+      const countsByPost = new Map();
+
+      for (const resonance of data ?? []) {
+        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
+      }
+
+      setResonatedPosts((currentPosts) =>
+        currentPosts.map((post) => ({
+          ...post,
+          resonanceCount: countsByPost.get(post.id) ?? 0,
+        })),
+      );
+    }
+
+    readResonatedPostResonances();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [resonatedPostIdsKey]);
+
+  useEffect(() => {
+    let isMounted = true;
     const postIds = archivedPostIdsKey ? archivedPostIdsKey.split("|") : [];
 
     if (postIds.length === 0) {
@@ -2318,6 +2367,7 @@ function App() {
 
       setSavedPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
       setOwnPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
+      setResonatedPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
       setArchivedPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
       setPublicProfilePosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId));
       setDetailPost((currentPost) =>
@@ -2363,6 +2413,7 @@ function App() {
 
       setSavedPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
       setOwnPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
+      setResonatedPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
       setArchivedPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
       setPublicProfilePosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
       setMeteorTagPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId));
@@ -2650,7 +2701,7 @@ function App() {
       const knownPost =
         detailPost?.id === post.id
           ? detailPost
-          : [savedPosts, ownPosts, archivedPosts, publicProfilePosts, meteorTagPosts]
+          : [savedPosts, ownPosts, resonatedPosts, archivedPosts, publicProfilePosts, meteorTagPosts]
               .flat()
               .find((currentPost) => currentPost?.id === post.id);
       const basePost = {
@@ -3082,6 +3133,264 @@ function App() {
       isMounted = false;
     };
   }, [session?.user?.id, profile?.display_name, profile?.username, profile?.avatar_url, profile?.active_frame_id, profileFrames]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+
+    if (!userId || activeTab !== "profile") {
+      if (!userId) {
+        setResonatedPosts([]);
+        setResonatedPostsLoading(false);
+        setResonatedPostsError("");
+      }
+
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readResonatedPosts() {
+      setResonatedPostsLoading(true);
+      setResonatedPostsError("");
+
+      const { data: resonanceRows, error: resonanceRowsError } = await supabase
+        .from("resonances")
+        .select("id, post_id, profile_id, resonance_type, created_at")
+        .eq("profile_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (resonanceRowsError) {
+        setResonatedPostsLoading(false);
+        setResonatedPostsError(getUserFacingError(resonanceRowsError, ERROR_OPERATION.RESONANCE_LOAD));
+        return;
+      }
+
+      const postIds = [...new Set((resonanceRows ?? []).map((row) => row.post_id).filter(Boolean))];
+
+      if (postIds.length === 0) {
+        setResonatedPosts([]);
+        setResonatedPostsLoading(false);
+        return;
+      }
+
+      const { data: postRows, error: postRowsError } = await runPostQuery((columns, supportsSoftDelete) => {
+        let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).in("id", postIds));
+
+        if (supportsSoftDelete) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query;
+      });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (postRowsError) {
+        setResonatedPostsLoading(false);
+        setResonatedPostsError(getUserFacingError(postRowsError, ERROR_OPERATION.POST_LOAD));
+        return;
+      }
+
+      const authorIds = [...new Set((postRows ?? []).map((post) => post.author_id).filter(Boolean))];
+      const profilesById = new Map();
+
+      if (authorIds.length > 0) {
+        const { data: profileRows, error: profileRowsError } = await runProfileQuery(
+          (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
+          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+          PROFILE_BASIC_SELECT_COLUMNS,
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (profileRowsError) {
+          setResonatedPostsLoading(false);
+          setResonatedPostsError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
+          return;
+        }
+
+        for (const profileRow of profileRows ?? []) {
+          profilesById.set(profileRow.id, profileRow);
+        }
+      }
+
+      const postsById = new Map((postRows ?? []).map((post) => [post.id, post]));
+      const seenPostIds = new Set();
+      const mappedPosts = (resonanceRows ?? [])
+        .map((resonanceRow) => {
+          const post = postsById.get(resonanceRow.post_id);
+
+          if (!post || seenPostIds.has(post.id)) {
+            return null;
+          }
+
+          seenPostIds.add(post.id);
+
+          return {
+            ...mapSavedPost(post, profilesById.get(post.author_id), profileFrames),
+            resonanceId: resonanceRow.id,
+            resonatedAt: resonanceRow.created_at,
+          };
+        })
+        .filter(Boolean);
+      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
+      }
+
+      setResonatedPosts(hydratedPosts);
+      setResonatedPostsLoading(false);
+    }
+
+    readResonatedPosts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeTab, session?.user?.id, profileFrames]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+
+    if (!userId || activeTab !== "profile") {
+      if (!userId) {
+        setSentStarLetters([]);
+        setSentStarLettersLoading(false);
+        setSentStarLettersError("");
+      }
+
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function readSentStarLetters() {
+      setSentStarLettersLoading(true);
+      setSentStarLettersError("");
+
+      const { data: letterRows, error: letterRowsError } = await runStarLetterQuery((columns) => {
+        let query = supabase
+          .from("star_letters")
+          .select(columns)
+          .eq("author_id", userId);
+
+        if (columns.includes("deleted_at")) {
+          query = query.is("deleted_at", null);
+        }
+
+        return query.order("created_at", { ascending: false }).limit(50);
+      });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (letterRowsError) {
+        setSentStarLettersLoading(false);
+        setSentStarLettersError(getUserFacingError(letterRowsError, ERROR_OPERATION.STAR_LETTER_LOAD));
+        return;
+      }
+
+      const postIds = [...new Set((letterRows ?? []).map((letter) => letter.post_id).filter(Boolean))];
+      const postsById = new Map();
+      const profilesById = new Map();
+
+      if (postIds.length > 0) {
+        const { data: postRows, error: postRowsError } = await runPostQuery((columns, supportsSoftDelete) => {
+          let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).in("id", postIds));
+
+          if (supportsSoftDelete) {
+            query = query.is("deleted_at", null);
+          }
+
+          return query;
+        });
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (postRowsError) {
+          setSentStarLettersLoading(false);
+          setSentStarLettersError(getUserFacingError(postRowsError, ERROR_OPERATION.POST_LOAD));
+          return;
+        }
+
+        for (const postRow of postRows ?? []) {
+          postsById.set(postRow.id, postRow);
+        }
+
+        const sourceAuthorIds = [...new Set((postRows ?? []).map((post) => post.author_id).filter(Boolean))];
+
+        if (sourceAuthorIds.length > 0) {
+          const { data: profileRows, error: profileRowsError } = await runProfileQuery(
+            (columns) => supabase.from("profiles").select(columns).in("id", sourceAuthorIds),
+            PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+            PROFILE_BASIC_SELECT_COLUMNS,
+          );
+
+          if (!isMounted) {
+            return;
+          }
+
+          if (profileRowsError) {
+            setSentStarLettersLoading(false);
+            setSentStarLettersError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
+            return;
+          }
+
+          for (const profileRow of profileRows ?? []) {
+            profilesById.set(profileRow.id, profileRow);
+          }
+        }
+      }
+
+      setSentStarLetters(
+        (letterRows ?? []).map((letter) => {
+          const sourcePostRow = postsById.get(letter.post_id);
+          const sourcePost = sourcePostRow
+            ? mapSavedPost(sourcePostRow, profilesById.get(sourcePostRow.author_id), profileFrames)
+            : null;
+
+          return {
+            ...mapStarLetter(letter, profile, profileFrames),
+            sourcePost,
+          };
+        }),
+      );
+      setSentStarLettersLoading(false);
+    }
+
+    readSentStarLetters();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    activeTab,
+    session?.user?.id,
+    profile?.display_name,
+    profile?.username,
+    profile?.avatar_url,
+    profile?.active_frame_id,
+    profileFrames,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3999,6 +4308,13 @@ function App() {
     clearSelectedAvatar();
     setSavedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
     setOwnPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
+    setResonatedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
+    setSentStarLetters((currentLetters) =>
+      currentLetters.map((letter) => ({
+        ...applyAuthorProfileToStarLetter(letter, nextProfile, profileFrames),
+        sourcePost: applyAuthorProfileToPost(letter.sourcePost, nextProfile, profileFrames),
+      })),
+    );
     setArchivedPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
     setPublicProfilePosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
     setMeteorTagPosts((currentPosts) => currentPosts.map((post) => applyAuthorProfileToPost(post, nextProfile, profileFrames)));
@@ -4995,6 +5311,12 @@ function App() {
   function updatePostEverywhere(postId, updater) {
     setSavedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setOwnPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
+    setResonatedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
+    setSentStarLetters((currentLetters) =>
+      currentLetters.map((letter) =>
+        letter.sourcePost?.id === postId ? { ...letter, sourcePost: updater(letter.sourcePost) } : letter,
+      ),
+    );
     setArchivedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setPublicProfilePosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setMeteorTagPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
@@ -5004,6 +5326,8 @@ function App() {
   function removePostFromVisibleLists(postId) {
     setSavedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
     setOwnPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+    setResonatedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
+    setSentStarLetters((currentLetters) => currentLetters.filter((letter) => letter.postId !== postId));
     setArchivedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
     setPublicProfilePosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
     setMeteorTagPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
@@ -5224,6 +5548,7 @@ function App() {
     const targetPost =
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
+      resonatedPosts.find((post) => post.id === postId) ??
       archivedPosts.find((post) => post.id === postId) ??
       publicProfilePosts.find((post) => post.id === postId) ??
       meteorTagPosts.find((post) => post.id === postId) ??
@@ -5260,6 +5585,16 @@ function App() {
       ),
     );
     setOwnPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
+            }
+          : post,
+      ),
+    );
+    setResonatedPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === postId
           ? {
@@ -5359,6 +5694,7 @@ function App() {
     const targetPost =
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
+      resonatedPosts.find((post) => post.id === postId) ??
       archivedPosts.find((post) => post.id === postId) ??
       publicProfilePosts.find((post) => post.id === postId) ??
       meteorTagPosts.find((post) => post.id === postId) ??
@@ -5870,6 +6206,7 @@ function App() {
     const targetPost =
       savedPosts.find((post) => post.id === postId) ??
       ownPosts.find((post) => post.id === postId) ??
+      resonatedPosts.find((post) => post.id === postId) ??
       archivedPosts.find((post) => post.id === postId) ??
       publicProfilePosts.find((post) => post.id === postId) ??
       meteorTagPosts.find((post) => post.id === postId) ??
@@ -6669,12 +7006,27 @@ function App() {
     loading: ownPostsLoading,
     session,
   };
+  const myConstellationState = {
+    activeView: myConstellationView,
+    onViewChange: setMyConstellationView,
+    resonatedPosts: {
+      error: resonatedPostsError,
+      items: resonatedPosts,
+      loading: resonatedPostsLoading,
+    },
+    sentStarLetters: {
+      error: sentStarLettersError,
+      items: sentStarLetters,
+      loading: sentStarLettersLoading,
+    },
+  };
   const posts = savedPosts;
   const starMovieObservationPost = starMovieObservation
     ? [
         detailPost,
         ...savedPosts,
         ...ownPosts,
+        ...resonatedPosts,
         ...archivedPosts,
         ...publicProfilePosts,
         ...meteorTagPosts,
@@ -6685,6 +7037,7 @@ function App() {
       ? detailPost ??
         savedPosts.find((post) => post.id === detailPostId) ??
         ownPosts.find((post) => post.id === detailPostId) ??
+        resonatedPosts.find((post) => post.id === detailPostId) ??
         archivedPosts.find((post) => post.id === detailPostId) ??
         meteorTagPosts.find((post) => post.id === detailPostId)
       : null;
@@ -6808,6 +7161,7 @@ function App() {
           postsError={postsError}
           postsLoading={postsLoading}
           ownPosts={ownPostState}
+          myConstellation={myConstellationState}
           profile={profileState}
           archive={archiveState}
           postActions={postActions}
@@ -6921,6 +7275,7 @@ function TabContent({
   onboarding,
   meteorDetail,
   meteorTagRoute,
+  myConstellation,
   notifications,
   onBackFromPost,
   onOpenMeteorDetail,
@@ -7014,6 +7369,7 @@ function TabContent({
         archive={archive}
         auth={auth}
         feedback={feedback}
+        myConstellation={myConstellation}
         ownPosts={ownPosts}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
@@ -8562,6 +8918,7 @@ function ProfileScreen({
   archive,
   auth,
   feedback,
+  myConstellation,
   onOpenMeteorDetail,
   onOpenPostMedia,
   onOpenStarMovieObservation,
@@ -8615,8 +8972,9 @@ function ProfileScreen({
   return (
     <main className="mx-auto max-w-2xl space-y-4">
       <ProfileCard profile={profile} />
-      <OwnPostsPanel
+      <MyConstellationActivityPanel
         archive={archive}
+        myConstellation={myConstellation}
         onOpenMeteorDetail={onOpenMeteorDetail}
         onOpenPostMedia={onOpenPostMedia}
         onOpenStarMovieObservation={onOpenStarMovieObservation}
@@ -8630,8 +8988,63 @@ function ProfileScreen({
   );
 }
 
-function OwnPostsPanel({
+function SentStarLetterCard({ item, onOpenStarLetterThread }) {
+  const sourcePost = item.sourcePost;
+  const sourcePreview = sourcePost?.text?.trim() || "画像・動画を含む流星便";
+
+  return (
+    <article className="glass-panel overflow-hidden p-4 sm:p-5">
+      <div className="flex gap-3">
+        <AvatarFrame
+          avatar={item.avatar}
+          avatarUrl={item.avatarUrl}
+          className="h-10 w-10 rounded-2xl text-xs"
+          frame={item.avatarFrame}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-black text-white">{item.name}</span>
+            <span className="text-xs text-slate-500">{item.handle}</span>
+            <span className="text-xs text-slate-500">· {item.time}</span>
+            <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-1 text-[10px] font-black text-comet">
+              星文
+            </span>
+          </div>
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
+            <LinkedText>{item.body}</LinkedText>
+          </p>
+
+          <div className="mt-4 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3">
+            <p className="text-[11px] font-black text-slate-500">元の流星便</p>
+            {sourcePost ? (
+              <>
+                <p className="mt-1 text-xs font-black text-slate-300">{sourcePost.name} {sourcePost.handle}</p>
+                <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-6 text-slate-400">
+                  {sourcePreview}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-6 text-slate-500">元の流星便は現在表示できません。</p>
+            )}
+          </div>
+
+          <button
+            className="mt-4 min-h-9 rounded-full border border-comet/25 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!item.postId}
+            onClick={() => onOpenStarLetterThread?.(item.postId, item.id)}
+            type="button"
+          >
+            この会話を見る
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function MyConstellationActivityPanel({
   archive,
+  myConstellation,
   onOpenMeteorDetail,
   onOpenPostMedia,
   onOpenStarMovieObservation,
@@ -8645,9 +9058,83 @@ function OwnPostsPanel({
     return null;
   }
 
+  const activeView = myConstellation?.activeView ?? "posts";
+  const isResonatedView = activeView === "resonated";
+  const isStarLetterView = activeView === "starLetters";
+  const currentPosts = isResonatedView ? myConstellation.resonatedPosts : ownPosts;
+  const currentError = isStarLetterView ? myConstellation.sentStarLetters.error : currentPosts.error;
+  const currentLoading = isStarLetterView ? myConstellation.sentStarLetters.loading : currentPosts.loading;
+
+  function renderPostList() {
+    if (currentPosts.items.length === 0) {
+      return (
+        <p className="text-sm leading-7 text-slate-400">
+          {isResonatedView
+            ? "まだ共鳴した流星便はありません。観測画面で心が動いた流星便に共鳴してみましょう。"
+            : "まだ流星便はありません。中央の＋から最初の流星便を放流できます。"}
+        </p>
+      );
+    }
+
+    return (
+      <div className="space-y-5">
+        {currentPosts.items.map((post) => (
+          <PostCard
+            archive={archive}
+            key={post.id ?? post.handle}
+            onOpenAuthorProfile={onOpenStarProfile}
+            onOpenDetail={onOpenMeteorDetail}
+            onOpenMedia={onOpenPostMedia}
+            onOpenStarMovieObservation={onOpenStarMovieObservation}
+            postActions={postActions}
+            post={post}
+            resonance={resonance}
+            starLetters={starLetters}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <Panel title="わたしの流星便" eyebrow="my meteor letters">
-      {postActions?.message || postActions?.error ? (
+    <Panel title="わたしの星座" eyebrow="my constellation">
+      <div aria-label="My Constellationの記録" className="mb-5 grid grid-cols-3 rounded-2xl border border-white/10 bg-night-950/45 p-1" role="tablist">
+        <button
+          aria-selected={activeView === "posts"}
+          className={`min-h-11 rounded-xl px-2 text-xs font-black transition ${
+            activeView === "posts" ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+          }`}
+          onClick={() => myConstellation?.onViewChange?.("posts")}
+          role="tab"
+          type="button"
+        >
+          流星便 <span className="ml-1 text-[10px] opacity-70">{ownPosts.items.length}</span>
+        </button>
+        <button
+          aria-selected={isResonatedView}
+          className={`min-h-11 rounded-xl px-2 text-xs font-black transition ${
+            isResonatedView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+          }`}
+          onClick={() => myConstellation?.onViewChange?.("resonated")}
+          role="tab"
+          type="button"
+        >
+          共鳴 <span className="ml-1 text-[10px] opacity-70">{myConstellation.resonatedPosts.items.length}</span>
+        </button>
+        <button
+          aria-selected={isStarLetterView}
+          className={`min-h-11 rounded-xl px-2 text-xs font-black transition ${
+            isStarLetterView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+          }`}
+          onClick={() => myConstellation?.onViewChange?.("starLetters")}
+          role="tab"
+          type="button"
+        >
+          星文 <span className="ml-1 text-[10px] opacity-70">{myConstellation.sentStarLetters.items.length}</span>
+        </button>
+      </div>
+
+      {!isStarLetterView && (postActions?.message || postActions?.error) ? (
         <p
           className={`mb-3 rounded-2xl border px-4 py-3 text-xs leading-5 ${
             postActions.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
@@ -8657,35 +9144,32 @@ function OwnPostsPanel({
         </p>
       ) : null}
 
-      {ownPosts.loading || ownPosts.error ? (
+      {currentLoading || currentError ? (
         <p
           className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
-            ownPosts.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
+            currentError ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
           }`}
         >
-          {ownPosts.error || "わたしの流星便を読み込み中..."}
+          {currentError || (isStarLetterView ? "送った星文を読み込み中..." : isResonatedView ? "共鳴した流星便を読み込み中..." : "わたしの流星便を読み込み中...")}
         </p>
-      ) : ownPosts.items.length === 0 ? (
-        <p className="text-sm leading-7 text-slate-400">
-          まだ流星便はありません。中央の＋から最初の流星便を放流できます。
-        </p>
+      ) : isStarLetterView ? (
+        myConstellation.sentStarLetters.items.length === 0 ? (
+          <p className="text-sm leading-7 text-slate-400">
+            まだ送った星文はありません。流星便に言葉を届けると、ここに残ります。
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {myConstellation.sentStarLetters.items.map((item) => (
+              <SentStarLetterCard
+                item={item}
+                key={item.id}
+                onOpenStarLetterThread={archive?.onOpenStarLetterThread}
+              />
+            ))}
+          </div>
+        )
       ) : (
-        <div className="space-y-5">
-          {ownPosts.items.map((post) => (
-            <PostCard
-              archive={archive}
-              key={post.id ?? post.handle}
-              onOpenAuthorProfile={onOpenStarProfile}
-              onOpenDetail={onOpenMeteorDetail}
-              onOpenMedia={onOpenPostMedia}
-              onOpenStarMovieObservation={onOpenStarMovieObservation}
-              postActions={postActions}
-              post={post}
-              resonance={resonance}
-              starLetters={starLetters}
-            />
-          ))}
-        </div>
+        renderPostList()
       )}
     </Panel>
   );
