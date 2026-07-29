@@ -4984,7 +4984,7 @@ function App() {
   }
 
   async function requestAutomaticChiaObservation(postId, postType) {
-    if (postType !== "text" || !session?.access_token) {
+    if (!["text", "image", "video", "youtube"].includes(postType) || !session?.access_token) {
       return;
     }
 

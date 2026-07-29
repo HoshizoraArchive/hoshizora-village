@@ -16,7 +16,11 @@ export function shouldAllowAutoStarLetter({
   config,
   isFirstPostWelcome = false,
 }) {
-  if (observationContext !== AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST) {
+  const isAutomaticObservation =
+    observationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST ||
+    observationContext === AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME;
+
+  if (!isAutomaticObservation) {
     return { allowed: Boolean(observation?.shouldPost), reason: "manual_or_non_auto" };
   }
 
@@ -36,7 +40,7 @@ export function shouldAllowAutoStarLetter({
     return { allowed: false, reason: "low_confidence" };
   }
 
-  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 50);
+  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 70);
 
   if (!Number.isSafeInteger(probabilityPercent) || probabilityPercent <= 0) {
     return { allowed: false, reason: "probability_zero" };

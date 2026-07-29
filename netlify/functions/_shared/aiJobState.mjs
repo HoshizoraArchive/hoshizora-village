@@ -143,7 +143,7 @@ export async function completeAiObservationJob({
   }
 
   throwInternalOnError(error);
-  return assertKnownOutcome(firstRpcRow(data), new Set(["completed", "already_succeeded"]));
+  return assertKnownOutcome(firstRpcRow(data), new Set(["completed", "already_succeeded", "cancelled"]));
 }
 
 export async function failAiObservationJob({ supabase, jobId, publicErrorCode, usage = {} }) {

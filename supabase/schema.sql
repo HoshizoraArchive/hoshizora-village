@@ -4950,6 +4950,47 @@ alter table public.chia_first_post_welcomes enable row level security;
 revoke all on table public.chia_first_post_welcomes from public, anon, authenticated;
 grant select, insert, update, delete on table public.chia_first_post_welcomes to service_role;
 
+alter table public.ai_observation_jobs
+  drop constraint if exists ai_observation_jobs_observation_context_check;
+alter table public.ai_observation_jobs
+  add constraint ai_observation_jobs_observation_context_check
+  check (observation_context in ('manual', 'auto_text_post', 'first_post_welcome'));
+
+comment on column public.ai_observation_jobs.observation_context
+is 'AI観測jobの実行文脈。manual、通常text自動観測(auto_text_post)、初公開流星便歓迎(first_post_welcome)のみ。';
+
+create or replace function app_private.is_chia_first_public_post(p_post_id uuid)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.posts target
+    where target.id = p_post_id
+      and target.visibility = 'public'
+      and target.deleted_at is null
+      and target.type in ('text', 'image', 'video', 'youtube')
+      and not exists (
+        select 1
+        from public.chia_first_post_welcomes w
+        where w.author_id = target.author_id
+      )
+      and not exists (
+        select 1
+        from public.posts earlier
+        where earlier.author_id = target.author_id
+          and earlier.visibility = 'public'
+          and earlier.deleted_at is null
+          and (earlier.created_at, earlier.id) < (target.created_at, target.id)
+      )
+  );
+$$;
+
+revoke all on function app_private.is_chia_first_public_post(uuid)
+from public, anon, authenticated;
+
 create or replace function public.get_chia_first_post_welcome_candidate(p_post_id uuid)
 returns table (is_first_post_welcome boolean)
 language plpgsql
@@ -4979,18 +5020,112 @@ begin
   end if;
 
   return query
-  select not exists (
-    select 1
-    from public.chia_first_post_welcomes w
-    where w.author_id = v_post.author_id
-  )
-  and not exists (
-    select 1
-    from public.posts earlier
-    where earlier.author_id = v_post.author_id
-      and earlier.deleted_at is null
-      and (earlier.created_at, earlier.id) < (v_post.created_at, v_post.id)
+  select app_private.is_chia_first_public_post(v_post.id);
+end;
+$$;
+
+create or replace function public.reserve_chia_first_post_welcome_job(
+  p_post_id uuid,
+  p_requested_by uuid,
+  p_ai_resident_key text,
+  p_provider text,
+  p_model text,
+  p_idempotency_key text,
+  p_request_fingerprint text,
+  p_observation_context text,
+  p_not_before_at timestamptz,
+  p_input_kind text,
+  p_input_size_bytes bigint,
+  p_input_duration_seconds numeric,
+  p_reserved_cost_micro_usd bigint,
+  p_max_attempts integer,
+  p_daily_request_limit integer,
+  p_monthly_request_limit integer,
+  p_daily_cost_limit_micro_usd bigint,
+  p_monthly_cost_limit_micro_usd bigint,
+  p_min_seconds_between_requests integer
+)
+returns table (
+  outcome text,
+  job_id uuid,
+  job_status text,
+  observation_context text,
+  not_before_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_post public.posts%rowtype;
+  v_reservation record;
+begin
+  if p_observation_context <> 'first_post_welcome' then
+    outcome := 'invalid_request';
+    return next;
+    return;
+  end if;
+
+  select *
+    into v_post
+  from public.posts p
+  where p.id = p_post_id
+  for share;
+
+  if not found then
+    outcome := 'not_first_post';
+    return next;
+    return;
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtext('chia_first_post_welcome:' || v_post.author_id::text)::bigint
   );
+
+  if not app_private.is_chia_first_public_post(v_post.id) then
+    outcome := 'not_first_post';
+    return next;
+    return;
+  end if;
+
+  select *
+    into v_reservation
+  from public.reserve_ai_observation_job(
+    p_post_id,
+    p_requested_by,
+    p_ai_resident_key,
+    p_provider,
+    p_model,
+    p_idempotency_key,
+    p_request_fingerprint,
+    'auto_text_post',
+    p_not_before_at,
+    p_input_kind,
+    p_input_size_bytes,
+    p_input_duration_seconds,
+    p_reserved_cost_micro_usd,
+    p_max_attempts,
+    p_daily_request_limit,
+    p_monthly_request_limit,
+    p_daily_cost_limit_micro_usd,
+    p_monthly_cost_limit_micro_usd,
+    p_min_seconds_between_requests
+  );
+
+  if v_reservation.outcome = 'reserved' then
+    update public.ai_observation_jobs j
+      set observation_context = 'first_post_welcome'
+    where j.id = v_reservation.job_id;
+
+    v_reservation.observation_context := 'first_post_welcome';
+  end if;
+
+  outcome := v_reservation.outcome;
+  job_id := v_reservation.job_id;
+  job_status := v_reservation.job_status;
+  observation_context := v_reservation.observation_context;
+  not_before_at := v_reservation.not_before_at;
+  return next;
 end;
 $$;
 
@@ -5154,23 +5289,32 @@ begin
     return;
   end if;
 
-  if v_job.observation_context = 'auto_text_post' then
+  if v_job.observation_context in ('auto_text_post', 'first_post_welcome') then
     -- One serial decision per author prevents two first-post workers from both
     -- passing the no-welcome check before either inserts the durable record.
     perform pg_advisory_xact_lock(hashtext('chia_first_post_welcome:' || v_post.author_id::text)::bigint);
 
-    select not exists (
-      select 1
-      from public.chia_first_post_welcomes w
-      where w.author_id = v_post.author_id
-    )
-    and not exists (
-      select 1
-      from public.posts earlier
-      where earlier.author_id = v_post.author_id
-        and earlier.deleted_at is null
-        and (earlier.created_at, earlier.id) < (v_post.created_at, v_post.id)
-    ) into v_is_first_post_welcome;
+    select app_private.is_chia_first_public_post(v_post.id)
+      into v_is_first_post_welcome;
+  end if;
+
+  if v_job.observation_context = 'first_post_welcome'
+    and not v_is_first_post_welcome
+  then
+    update public.ai_observation_jobs j
+      set status = 'cancelled',
+          public_error_code = 'FIRST_POST_NOT_ELIGIBLE',
+          completed_at = now()
+    where j.id = p_job_id
+    returning * into v_job;
+
+    outcome := 'cancelled';
+    job_id := v_job.id;
+    job_status := v_job.status::text;
+    observation_id := v_job.observation_id;
+    star_letter_id := v_job.star_letter_id;
+    return next;
+    return;
   end if;
 
   if p_is_first_post_fallback and not v_is_first_post_welcome then
@@ -5240,7 +5384,7 @@ begin
   )
   returning id into v_observation_id;
 
-  if v_job.observation_context = 'auto_text_post' then
+  if v_job.observation_context in ('auto_text_post', 'first_post_welcome') then
     insert into public.resonances (post_id, profile_id, resonance_type)
     values (v_job.post_id, p_chia_profile_id, 'silent');
   end if;
@@ -5303,12 +5447,88 @@ as $$
     p_observed_points, p_analysis_summary, p_should_post, p_star_letter_body,
     p_input_tokens, p_output_tokens, p_total_tokens, p_actual_cost_micro_usd,
     p_auto_star_letter_daily_limit, p_auto_star_letter_author_cooldown_seconds,
-    '村人さん、最初の流星便を受け取ったよ。ここからの星空も、ゆっくり見ているね。', false
+    '村人さん、最初の流星便を受け取ったよ。ここに届けてくれた光から、これからの星空が始まるね。', false
   );
+$$;
+
+create or replace function public.cancel_ai_observation_job(
+  p_job_id uuid,
+  p_public_error_code text default 'WORKER_DISPATCH_FAILED'
+)
+returns table (
+  outcome text,
+  job_id uuid,
+  job_status text
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_job public.ai_observation_jobs%rowtype;
+begin
+  select *
+    into v_job
+  from public.ai_observation_jobs j
+  where j.id = p_job_id
+  for update;
+
+  if not found then
+    outcome := 'not_found';
+    return next;
+    return;
+  end if;
+
+  if v_job.status <> 'queued'
+    and not (
+      v_job.status = 'processing'
+      and v_job.attempt_count = 0
+      and p_public_error_code = 'FIRST_POST_NOT_ELIGIBLE'
+    )
+  then
+    outcome := 'invalid_status';
+    job_id := v_job.id;
+    job_status := v_job.status::text;
+    return next;
+    return;
+  end if;
+
+  if p_public_error_code is null or p_public_error_code !~ '^[A-Z0-9_:-]{1,80}$' then
+    outcome := 'invalid_request';
+    return next;
+    return;
+  end if;
+
+  update public.ai_observation_jobs j
+    set status = 'cancelled',
+        public_error_code = p_public_error_code,
+        completed_at = now()
+  where j.id = p_job_id
+  returning * into v_job;
+
+  outcome := 'cancelled';
+  job_id := v_job.id;
+  job_status := v_job.status::text;
+  return next;
+end;
 $$;
 
 revoke all on function public.get_chia_first_post_welcome_candidate(uuid) from public, anon, authenticated;
 grant execute on function public.get_chia_first_post_welcome_candidate(uuid) to service_role;
+
+revoke all on function public.reserve_chia_first_post_welcome_job(
+  uuid, uuid, text, text, text, text, text, text, timestamptz, text,
+  bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer
+) from public, anon, authenticated;
+grant execute on function public.reserve_chia_first_post_welcome_job(
+  uuid, uuid, text, text, text, text, text, text, timestamptz, text,
+  bigint, numeric, bigint, integer, integer, integer, bigint, bigint, integer
+) to service_role;
+
+revoke all on function public.cancel_ai_observation_job(uuid, text)
+from public, anon, authenticated;
+grant execute on function public.cancel_ai_observation_job(uuid, text)
+to service_role;
 
 revoke all on function public.complete_ai_observation_job(
   uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer, text, boolean

@@ -8,7 +8,7 @@
 PR #68 の本番成功条件は次の通りです。
 
 1. 全ユーザーの `public` な `text` 投稿後に `ai-observation-auto-request` が呼ばれる。
-2. `public.ai_observation_jobs` に `observation_context = 'auto_text_post'` のjobが作成される。
+2. 通常text投稿は `public.ai_observation_jobs.observation_context = 'auto_text_post'`、最初の公開流星便は `first_post_welcome` のjobが作成される。
 3. `not_before_at` 到達後、scheduled Function `ai-observation-dispatch-due` がdue jobをworkerへdispatchする。
 4. worker完了時に `public.observations` が作成される。
 5. 自動観測では `public.resonances` に星空ちあ名義の `silent` 共鳴が1件作成される。
@@ -67,7 +67,7 @@ limit 5;
 
 見るポイント:
 
-- `observation_context = 'auto_text_post'` なら投稿後自動観測jobです。
+- `observation_context = 'auto_text_post'` は通常text投稿後自動観測、`first_post_welcome` は投稿形式を問わない初公開流星便歓迎jobです。
 - `status = 'queued'` で `not_before_at > now()` なら、まだ遅延待ちです。
 - `status = 'queued'` で `not_before_at <= now()` のまま長く残るなら、scheduled dispatchかworker dispatchを確認します。
 - `status = 'processing'` が長く残る場合は、stale回収やworker timeoutを確認します。

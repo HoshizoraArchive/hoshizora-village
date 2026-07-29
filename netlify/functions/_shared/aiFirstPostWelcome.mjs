@@ -13,22 +13,18 @@ function isMissingRpc(error) {
 export function buildFirstPostWelcomeFallback(authorProfile) {
   const authorCallName = sanitizeAuthorCallName(authorProfile);
 
-  return `${authorCallName}、最初の流星便を受け取ったよ。ここに置いてくれた言葉から、これからの星空が始まるね。`;
+  return `${authorCallName}、最初の流星便を受け取ったよ。ここに届けてくれた光から、これからの星空が始まるね。`;
 }
 
 export function buildFirstPostFallbackObservation() {
   return {
     observedPoints: [
-      {
-        kind: "text",
-        observation: "最初の流星便として本文を受け取り、歓迎の星文を残します。",
-      },
-      { kind: "confidence", value: 1 },
+      { kind: "confidence", value: 0 },
     ],
-    analysisSummary: "最初の流星便として本文を受け取りました。",
+    analysisSummary: "初投稿歓迎を安全なフォールバックで確定しました。",
     shouldPost: false,
     starLetter: null,
-    confidence: 1,
+    confidence: 0,
   };
 }
 

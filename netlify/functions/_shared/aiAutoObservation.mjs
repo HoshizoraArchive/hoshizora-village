@@ -1,6 +1,14 @@
 import { randomInt } from "node:crypto";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
-export function getAutomaticChiaObservationEligibility({ userId, post, profile }) {
+const FIRST_POST_WELCOME_TYPES = new Set(["text", "image", "video", "youtube"]);
+
+export function getAutomaticChiaObservationEligibility({
+  userId,
+  post,
+  profile,
+  isFirstPostWelcome = false,
+}) {
   const normalizedUserId = typeof userId === "string" ? userId.toLowerCase() : "";
   const postAuthorId = typeof post?.author_id === "string" ? post.author_id.toLowerCase() : "";
   const profileId = typeof profile?.id === "string" ? profile.id.toLowerCase() : "";
@@ -9,11 +17,23 @@ export function getAutomaticChiaObservationEligibility({ userId, post, profile }
     return { eligible: false, reason: "not_author" };
   }
 
+  if (isFirstPostWelcome && FIRST_POST_WELCOME_TYPES.has(post?.type)) {
+    return {
+      eligible: true,
+      reason: "first_post_welcome",
+      observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    };
+  }
+
   if (post?.type !== "text") {
     return { eligible: false, reason: "unsupported_type" };
   }
 
-  return { eligible: true, reason: "public_text_author" };
+  return {
+    eligible: true,
+    reason: "public_text_author",
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  };
 }
 
 export function pickAutoObservationDelaySeconds({
@@ -47,3 +67,5 @@ export function buildAutoObservationNotBeforeAt({
 
   return new Date(now.getTime() + delaySeconds * 1000);
 }
+
+export { FIRST_POST_WELCOME_TYPES };

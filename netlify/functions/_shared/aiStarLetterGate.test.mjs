@@ -76,10 +76,22 @@ test("automatic observations allow all star letters when probability is full", (
   assert.equal(result.starLetterGateReason, "probability_full");
 });
 
+test("automatic observations use 70 percent when config is missing", () => {
+  const decision = shouldAllowAutoStarLetter({
+    observation: observation(),
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    jobId: "job-6",
+    requestFingerprint: "fingerprint",
+    config: undefined,
+  });
+
+  assert.deepEqual(decision, { allowed: true, reason: "probability_passed" });
+});
+
 test("first automatic post bypasses model decline, confidence, and probability only for its welcome", () => {
   const result = applyAutoStarLetterGate({
     observation: observation({ shouldPost: false, starLetter: null, confidence: 0 }),
-    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
     jobId: "job",
     requestFingerprint: "fingerprint",
     config: config({ starLetterProbabilityPercent: 0, starLetterMinConfidencePercent: 100 }),

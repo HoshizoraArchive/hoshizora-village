@@ -190,14 +190,14 @@ test("first-post context asks for a grounded welcome without altering ordinary a
   const firstPost = buildObservationPrompt({
     post,
     mediaRows: [],
-    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
     authorProfile: { display_name: "花音", username: "kanon" },
     isFirstPostWelcome: true,
   });
 
   assert.equal(ordinary.includes(FIRST_POST_WELCOME_GUIDE), false);
   assert.equal(firstPost.includes(FIRST_POST_WELCOME_GUIDE), true);
-  assert.equal(firstPost.includes("投稿本文に実際に触れた"), true);
+  assert.equal(firstPost.includes("実際の投稿内容に触れた"), true);
 });
 
 test("direct questions to Chia add a short answer context", () => {

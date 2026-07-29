@@ -2,12 +2,19 @@ import { AI_ERROR, AiHttpError, aiHttpError, logAiEvent } from "./aiErrors.mjs";
 import { runGeminiObservation } from "./aiGemini.mjs";
 import { createRequestFingerprint } from "./aiJobReservation.mjs";
 import {
+  cancelAiObservationJob,
   claimAiObservationJob,
   completeAiObservationJob,
   failAiObservationJob,
   startAiObservationAttempt,
 } from "./aiJobState.mjs";
-import { loadAuthorProfile, loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
+import {
+  loadAuthorProfile,
+  loadChiaProfile,
+  validateCurrentPostDatabaseInput,
+  validateCurrentPostInput,
+  validateCurrentPostStorageInput,
+} from "./aiObservationData.mjs";
 import { assertGlobalProcessingCapacity } from "./aiRateLimit.mjs";
 import { AI_OBSERVATION_CONTEXT, normalizeAiObservationContext } from "./aiObservationContext.mjs";
 import {
@@ -211,10 +218,36 @@ export async function runAiObservationJob({
 
   try {
     await loadChiaProfile({ supabase, chiaProfileId: config.hoshizoraChiaProfileId });
-    const { post, mediaRows, mediaSummary, storageRequirements } = await validateCurrentPostInput({
-      supabase,
-      postId: claim.post_id,
-    });
+    const isAutomaticObservation =
+      effectiveObservationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST ||
+      effectiveObservationContext === AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME;
+    const firstPostWelcome = isAutomaticObservation
+      ? await getFirstPostWelcomeCandidate({
+        supabase,
+        postId: claim.post_id,
+      })
+      : { isFirstPostWelcome: false, migrationAvailable: true };
+
+    if (
+      effectiveObservationContext === AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME &&
+      !firstPostWelcome.isFirstPostWelcome
+    ) {
+      await cancelAiObservationJob({
+        supabase,
+        jobId,
+        publicErrorCode: "FIRST_POST_NOT_ELIGIBLE",
+      });
+      return {
+        outcome: "cancelled",
+        publicErrorCode: "FIRST_POST_NOT_ELIGIBLE",
+      };
+    }
+
+    const { post, mediaRows, mediaSummary, storageRequirements } =
+      await validateCurrentPostDatabaseInput({
+        supabase,
+        postId: claim.post_id,
+      });
     const currentFingerprint = createRequestFingerprint({ post, mediaRows, mediaSummary });
 
     if (currentFingerprint !== claim.request_fingerprint) {
@@ -222,20 +255,17 @@ export async function runAiObservationJob({
     }
 
     const authorProfile = await loadAuthorProfile({ supabase, profileId: post.author_id });
-    const firstPostWelcome = effectiveObservationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST
-      ? await getFirstPostWelcomeCandidate({
-        supabase,
-        postId: post.id,
-      })
-      : { isFirstPostWelcome: false, migrationAvailable: true };
     const firstPostFallbackStarLetterBody = buildFirstPostWelcomeFallback(authorProfile);
-
-    await startAiObservationAttempt({ supabase, jobId });
 
     let normalizedObservation;
     let isFirstPostFallback = false;
 
     try {
+      await validateCurrentPostStorageInput({
+        supabase,
+        storageRequirements,
+      });
+      await startAiObservationAttempt({ supabase, jobId });
       const { output, usage } = await runFirstPostProvider({
         firstPostWelcome: firstPostWelcome.isFirstPostWelcome,
         run: () => runProviderWithDeadline({
@@ -276,10 +306,15 @@ export async function runAiObservationJob({
       isFirstPostFallback = true;
     }
 
-    const latest = await validateCurrentPostInput({
-      supabase,
-      postId: claim.post_id,
-    });
+    const latest = isFirstPostFallback
+      ? await validateCurrentPostDatabaseInput({
+        supabase,
+        postId: claim.post_id,
+      })
+      : await validateCurrentPostInput({
+        supabase,
+        postId: claim.post_id,
+      });
     const latestFingerprint = createRequestFingerprint({
       post: latest.post,
       mediaRows: latest.mediaRows,
@@ -314,6 +349,18 @@ export async function runAiObservationJob({
       normalArgs: normalCompletionArgs,
       fallbackArgs: fallbackCompletionArgs,
     });
+
+    if (completion?.outcome === "cancelled") {
+      logAiEvent("info", "ai_observation_worker_cancelled", {
+        requestId,
+        jobId,
+        operation: "complete_ai_observation_job",
+        status: 200,
+        code: "FIRST_POST_NOT_ELIGIBLE",
+        durationMs: Date.now() - startedAt,
+      });
+      return completion;
+    }
 
     logAiEvent("info", "ai_observation_worker_completed", {
       requestId,

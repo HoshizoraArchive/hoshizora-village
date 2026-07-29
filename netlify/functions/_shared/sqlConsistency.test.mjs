@@ -270,14 +270,24 @@ test("first-post welcome migration keeps the once-only record and completion pat
     "first_post_id uuid references public.posts(id) on delete set null",
     "star_letter_id uuid references public.star_letters(id) on delete set null",
     "public.get_chia_first_post_welcome_candidate",
+    "app_private.is_chia_first_public_post",
+    "target.type in ('text', 'image', 'video', 'youtube')",
+    "earlier.visibility = 'public'",
+    "earlier.deleted_at is null",
+    "public.reserve_chia_first_post_welcome_job",
+    "p_observation_context <> 'first_post_welcome'",
+    "set observation_context = 'first_post_welcome'",
+    "observation_context in ('manual', 'auto_text_post', 'first_post_welcome')",
     "for share",
     "for update",
     "pg_advisory_xact_lock(hashtext('chia_first_post_welcome:' || v_post.author_id::text)::bigint)",
-    "(earlier.created_at, earlier.id) < (v_post.created_at, v_post.id)",
+    "(earlier.created_at, earlier.id) < (target.created_at, target.id)",
     "insert into public.chia_first_post_welcomes (author_id, first_post_id, star_letter_id)",
     "p_first_post_fallback_star_letter_body text",
     "p_is_first_post_fallback boolean",
     "v_actual_cost_micro_usd := greatest(p_actual_cost_micro_usd, v_job.reserved_cost_micro_usd)",
+    "v_job.attempt_count = 0",
+    "p_public_error_code = 'FIRST_POST_NOT_ELIGIBLE'",
     "revoke all on table public.chia_first_post_welcomes from public, anon, authenticated",
   ];
 
@@ -287,6 +297,17 @@ test("first-post welcome migration keeps the once-only record and completion pat
   }
 
   for (const sql of [chiaFirstPostWelcomeMigrationSql, schemaSql]) {
+    const firstPostHelper = sql.match(
+      /create or replace function app_private\.is_chia_first_public_post[\s\S]*?\n\$\$;/,
+    )?.[0] ?? "";
+    assert.equal(firstPostHelper.includes("earlier.visibility = 'public'"), true);
+    assert.equal(firstPostHelper.includes("earlier.deleted_at is null"), true);
+    assert.equal(firstPostHelper.includes("earlier.type"), false);
+    assert.equal(
+      (sql.match(/app_private\.is_chia_first_public_post\(v_post\.id\)/g) ?? []).length >= 2,
+      true,
+      "candidate and completion must share the same first-public-post helper",
+    );
     assert.equal(
       new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.complete_ai_observation_job\\(\\s*${newCompletionSignature.replaceAll(" ", "\\s*").replaceAll(",", "\\s*,\\s*")}\\s*\\)\\s+from\\s+public,\\s+anon,\\s+authenticated`, "i").test(sql),
       true,
@@ -294,6 +315,14 @@ test("first-post welcome migration keeps the once-only record and completion pat
     assert.equal(
       /grant\s+execute\s+on\s+function\s+public\.complete_ai_observation_job\([\s\S]*?text,\s*boolean\s*\)\s+to\s+service_role/i.test(sql),
       true,
+    );
+    assert.match(
+      sql,
+      /revoke all on function public\.reserve_chia_first_post_welcome_job\([\s\S]*?\) from public, anon, authenticated;/,
+    );
+    assert.match(
+      sql,
+      /grant execute on function public\.reserve_chia_first_post_welcome_job\([\s\S]*?\) to service_role;/,
     );
   }
 
@@ -555,6 +584,11 @@ test("production post cards do not expose manual AI observation controls", () =>
 
   assert.equal(appJsx.includes("/api/ai-observation-auto-request"), true);
   assert.equal(appJsx.includes("requestAutomaticChiaObservation"), true);
+  assert.equal(
+    appJsx.includes('["text", "image", "video", "youtube"].includes(postType)'),
+    true,
+  );
+  assert.equal(appJsx.includes('postType !== "text"'), false);
 });
 
 test("R.Connect renders smartphone notification test card through React instead of DOM injection", () => {

@@ -32,4 +32,37 @@ select
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
-  and p.proname in ('get_chia_first_post_welcome_candidate', 'complete_ai_observation_job');
+  and p.proname in (
+    'get_chia_first_post_welcome_candidate',
+    'reserve_chia_first_post_welcome_job',
+    'complete_ai_observation_job'
+  );
+
+select
+  'first_public_post_helper_exists' as check_name,
+  count(*) as observed_count,
+  case when count(*) = 1 then 0 else 1 end as anomaly_count
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'app_private'
+  and p.proname = 'is_chia_first_public_post'
+  and pg_get_function_identity_arguments(p.oid) = 'p_post_id uuid';
+
+select
+  'first_post_welcome_context_allowed' as check_name,
+  count(*) filter (
+    where pg_get_constraintdef(c.oid) like '%first_post_welcome%'
+  ) as observed_count,
+  case
+    when count(*) filter (
+      where pg_get_constraintdef(c.oid) like '%first_post_welcome%'
+    ) = 1
+    then 0
+    else 1
+  end as anomaly_count
+from pg_constraint c
+join pg_class t on t.oid = c.conrelid
+join pg_namespace n on n.oid = t.relnamespace
+where n.nspname = 'public'
+  and t.relname = 'ai_observation_jobs'
+  and c.conname = 'ai_observation_jobs_observation_context_check';
