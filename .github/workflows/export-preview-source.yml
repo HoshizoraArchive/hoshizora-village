@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/star-letter-archive-screen
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
