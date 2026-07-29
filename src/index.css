@@ -143,6 +143,7 @@
     isolation: isolate;
     overflow: hidden;
     border: 1px solid rgb(155 119 54 / 0.78);
+    border-radius: 0.65rem;
     background:
       linear-gradient(135deg, rgb(10 29 66 / 0.92), rgb(28 32 91 / 0.86) 56%, rgb(48 38 96 / 0.82)),
       rgb(7 16 43 / 0.88);
@@ -166,14 +167,14 @@
   .profile-title-badge-celestial-guide::before {
     top: 50%;
     left: 50%;
-    width: 14%;
-    height: 220%;
+    width: 21%;
+    height: 240%;
     border-radius: 999px;
-    transform: translate3d(-300%, 38%, 0) rotate(-34deg) scale(0.68);
+    transform: translate3d(-280%, 45%, 0) rotate(-34deg) scale(0.7);
     transform-origin: center;
-    background: linear-gradient(90deg, transparent, rgb(255 248 223 / 0.2), transparent);
+    background: linear-gradient(90deg, transparent, rgb(255 247 215 / 0.72), transparent);
     opacity: 0;
-    animation: profileTitleGuideShimmer 4.4s ease-in-out infinite;
+    animation: profileTitleGuideShimmer 3.8s ease-in-out infinite;
   }
 
   .profile-title-badge-celestial-guide::after {
@@ -188,6 +189,10 @@
     padding: 0.15rem 0.48rem;
     font-size: 0.625rem;
     white-space: nowrap;
+  }
+
+  .profile-title-badge-compact.profile-title-badge-celestial-guide {
+    border-radius: 0.5rem;
   }
 
   .profile-title-badge-profile {
@@ -225,6 +230,20 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.35rem;
+  }
+
+  .profile-avatar-title-layout {
+    position: relative;
+    min-height: 4.75rem;
+  }
+
+  .profile-avatar-title-plate {
+    position: absolute;
+    z-index: 2;
+    left: 3.15rem;
+    bottom: 0.35rem;
+    max-width: calc(100% - 3.15rem);
+    pointer-events: none;
   }
 
   .profile-card-header {
@@ -857,25 +876,25 @@
 
 @keyframes profileTitleGuideShimmer {
   0%,
-  18% {
+  58% {
     opacity: 0;
-    transform: translate3d(-300%, 38%, 0) rotate(-34deg) scale(0.68);
+    transform: translate3d(-280%, 45%, 0) rotate(-34deg) scale(0.7);
   }
-  32% {
-    opacity: 0.14;
-    transform: translate3d(-170%, 18%, 0) rotate(-34deg) scale(0.8);
+  69% {
+    opacity: 0.28;
+    transform: translate3d(-145%, 18%, 0) rotate(-34deg) scale(0.84);
   }
-  54% {
-    opacity: 0.22;
-    transform: translate3d(-35%, -12%, 0) rotate(-34deg) scale(0.96);
+  78% {
+    opacity: 0.52;
+    transform: translate3d(-22%, -10%, 0) rotate(-34deg) scale(1);
   }
-  76% {
+  88% {
     opacity: 0;
-    transform: translate3d(185%, -52%, 0) rotate(-34deg) scale(1.12);
+    transform: translate3d(195%, -56%, 0) rotate(-34deg) scale(1.15);
   }
   100% {
     opacity: 0;
-    transform: translate3d(185%, -52%, 0) rotate(-34deg) scale(1.12);
+    transform: translate3d(195%, -56%, 0) rotate(-34deg) scale(1.15);
   }
 }
 
