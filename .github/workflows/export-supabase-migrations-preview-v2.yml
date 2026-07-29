@@ -20,13 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package migrations
+      - name: Package database-related source
         run: |
           test -d supabase/migrations
-          tar -czf supabase-migrations.tar.gz supabase/migrations
-      - name: Upload migrations
+          tar -czf hoshizora-db-source.tar.gz supabase docs src netlify package.json
+      - name: Upload database-related source
         uses: actions/upload-artifact@v4
         with:
-          name: supabase-migrations-preview-v2
-          path: supabase-migrations.tar.gz
+          name: hoshizora-db-source-preview-v2
+          path: hoshizora-db-source.tar.gz
           retention-days: 1
