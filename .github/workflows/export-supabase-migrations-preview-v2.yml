@@ -1,0 +1,25 @@
+name: Export Supabase migrations for preview v2
+
+on:
+  push:
+    branches:
+      - chore/export-supabase-migrations-preview-v2
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package migrations
+        run: |
+          test -d supabase/migrations
+          tar -czf supabase-migrations.tar.gz supabase/migrations
+      - name: Upload migrations
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-migrations-preview-v2
+          path: supabase-migrations.tar.gz
+          retention-days: 1
