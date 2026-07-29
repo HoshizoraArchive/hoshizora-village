@@ -17,40 +17,6 @@ function GuideStars() {
   );
 }
 
-function GuideReflection() {
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          zIndex: 0,
-          top: "-85%",
-          bottom: "-85%",
-          left: "-18%",
-          width: "48%",
-          transform: "rotate(19deg)",
-          background:
-            "linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.08) 24%, rgb(255 255 255 / 0.38) 48%, rgb(255 231 164 / 0.2) 62%, transparent 100%)",
-          pointerEvents: "none",
-        }}
-      />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          zIndex: 0,
-          inset: "2px",
-          border: "1px solid rgb(255 244 196 / 0.16)",
-          borderRadius: "inherit",
-          boxShadow: "inset 0 0 12px rgb(125 223 255 / 0.07)",
-          pointerEvents: "none",
-        }}
-      />
-    </>
-  );
-}
-
 export default function ProfileTitleBadge({ size = "compact", title }) {
   if (!title) {
     return null;
@@ -77,13 +43,7 @@ export default function ProfileTitleBadge({ size = "compact", title }) {
         isProfileSize ? "profile-title-badge-profile" : "profile-title-badge-compact"
       }`}
     >
-      <GuideReflection />
-      <span
-        className="profile-title-guide-label"
-        style={{ textShadow: "0 1px 10px rgb(255 244 196 / 0.22)" }}
-      >
-        {title.label}
-      </span>
+      <span className="profile-title-guide-label">{title.label}</span>
       <GuideStars />
     </span>
   );

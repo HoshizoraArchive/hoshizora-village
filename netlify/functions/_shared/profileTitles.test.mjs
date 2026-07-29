@@ -189,14 +189,23 @@ test("profile title UI keeps the guide emblem and title as independent elements"
   assert.match(emblemSource, /width="1024"/);
   assert.match(emblemSource, /height="1024"/);
   assert.match(emblemSource, /decorative = false/);
+  assert.match(emblemSource, /placement = "inline"/);
+  assert.match(emblemSource, /placement === "header"/);
+  assert.match(emblemSource, /profile-title-emblem-header-slot/);
   assert.match(emblemSource, /aria-hidden=\{decorative \? "true" : undefined\}/);
   assert.match(badgeSource, /aria-hidden="true"/);
+  assert.doesNotMatch(badgeSource, /GuideReflection/);
   assert.match(cssSource, /\.profile-title-badge-compact/);
   assert.match(cssSource, /\.profile-title-badge-profile/);
   assert.match(cssSource, /\.profile-title-emblem-compact/);
   assert.match(cssSource, /\.profile-title-emblem-profile/);
-  assert.match(cssSource, /\.profile-title-profile-layout[\s\S]*flex-wrap: wrap/);
-  assert.match(cssSource, /\.profile-title-layout-break[\s\S]*flex-basis: 100%/);
+  assert.match(cssSource, /\.profile-card-header[\s\S]*position: relative/);
+  assert.match(cssSource, /\.profile-card-header-actions[\s\S]*position: absolute/);
+  assert.match(cssSource, /\.profile-title-emblem-header-slot[\s\S]*bottom: -2\.1rem/);
+  assert.match(cssSource, /\.profile-title-emblem-header-slot::before/);
+  assert.match(cssSource, /\.profile-title-profile-layout[\s\S]*flex-direction: column/);
+  assert.match(cssSource, /\.profile-title-badge-celestial-guide::before[\s\S]*rotate\(20deg\)/);
+  assert.match(cssSource, /\.profile-title-badge-celestial-guide::after[\s\S]*rgb\(255 241 195/);
   assert.doesNotMatch(emblemCssBlock, /background|border|box-shadow/);
   assert.match(cssSource, /prefers-reduced-motion[\s\S]*profile-title-badge-celestial-guide/);
 });
@@ -204,11 +213,15 @@ test("profile title UI keeps the guide emblem and title as independent elements"
 test("My Constellation, public profiles, meteor cards, and star letters render primary titles", () => {
   assert.match(appSource, /function ProfileCard[\s\S]*ProfileTitleBadge size="profile"/);
   assert.match(appSource, /function PublicProfileCard[\s\S]*ProfileTitleBadge size="profile"/);
-  assert.match(appSource, /function ProfileCard[\s\S]*ProfileTitleEmblem size="profile"/);
-  assert.match(appSource, /function PublicProfileCard[\s\S]*ProfileTitleEmblem size="profile"/);
+  assert.match(appSource, /function ProfileCard[\s\S]*ProfileTitleEmblem placement="header" size="profile"/);
+  assert.match(appSource, /function PublicProfileCard[\s\S]*ProfileTitleEmblem placement="header" size="profile"/);
   assert.match(
     appSource,
-    /function ProfileCard[\s\S]*ProfileTitleEmblem size="profile"[\s\S]*profile-title-layout-break[\s\S]*ProfileTitleBadge size="profile"/,
+    /function ProfileCard[\s\S]*ProfileTitleEmblem placement="header" size="profile"[\s\S]*ProfileTitleBadge size="profile"/,
+  );
+  assert.match(
+    appSource,
+    /function PublicProfileCard[\s\S]*ProfileTitleEmblem placement="header" size="profile"[\s\S]*ProfileTitleBadge size="profile"/,
   );
   assert.match(appSource, /function PostCard[\s\S]*ProfileTitleBadge size="compact" title=\{post\.primaryTitle\}/);
   assert.match(appSource, /function PostCard[\s\S]*ProfileTitleEmblem decorative size="compact" title=\{post\.primaryTitle\}/);
