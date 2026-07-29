@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - chore/export-supabase-migrations-preview-v2
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   contents: read
