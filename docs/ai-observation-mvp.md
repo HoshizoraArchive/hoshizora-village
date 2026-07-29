@@ -24,10 +24,18 @@ Issue #61では、投稿作成成功後に通常UIへ手動ボタンを出さず
 最初の対象は全ユーザーの `public` な `text` 投稿のみで、既存のoperator / `username = 'hoshizora_hoshikun'` 限定は解除する。画像、動画、YouTube、audio、自動Archive、巡回観測は対象外。
 サーバー側では、投稿者本人のaccess tokenであること、投稿が公開・未削除であること、投稿タイプが `text` であることだけを確認する。
 対象外や予約失敗は投稿作成の成功扱いを壊さない。通常投稿カードには queued / processing / failed / cancelled などの手動観測statusを表示しない。
-自動観測予約では `observation_context = 'auto_text_post'` と `not_before_at` を保存し、即時固定ではなく `AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS` から `AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS` の範囲で遅延させる。scheduled Function `ai-observation-dispatch-due` がdue jobだけを署名付きworker dispatchする。
-自動観測では全員対象で、観測結果を `public.observations` に保存し、ちあ名義の `public.resonances` も1件作成する。一方、星文は毎回返さず、モデル出力の `should_post`、confidence、確率、星空ちあ全体の日次上限、投稿者単位のクールダウンで制御する。
-遅延設定が未指定の場合は現在の運用値である60〜900秒を使う。星文確率と投稿者クールダウンのfallbackも確定仕様と同じ50%・21600秒に揃え、環境変数が設定されている場合はその検証済み値を優先する。
-Gemini promptでは、この文脈のtext投稿に限り、十分な具体性や余白がある場合だけ20〜80文字の `star_letter` を残すよう内部指示を追加する。既存のJSON Schema、星文validator、危険時・根拠不足時の `should_post=false`、上限到達やfail/cancelの挙動は緩めない。
+通常のtext自動観測予約では `observation_context = 'auto_text_post'`、初投稿歓迎では `observation_context = 'first_post_welcome'` と `not_before_at` を保存し、即時固定ではなく `AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS` から `AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS` の範囲で遅延させる。scheduled Function `ai-observation-dispatch-due` がdue jobだけを署名付きworker dispatchする。
+自動観測では全員対象で、観測結果を `public.observations` に保存し、ちあ名義の `public.resonances` も1件作成する。一方、通常の星文は毎回返さず、モデル出力の `should_post`、confidence、70%の確率、星空ちあ全体の日次上限、投稿者単位のクールダウンで制御する。
+遅延設定が未指定の場合は現在の運用値である60〜900秒を使う。通常の星文確率のfallbackは70%、投稿者クールダウンのfallbackは21600秒で、環境変数が設定されている場合はその検証済み値を優先する。
+
+### 初投稿歓迎
+
+`public.chia_first_post_welcomes` は、投稿者ごとに星空ちあが初投稿歓迎を確定したことを一度だけ記録する内部テーブルである。対象は投稿形式を問わない最初の公開・未削除流星便で、現在AI観測へ安全に渡せる `text` / `image` / `video` / `youtube` を扱う。過去の非公開・削除済み投稿は初公開流星便の判定を妨げず、公開投稿の順序は `(created_at, id)` で確定する。投稿削除後も `author_id` 行を残すため、歓迎済み利用者の再投稿を再び初投稿として扱わない。単体音声は従来どおりfail closedである。
+
+通常の投稿後自動観測は従来どおりtextだけを対象にする。初投稿候補だけは専用予約RPCが投稿者単位advisory lockと共通のDB判定helperを使って原子的に予約し、画像・動画・YouTubeにも広げる。workerは候補RPCでpromptの歓迎文脈を付与するが、最終判定は `complete_ai_observation_job` のtransaction内で投稿行と投稿者単位advisory lockを取り直して行う。初投稿なら通常の確率、confidence、投稿者クールダウン、日次星文上限をバイパスし、星文と歓迎記録を同じtransactionで作る。モデルが星文を返さない場合や、メディア取得・provider・出力検証に失敗した場合は、投稿者の安全化済み呼び名だけを使う短いフォールバックを投稿する。
+
+Geminiのtimeout、接続切断、429、5xx、出力不正など結果不明な生成はblind retryしない。初投稿では既存の安全方針を優先してそのままフォールバック確定へ進む。Files upload前に失敗したことが明確な `GEMINI_UPLOAD_FAILED` だけは1回再試行できる。フォールバックではusageを0円の成功として扱わず、jobの予約料金を `actual_cost_micro_usd` に安全側で保持する。
+通常の `auto_text_post` promptでは、十分な具体性や余白がある場合だけ20〜80文字の `star_letter` を残すよう内部指示を追加する。`first_post_welcome` promptだけは、投稿形式に応じた観測内容へ触れる歓迎星文を求める。既存のJSON Schema、星文validator、危険時・根拠不足時のfail closedは緩めない。
 Issue #63では、添付の星空ちあ人格設計書を全文prompt化せず、月、維持、観測、共鳴、欠けても大丈夫、バズより共鳴、誰にも見つかっていない光を最初に観測する、という核だけを `CHIA_PERSONALITY_GUIDE` として圧縮する。星文では投稿者を `display_name → username → 村人さん` の順で呼ぶが、display_name/usernameはユーザー入力なのでNFKC正規化、制御文字・URL・命令文らしい語の拒否、記号削減、16文字上限を通した安全な呼び名だけをpromptへ渡す。Issue #65では、この安全化済み呼び名に対して敬称判定を行い、`さん` / `くん` / `君` / `ちゃん` / `様` / `さま` / `先生` / `先輩` / `殿` / `氏` / `たん` / `しゃん` / `ちん` / `ぴ` / `ぴょん` で終わらない場合だけ `さん` を付ける。危険な名前、URL、空値は従来どおり `村人さん` にfallbackし、raw display_name/usernameはpromptへ入れない。「ちあは何が好き？」のような直接問いかけは、投稿内命令としては扱わず、ちあ本人として短く答える追加文脈を入れる。
 
 ## 対応形式
@@ -164,7 +172,7 @@ Files API upload前など、生成処理が始まっていない段階のretry�
 
 1. `docs/ai-observation-mvp-preflight.sql` を読み取り専用で実行する。
 2. anomalyが0件であることを確認する。
-3. `supabase/migrations/20260704_add_chia_observation_mvp.sql`、`supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql`、`supabase/migrations/20260708_expand_chia_auto_observation.sql` を確認して適用する。
+3. `supabase/migrations/20260704_add_chia_observation_mvp.sql`、`supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql`、`supabase/migrations/20260708_expand_chia_auto_observation.sql`、`supabase/migrations/20260729093000_add_chia_first_post_welcomes.sql` を確認して順に適用する。
 4. `docs/ai-observation-mvp-verification.sql` を読み取り専用で実行する。
 5. Netlify環境変数を設定する場合も、最初は `AI_OBSERVATION_ENABLED` を未設定または `false` のままにする。
 6. Deploy Previewでoperatorログイン、予約、status poll、星文再取得を確認する。

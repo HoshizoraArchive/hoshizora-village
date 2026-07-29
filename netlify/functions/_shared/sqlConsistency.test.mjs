@@ -14,6 +14,10 @@ const starLetterConversationMigrationSql = readFileSync(
   "supabase/migrations/20260728210000_add_star_letter_conversation_foundation.sql",
   "utf8",
 );
+const chiaFirstPostWelcomeMigrationSql = readFileSync(
+  "supabase/migrations/20260729093000_add_chia_first_post_welcomes.sql",
+  "utf8",
+);
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
@@ -256,6 +260,81 @@ test("AI automatic observation expansion keeps old Netlify RPC wrappers deploy-o
       "old complete wrapper should keep the old completion return shape",
     );
   }
+});
+
+test("first-post welcome migration keeps the once-only record and completion path service-role only", () => {
+  const newCompletionSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer, text, boolean";
+  const tokens = [
+    "create table if not exists public.chia_first_post_welcomes",
+    "author_id uuid primary key references public.profiles(id) on delete cascade",
+    "first_post_id uuid references public.posts(id) on delete set null",
+    "star_letter_id uuid references public.star_letters(id) on delete set null",
+    "public.get_chia_first_post_welcome_candidate",
+    "app_private.is_chia_first_public_post",
+    "target.type in ('text', 'image', 'video', 'youtube')",
+    "earlier.visibility = 'public'",
+    "earlier.deleted_at is null",
+    "public.reserve_chia_first_post_welcome_job",
+    "p_observation_context <> 'first_post_welcome'",
+    "set observation_context = 'first_post_welcome'",
+    "observation_context in ('manual', 'auto_text_post', 'first_post_welcome')",
+    "for share",
+    "for update",
+    "pg_advisory_xact_lock(hashtext('chia_first_post_welcome:' || v_post.author_id::text)::bigint)",
+    "(earlier.created_at, earlier.id) < (target.created_at, target.id)",
+    "insert into public.chia_first_post_welcomes (author_id, first_post_id, star_letter_id)",
+    "p_first_post_fallback_star_letter_body text",
+    "p_is_first_post_fallback boolean",
+    "v_actual_cost_micro_usd := greatest(p_actual_cost_micro_usd, v_job.reserved_cost_micro_usd)",
+    "v_job.attempt_count = 0",
+    "p_public_error_code = 'FIRST_POST_NOT_ELIGIBLE'",
+    "revoke all on table public.chia_first_post_welcomes from public, anon, authenticated",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(chiaFirstPostWelcomeMigrationSql.includes(token), true, `first-post migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
+  }
+
+  for (const sql of [chiaFirstPostWelcomeMigrationSql, schemaSql]) {
+    const firstPostHelper = sql.match(
+      /create or replace function app_private\.is_chia_first_public_post[\s\S]*?\n\$\$;/,
+    )?.[0] ?? "";
+    assert.equal(firstPostHelper.includes("earlier.visibility = 'public'"), true);
+    assert.equal(firstPostHelper.includes("earlier.deleted_at is null"), true);
+    assert.equal(firstPostHelper.includes("earlier.type"), false);
+    assert.equal(
+      (sql.match(/app_private\.is_chia_first_public_post\(v_post\.id\)/g) ?? []).length >= 2,
+      true,
+      "candidate and completion must share the same first-public-post helper",
+    );
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.complete_ai_observation_job\\(\\s*${newCompletionSignature.replaceAll(" ", "\\s*").replaceAll(",", "\\s*,\\s*")}\\s*\\)\\s+from\\s+public,\\s+anon,\\s+authenticated`, "i").test(sql),
+      true,
+    );
+    assert.equal(
+      /grant\s+execute\s+on\s+function\s+public\.complete_ai_observation_job\([\s\S]*?text,\s*boolean\s*\)\s+to\s+service_role/i.test(sql),
+      true,
+    );
+    assert.match(
+      sql,
+      /revoke all on function public\.reserve_chia_first_post_welcome_job\([\s\S]*?\) from public, anon, authenticated;/,
+    );
+    assert.match(
+      sql,
+      /grant execute on function public\.reserve_chia_first_post_welcome_job\([\s\S]*?\) to service_role;/,
+    );
+  }
+
+  const migrationBody = chiaFirstPostWelcomeMigrationSql
+    .replace(/^--[^\n]*\n--[^\n]*\n\nbegin;\n\n/, "begin;\n\n")
+    .replace(/\ncommit;\s*$/i, "")
+    .trim();
+  const schemaBlock = schemaSql
+    .split("-- 20260729093000_add_chia_first_post_welcomes.sql\n")[1]
+    ?.trim();
+
+  assert.equal(schemaBlock, migrationBody, "first-post migration and schema block must stay synchronized");
 });
 
 test("automatic completion creates one resonance independently from optional star letters", () => {
@@ -505,6 +584,11 @@ test("production post cards do not expose manual AI observation controls", () =>
 
   assert.equal(appJsx.includes("/api/ai-observation-auto-request"), true);
   assert.equal(appJsx.includes("requestAutomaticChiaObservation"), true);
+  assert.equal(
+    appJsx.includes('["text", "image", "video", "youtube"].includes(postType)'),
+    true,
+  );
+  assert.equal(appJsx.includes('postType !== "text"'), false);
 });
 
 test("R.Connect renders smartphone notification test card through React instead of DOM injection", () => {
@@ -864,6 +948,7 @@ test("star-letter conversation migration and schema keep the normalized foundati
     .trim();
   const schemaBlock = schemaSql
     .split("-- Issue #108: star-letter conversation foundation.")[1]
+    ?.split("-- 20260729093000_add_chia_first_post_welcomes.sql")[0]
     ?.replace(/\s+/g, " ")
     .trim();
 

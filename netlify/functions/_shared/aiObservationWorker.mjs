@@ -2,18 +2,36 @@ import { AI_ERROR, AiHttpError, aiHttpError, logAiEvent } from "./aiErrors.mjs";
 import { runGeminiObservation } from "./aiGemini.mjs";
 import { createRequestFingerprint } from "./aiJobReservation.mjs";
 import {
+  cancelAiObservationJob,
   claimAiObservationJob,
   completeAiObservationJob,
   failAiObservationJob,
   startAiObservationAttempt,
 } from "./aiJobState.mjs";
-import { loadAuthorProfile, loadChiaProfile, validateCurrentPostInput } from "./aiObservationData.mjs";
+import {
+  loadAuthorProfile,
+  loadChiaProfile,
+  validateCurrentPostDatabaseInput,
+  validateCurrentPostInput,
+  validateCurrentPostStorageInput,
+} from "./aiObservationData.mjs";
 import { assertGlobalProcessingCapacity } from "./aiRateLimit.mjs";
-import { normalizeAiObservationContext } from "./aiObservationContext.mjs";
+import { AI_OBSERVATION_CONTEXT, normalizeAiObservationContext } from "./aiObservationContext.mjs";
+import {
+  buildFirstPostFallbackObservation,
+  buildFirstPostWelcomeFallback,
+  getFirstPostWelcomeCandidate,
+} from "./aiFirstPostWelcome.mjs";
 import { applyAutoStarLetterGate } from "./aiStarLetterGate.mjs";
 import { withTimeout } from "./aiLimits.mjs";
 
 const OBSERVATION_SUMMARY_MAX_LENGTH = 1200;
+const FALLBACK_USAGE = Object.freeze({
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  actualCostMicroUsd: 0,
+});
 
 function compactObservation(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -103,6 +121,48 @@ async function runProviderWithDeadline({ runProvider, timeoutMs, providerArgs })
   }
 }
 
+function canSafelyRetryProvider(error) {
+  // The Files upload phase happens before interactions.create. Do not blindly
+  // resend a generation after a timeout, connection loss, rate limit, or an
+  // unknown provider result because it can duplicate provider work and cost.
+  return error instanceof AiHttpError && error.code === AI_ERROR.GEMINI_UPLOAD_FAILED[0];
+}
+
+async function runFirstPostProvider({ firstPostWelcome, run }) {
+  try {
+    return await run();
+  } catch (error) {
+    if (!firstPostWelcome || !canSafelyRetryProvider(error)) {
+      throw error;
+    }
+
+    return run();
+  }
+}
+
+async function completeFirstPostObservation({
+  complete,
+  firstPostWelcome,
+  normalArgs,
+  fallbackArgs,
+}) {
+  if (!firstPostWelcome) {
+    return complete(normalArgs);
+  }
+
+  try {
+    return await complete(normalArgs);
+  } catch (firstError) {
+    try {
+      // Retrying this RPC is safe: the job row remains locked by the RPC and
+      // completed jobs return already_succeeded without creating another letter.
+      return await complete(normalArgs);
+    } catch {
+      return complete(fallbackArgs);
+    }
+  }
+}
+
 export async function runAiObservationJob({
   jobId,
   requestId,
@@ -158,10 +218,36 @@ export async function runAiObservationJob({
 
   try {
     await loadChiaProfile({ supabase, chiaProfileId: config.hoshizoraChiaProfileId });
-    const { post, mediaRows, mediaSummary, storageRequirements } = await validateCurrentPostInput({
-      supabase,
-      postId: claim.post_id,
-    });
+    const isAutomaticObservation =
+      effectiveObservationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST ||
+      effectiveObservationContext === AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME;
+    const firstPostWelcome = isAutomaticObservation
+      ? await getFirstPostWelcomeCandidate({
+        supabase,
+        postId: claim.post_id,
+      })
+      : { isFirstPostWelcome: false, migrationAvailable: true };
+
+    if (
+      effectiveObservationContext === AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME &&
+      !firstPostWelcome.isFirstPostWelcome
+    ) {
+      await cancelAiObservationJob({
+        supabase,
+        jobId,
+        publicErrorCode: "FIRST_POST_NOT_ELIGIBLE",
+      });
+      return {
+        outcome: "cancelled",
+        publicErrorCode: "FIRST_POST_NOT_ELIGIBLE",
+      };
+    }
+
+    const { post, mediaRows, mediaSummary, storageRequirements } =
+      await validateCurrentPostDatabaseInput({
+        supabase,
+        postId: claim.post_id,
+      });
     const currentFingerprint = createRequestFingerprint({ post, mediaRows, mediaSummary });
 
     if (currentFingerprint !== claim.request_fingerprint) {
@@ -169,29 +255,66 @@ export async function runAiObservationJob({
     }
 
     const authorProfile = await loadAuthorProfile({ supabase, profileId: post.author_id });
+    const firstPostFallbackStarLetterBody = buildFirstPostWelcomeFallback(authorProfile);
 
-    await startAiObservationAttempt({ supabase, jobId });
+    let normalizedObservation;
+    let isFirstPostFallback = false;
 
-    const { output, usage } = await runProviderWithDeadline({
-      runProvider,
-      timeoutMs: config.observationTimeoutMs,
-      providerArgs: {
-        client: geminiClient,
-        config,
-        post,
-        mediaRows,
-        storageRequirements,
+    try {
+      await validateCurrentPostStorageInput({
         supabase,
+        storageRequirements,
+      });
+      await startAiObservationAttempt({ supabase, jobId });
+      const { output, usage } = await runFirstPostProvider({
+        firstPostWelcome: firstPostWelcome.isFirstPostWelcome,
+        run: () => runProviderWithDeadline({
+          runProvider,
+          timeoutMs: config.observationTimeoutMs,
+          providerArgs: {
+            client: geminiClient,
+            config,
+            post,
+            mediaRows,
+            storageRequirements,
+            supabase,
+            observationContext: effectiveObservationContext,
+            authorProfile,
+            isFirstPostWelcome: firstPostWelcome.isFirstPostWelcome,
+          },
+        }),
+      });
+      providerUsage = usage;
+      normalizedObservation = applyAutoStarLetterGate({
+        observation: normalizeObservationForDb(output),
         observationContext: effectiveObservationContext,
-        authorProfile,
-      },
-    });
-    providerUsage = usage;
+        jobId,
+        requestFingerprint: claim.request_fingerprint,
+        config,
+        firstPostWelcomeFallback: firstPostFallbackStarLetterBody,
+        isFirstPostWelcome: firstPostWelcome.isFirstPostWelcome,
+      });
+    } catch (error) {
+      if (!firstPostWelcome.isFirstPostWelcome) {
+        throw error;
+      }
 
-    const latest = await validateCurrentPostInput({
-      supabase,
-      postId: claim.post_id,
-    });
+      // A result-unknown generation is never resent. The DB completion RPC
+      // records a conservative reserved-cost estimate for this fallback path.
+      providerUsage = FALLBACK_USAGE;
+      normalizedObservation = buildFirstPostFallbackObservation();
+      isFirstPostFallback = true;
+    }
+
+    const latest = isFirstPostFallback
+      ? await validateCurrentPostDatabaseInput({
+        supabase,
+        postId: claim.post_id,
+      })
+      : await validateCurrentPostInput({
+        supabase,
+        postId: claim.post_id,
+      });
     const latestFingerprint = createRequestFingerprint({
       post: latest.post,
       mediaRows: latest.mediaRows,
@@ -202,23 +325,42 @@ export async function runAiObservationJob({
       throw aiHttpError(422, AI_ERROR.POST_CHANGED);
     }
 
-    const observation = applyAutoStarLetterGate({
-      observation: normalizeObservationForDb(output),
-      observationContext: effectiveObservationContext,
-      jobId,
-      requestFingerprint: claim.request_fingerprint,
-      config,
-    });
-    const completion = await completeAiObservationJob({
+    const normalCompletionArgs = {
       supabase,
       jobId,
       chiaProfileId: config.hoshizoraChiaProfileId,
       expectedRequestFingerprint: latestFingerprint,
-      observation,
-      usage,
+      observation: normalizedObservation,
+      usage: providerUsage,
       autoStarLetterDailyLimit: config.autoObservation?.starLetterDailyLimit ?? 20,
       autoStarLetterAuthorCooldownSeconds: config.autoObservation?.starLetterAuthorCooldownSeconds ?? 21600,
+      firstPostFallbackStarLetterBody,
+      isFirstPostFallback,
+    };
+    const fallbackCompletionArgs = {
+      ...normalCompletionArgs,
+      observation: buildFirstPostFallbackObservation(),
+      usage: providerUsage ?? FALLBACK_USAGE,
+      isFirstPostFallback: true,
+    };
+    const completion = await completeFirstPostObservation({
+      complete: completeAiObservationJob,
+      firstPostWelcome: firstPostWelcome.isFirstPostWelcome,
+      normalArgs: normalCompletionArgs,
+      fallbackArgs: fallbackCompletionArgs,
     });
+
+    if (completion?.outcome === "cancelled") {
+      logAiEvent("info", "ai_observation_worker_cancelled", {
+        requestId,
+        jobId,
+        operation: "complete_ai_observation_job",
+        status: 200,
+        code: "FIRST_POST_NOT_ELIGIBLE",
+        durationMs: Date.now() - startedAt,
+      });
+      return completion;
+    }
 
     logAiEvent("info", "ai_observation_worker_completed", {
       requestId,

@@ -78,11 +78,19 @@ export async function loadStorageObjectMetadata(supabase, requirements) {
 }
 
 export async function validateCurrentPostInput({ supabase, postId }) {
+  const current = await validateCurrentPostDatabaseInput({ supabase, postId });
+  await validateCurrentPostStorageInput({
+    supabase,
+    storageRequirements: current.storageRequirements,
+  });
+
+  return current;
+}
+
+export async function validateCurrentPostDatabaseInput({ supabase, postId }) {
   const { post, mediaRows } = await loadPostAndMedia(supabase, postId);
   const mediaSummary = validatePostMedia(post, mediaRows);
   const storageRequirements = getStorageRequirements(post, mediaRows);
-  const storageObjects = await loadStorageObjectMetadata(supabase, storageRequirements);
-  validateStorageMetadata(storageRequirements, storageObjects);
 
   return {
     post,
@@ -90,6 +98,11 @@ export async function validateCurrentPostInput({ supabase, postId }) {
     mediaSummary,
     storageRequirements,
   };
+}
+
+export async function validateCurrentPostStorageInput({ supabase, storageRequirements }) {
+  const storageObjects = await loadStorageObjectMetadata(supabase, storageRequirements);
+  validateStorageMetadata(storageRequirements, storageObjects);
 }
 
 export async function loadChiaProfile({ supabase, chiaProfileId }) {

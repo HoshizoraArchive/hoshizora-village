@@ -14,9 +14,18 @@ export function shouldAllowAutoStarLetter({
   jobId,
   requestFingerprint,
   config,
+  isFirstPostWelcome = false,
 }) {
-  if (observationContext !== AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST) {
+  const isAutomaticObservation =
+    observationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST ||
+    observationContext === AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME;
+
+  if (!isAutomaticObservation) {
     return { allowed: Boolean(observation?.shouldPost), reason: "manual_or_non_auto" };
+  }
+
+  if (isFirstPostWelcome) {
+    return { allowed: true, reason: "first_post_welcome" };
   }
 
   if (!observation?.shouldPost || !observation.starLetter) {
@@ -31,7 +40,7 @@ export function shouldAllowAutoStarLetter({
     return { allowed: false, reason: "low_confidence" };
   }
 
-  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 50);
+  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 70);
 
   if (!Number.isSafeInteger(probabilityPercent) || probabilityPercent <= 0) {
     return { allowed: false, reason: "probability_zero" };
@@ -54,6 +63,8 @@ export function applyAutoStarLetterGate({
   jobId,
   requestFingerprint,
   config,
+  firstPostWelcomeFallback = null,
+  isFirstPostWelcome = false,
 }) {
   const decision = shouldAllowAutoStarLetter({
     observation,
@@ -61,11 +72,14 @@ export function applyAutoStarLetterGate({
     jobId,
     requestFingerprint,
     config,
+    isFirstPostWelcome,
   });
 
   if (decision.allowed) {
     return {
       ...observation,
+      shouldPost: true,
+      starLetter: observation?.starLetter ?? firstPostWelcomeFallback,
       starLetterGateReason: decision.reason,
     };
   }

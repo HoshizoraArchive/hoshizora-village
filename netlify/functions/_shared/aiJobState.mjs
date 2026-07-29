@@ -10,6 +10,10 @@ function throwInternalOnError(error) {
   }
 }
 
+function isMissingRpc(error) {
+  return error?.code === "42883" || error?.code === "PGRST202";
+}
+
 const OUTCOME_ERROR_MAP = new Map([
   ["invalid_payload", AI_ERROR.AI_OUTPUT_INVALID],
   ["chia_profile_mismatch", AI_ERROR.CHIA_PROFILE_MISMATCH],
@@ -104,8 +108,10 @@ export async function completeAiObservationJob({
   usage,
   autoStarLetterDailyLimit,
   autoStarLetterAuthorCooldownSeconds,
+  firstPostFallbackStarLetterBody,
+  isFirstPostFallback = false,
 }) {
-  const { data, error } = await supabase.rpc("complete_ai_observation_job", {
+  const completionArgs = {
     p_job_id: jobId,
     p_chia_profile_id: chiaProfileId,
     p_expected_request_fingerprint: expectedRequestFingerprint,
@@ -119,10 +125,25 @@ export async function completeAiObservationJob({
     p_actual_cost_micro_usd: usage.actualCostMicroUsd,
     p_auto_star_letter_daily_limit: autoStarLetterDailyLimit,
     p_auto_star_letter_author_cooldown_seconds: autoStarLetterAuthorCooldownSeconds,
-  });
+    p_first_post_fallback_star_letter_body: firstPostFallbackStarLetterBody,
+    p_is_first_post_fallback: isFirstPostFallback,
+  };
+  let { data, error } = await supabase.rpc("complete_ai_observation_job", completionArgs);
+
+  // New Function code can reach a preview before the additive migration. The
+  // legacy completion signature preserves ordinary observation until the
+  // first-post welcome table and 15-argument function are installed.
+  if (isMissingRpc(error)) {
+    const {
+      p_first_post_fallback_star_letter_body: _firstPostFallback,
+      p_is_first_post_fallback: _isFirstPostFallback,
+      ...legacyCompletionArgs
+    } = completionArgs;
+    ({ data, error } = await supabase.rpc("complete_ai_observation_job", legacyCompletionArgs));
+  }
 
   throwInternalOnError(error);
-  return assertKnownOutcome(firstRpcRow(data), new Set(["completed", "already_succeeded"]));
+  return assertKnownOutcome(firstRpcRow(data), new Set(["completed", "already_succeeded", "cancelled"]));
 }
 
 export async function failAiObservationJob({ supabase, jobId, publicErrorCode, usage = {} }) {

@@ -13,6 +13,7 @@ import {
   logAiEvent,
 } from "./_shared/aiErrors.mjs";
 import { reserveAiObservationJob } from "./_shared/aiJobReservation.mjs";
+import { getFirstPostWelcomeCandidate } from "./_shared/aiFirstPostWelcome.mjs";
 import { loadPostAndMedia } from "./_shared/aiObservationData.mjs";
 import { recoverStaleProcessingJobs } from "./_shared/aiStaleJobs.mjs";
 import {
@@ -106,10 +107,15 @@ async function handlePost(request, requestId, startedAt) {
 
   const { post, mediaRows } = await loadPostAndMedia(supabase, payload.postId);
   const profile = await loadRequesterProfile({ supabase, userId: user.id });
+  const firstPostWelcome = await getFirstPostWelcomeCandidate({
+    supabase,
+    postId: post.id,
+  });
   const eligibility = getAutomaticChiaObservationEligibility({
     userId: user.id,
     post,
     profile,
+    isFirstPostWelcome: firstPostWelcome.isFirstPostWelcome,
   });
 
   if (!eligibility.eligible) {
@@ -137,9 +143,15 @@ async function handlePost(request, requestId, startedAt) {
     mediaRows,
     mediaSummary,
     config,
-    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    observationContext: eligibility.observationContext,
     notBeforeAt,
+    firstPostWelcomeReservation:
+      eligibility.observationContext === AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
   });
+
+  if (job.outcome === "not_first_post") {
+    return skippedResponse(requestId);
+  }
 
   logAiEvent("info", "ai_observation_auto_reserved", {
     requestId,

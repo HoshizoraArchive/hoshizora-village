@@ -5,6 +5,7 @@ import {
   getAutomaticChiaObservationEligibility,
   pickAutoObservationDelaySeconds,
 } from "./aiAutoObservation.mjs";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
 const USER_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -33,7 +34,11 @@ test("automatic Chia observation is eligible for any author's text posts", () =>
     profile: profile(),
   });
 
-  assert.deepEqual(result, { eligible: true, reason: "public_text_author" });
+  assert.deepEqual(result, {
+    eligible: true,
+    reason: "public_text_author",
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  });
 });
 
 test("automatic Chia observation skips non-text posts", () => {
@@ -44,6 +49,54 @@ test("automatic Chia observation skips non-text posts", () => {
   });
 
   assert.deepEqual(result, { eligible: false, reason: "unsupported_type" });
+});
+
+test("first public image, video, and YouTube posts use the welcome-only route", () => {
+  for (const type of ["image", "video", "youtube"]) {
+    assert.deepEqual(
+      getAutomaticChiaObservationEligibility({
+        userId: USER_ID,
+        post: textPost({ type }),
+        profile: profile(),
+        isFirstPostWelcome: true,
+      }),
+      {
+        eligible: true,
+        reason: "first_post_welcome",
+        observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+      },
+    );
+  }
+});
+
+test("the first public text post also uses the welcome-only route", () => {
+  assert.deepEqual(
+    getAutomaticChiaObservationEligibility({
+      userId: USER_ID,
+      post: textPost(),
+      profile: profile(),
+      isFirstPostWelcome: true,
+    }),
+    {
+      eligible: true,
+      reason: "first_post_welcome",
+      observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    },
+  );
+});
+
+test("later non-text posts remain outside ordinary automatic observation", () => {
+  for (const type of ["image", "video", "youtube"]) {
+    assert.deepEqual(
+      getAutomaticChiaObservationEligibility({
+        userId: USER_ID,
+        post: textPost({ type }),
+        profile: profile(),
+        isFirstPostWelcome: false,
+      }),
+      { eligible: false, reason: "unsupported_type" },
+    );
+  }
 });
 
 test("automatic Chia observation skips non-author requests", () => {

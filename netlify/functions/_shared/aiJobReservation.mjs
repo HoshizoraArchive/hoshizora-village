@@ -103,11 +103,15 @@ export async function reserveAiObservationJob({
   config,
   observationContext = AI_OBSERVATION_CONTEXT.MANUAL,
   notBeforeAt = new Date(),
+  firstPostWelcomeReservation = false,
 }) {
   const reservation = buildReservationParams({ config, mediaSummary });
   const requestFingerprint = createRequestFingerprint({ post, mediaRows, mediaSummary });
+  const rpcName = firstPostWelcomeReservation
+    ? "reserve_chia_first_post_welcome_job"
+    : "reserve_ai_observation_job";
 
-  const { data, error } = await supabase.rpc("reserve_ai_observation_job", {
+  const { data, error } = await supabase.rpc(rpcName, {
     p_post_id: payload.postId,
     p_requested_by: operatorUserId,
     p_ai_resident_key: AI_RESIDENT_KEY,
@@ -136,11 +140,22 @@ export async function reserveAiObservationJob({
   const row = Array.isArray(data) ? data[0] : data;
   const outcome = row?.outcome;
 
+  if (firstPostWelcomeReservation && outcome === "not_first_post") {
+    return {
+      outcome,
+      jobId: null,
+      status: "skipped",
+      notBeforeAt: null,
+      observationContext,
+    };
+  }
+
   if (outcome !== "reserved") {
     throw mapOutcomeToError(outcome);
   }
 
   return {
+    outcome,
     jobId: row.job_id,
     status: row.job_status ?? "queued",
     notBeforeAt: row.not_before_at ?? null,

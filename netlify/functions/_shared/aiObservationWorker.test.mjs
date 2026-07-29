@@ -4,6 +4,7 @@ import { AI_ERROR, aiHttpError } from "./aiErrors.mjs";
 import { createRequestFingerprint } from "./aiJobReservation.mjs";
 import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 import { normalizeObservationForDb, runAiObservationJob } from "./aiObservationWorker.mjs";
+import { validatePostMedia } from "./aiValidation.mjs";
 
 const POST_ID = "22222222-2222-4222-8222-222222222222";
 const AUTHOR_ID = "33333333-3333-4333-8333-333333333333";
@@ -22,6 +23,38 @@ function textPost(overrides = {}) {
     visibility: "public",
     deleted_at: null,
     updated_at: "2026-07-03T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function imageMediaRow(overrides = {}) {
+  return {
+    id: "55555555-5555-4555-8555-555555555555",
+    post_id: POST_ID,
+    uploader_id: AUTHOR_ID,
+    media_type: "image",
+    storage_path: `${AUTHOR_ID}/batch/0-image.jpg`,
+    thumbnail_storage_path: null,
+    duration_seconds: null,
+    sort_order: 0,
+    mime_type: "image/jpeg",
+    size_bytes: 1024,
+    ...overrides,
+  };
+}
+
+function videoMediaRow(overrides = {}) {
+  return {
+    id: "55555555-5555-4555-8555-555555555556",
+    post_id: POST_ID,
+    uploader_id: AUTHOR_ID,
+    media_type: "video",
+    storage_path: `${AUTHOR_ID}/batch/0-video.mp4`,
+    thumbnail_storage_path: `${AUTHOR_ID}/batch/0-video.jpg`,
+    duration_seconds: 12,
+    sort_order: 0,
+    mime_type: "video/mp4",
+    size_bytes: 2048,
     ...overrides,
   };
 }
@@ -115,6 +148,9 @@ function createMockSupabase({
   failOutcome = "failed",
   processingCount = 1,
   posts,
+  mediaRows = [],
+  storageError = null,
+  firstPostWelcome = false,
 } = {}) {
   const calls = {
     rpc: [],
@@ -124,17 +160,15 @@ function createMockSupabase({
     attempts: 0,
     completeCalls: 0,
     postReads: 0,
+    storageReads: 0,
   };
   const postRows = posts ?? [textPost()];
   const firstPost = postRows[0];
+  const mediaSummary = validatePostMedia(firstPost, mediaRows);
   const fingerprint = claimFingerprint ?? createRequestFingerprint({
     post: firstPost,
-    mediaRows: [],
-    mediaSummary: {
-      inputKind: "text",
-      inputSizeBytes: 0,
-      inputDurationSeconds: null,
-    },
+    mediaRows,
+    mediaSummary,
   });
 
   return {
@@ -153,7 +187,7 @@ function createMockSupabase({
               request_fingerprint: fingerprint,
               attempt_count: 0,
               max_attempts: 2,
-              input_kind: "text",
+              input_kind: mediaSummary.inputKind,
               model: "gemini-3.5-flash",
               observation_context: claimObservationContext,
               not_before_at: "2026-07-07T00:00:00.000Z",
@@ -172,6 +206,13 @@ function createMockSupabase({
               attempt_count: calls.attempts,
               max_attempts: 2,
             }],
+            error: null,
+          });
+        }
+
+        if (name === "get_chia_first_post_welcome_candidate") {
+          return Promise.resolve({
+            data: [{ is_first_post_welcome: firstPostWelcome }],
             error: null,
           });
         }
@@ -268,11 +309,43 @@ function createMockSupabase({
             return Promise.resolve({ data: null, error: null });
           },
           order() {
-            return Promise.resolve({ data: [], error: null });
+            return Promise.resolve({
+              data: table === "post_media" ? mediaRows : [],
+              error: null,
+            });
           },
         };
 
         return query;
+      },
+      storage: {
+        from() {
+          return {
+            list(_folder, options) {
+              calls.storageReads += 1;
+
+              if (storageError) {
+                return Promise.resolve({ data: null, error: storageError });
+              }
+
+              const row = mediaRows.find((candidate) =>
+                candidate.storage_path.endsWith(`/${options.search}`));
+
+              return Promise.resolve({
+                data: row
+                  ? [{
+                    name: options.search,
+                    metadata: {
+                      mimetype: row.mime_type,
+                      size: row.size_bytes,
+                    },
+                  }]
+                  : [],
+                error: null,
+              });
+            },
+          };
+        },
       },
     },
   };
@@ -438,6 +511,140 @@ test("automatic text observation can suppress star letters while keeping observa
   assert.equal(calls.completeArgs.p_star_letter_body, null);
 });
 
+test("first automatic post bypasses confidence and probability gates and records welcome completion data", async () => {
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    firstPostWelcome: true,
+  });
+  const firstPostConfig = {
+    ...config(),
+    autoObservation: {
+      ...config().autoObservation,
+      starLetterProbabilityPercent: 0,
+      starLetterMinConfidencePercent: 100,
+    },
+  };
+
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: firstPostConfig,
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    runProvider: async ({ isFirstPostWelcome }) => {
+      assert.equal(isFirstPostWelcome, true);
+      return {
+        output: output({ confidence: 0.1, should_post: false, star_letter: null }),
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "completed");
+  assert.equal(calls.completeArgs.p_should_post, true);
+  assert.equal(calls.completeArgs.p_is_first_post_fallback, false);
+  assert.match(calls.completeArgs.p_star_letter_body, /最初の流星便/);
+  assert.match(calls.completeArgs.p_first_post_fallback_star_letter_body, /最初の流星便/);
+});
+
+test("first automatic post falls back without a blind generation retry and completion stays idempotent", async () => {
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    firstPostWelcome: true,
+  });
+  let providerCalls = 0;
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    runProvider: async () => {
+      providerCalls += 1;
+      throw aiHttpError(503, AI_ERROR.GEMINI_TIMEOUT);
+    },
+  });
+
+  assert.equal(result.outcome, "completed");
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.completeArgs.p_is_first_post_fallback, true);
+  assert.equal(calls.completeArgs.p_should_post, false);
+  assert.equal(calls.completeArgs.p_first_post_fallback_star_letter_body.includes("最初の流星便"), true);
+  assert.equal(calls.failArgs, null);
+});
+
+test("first public image falls back safely when Storage media cannot be acquired", async () => {
+  const post = textPost({ type: "image", body: "最初の写真" });
+  const mediaRows = [imageMediaRow()];
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    posts: [post],
+    mediaRows,
+    storageError: { code: "storage_unavailable" },
+    firstPostWelcome: true,
+  });
+  let providerCalls = 0;
+
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    runProvider: async () => {
+      providerCalls += 1;
+      return {
+        output: output({ media_type: "image" }),
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "completed");
+  assert.equal(providerCalls, 0);
+  assert.equal(calls.attempts, 0);
+  assert.equal(calls.completeArgs.p_is_first_post_fallback, true);
+  assert.match(calls.completeArgs.p_first_post_fallback_star_letter_body, /最初の流星便/);
+  assert.equal(calls.failArgs, null);
+});
+
+test("stale first-post reservation is cancelled before provider execution", async () => {
+  const post = textPost({ type: "video", body: "同時投稿の後発動画" });
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    posts: [post],
+    mediaRows: [videoMediaRow()],
+    firstPostWelcome: false,
+  });
+  let providerCalls = 0;
+
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
+    runProvider: async () => {
+      providerCalls += 1;
+      return {
+        output: output({ media_type: "video" }),
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "cancelled");
+  assert.equal(providerCalls, 0);
+  assert.equal(calls.attempts, 0);
+  assert.equal(calls.cancelArgs.p_public_error_code, "FIRST_POST_NOT_ELIGIBLE");
+  assert.equal(calls.completeCalls, 0);
+  assert.equal(calls.failArgs, null);
+});
+
 test("provider failure after attempt is not blindly retried", async () => {
   const { supabase, calls } = createMockSupabase();
   let providerCalls = 0;
@@ -457,6 +664,10 @@ test("provider failure after attempt is not blindly retried", async () => {
   assert.equal(providerCalls, 1);
   assert.equal(calls.attempts, 1);
   assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.MEDIA_UNAVAILABLE[0]);
+  assert.equal(
+    calls.rpc.some((call) => call.name === "get_chia_first_post_welcome_candidate"),
+    false,
+  );
 });
 
 test("provider timeout is recorded as failed instead of remaining processing", async () => {
