@@ -164,12 +164,16 @@
   }
 
   .profile-title-badge-celestial-guide::before {
-    top: -80%;
-    bottom: -80%;
-    left: 38%;
-    width: 13%;
-    transform: rotate(20deg);
-    background: linear-gradient(90deg, transparent, rgb(255 248 223 / 0.16), transparent);
+    top: 50%;
+    left: 50%;
+    width: 14%;
+    height: 220%;
+    border-radius: 999px;
+    transform: translate3d(-300%, 38%, 0) rotate(-34deg) scale(0.68);
+    transform-origin: center;
+    background: linear-gradient(90deg, transparent, rgb(255 248 223 / 0.2), transparent);
+    opacity: 0;
+    animation: profileTitleGuideShimmer 4.4s ease-in-out infinite;
   }
 
   .profile-title-badge-celestial-guide::after {
@@ -230,7 +234,7 @@
   .profile-card-header-actions {
     position: absolute;
     z-index: 2;
-    top: 0.55rem;
+    top: 0.4rem;
     right: 1rem;
     display: flex;
     gap: 0.5rem;
@@ -240,21 +244,21 @@
     position: absolute;
     z-index: 2;
     right: 1rem;
-    bottom: -2.1rem;
+    bottom: -2.35rem;
     display: grid;
-    width: clamp(3.5rem, 12vw, 4.25rem);
-    height: clamp(3.5rem, 12vw, 4.25rem);
+    width: clamp(4rem, 11vw, 4.75rem);
+    height: clamp(4rem, 11vw, 4.75rem);
     place-items: center;
   }
 
   .profile-title-emblem-header-slot::before {
     position: absolute;
     z-index: -1;
-    width: 74%;
-    height: 74%;
+    width: 76%;
+    height: 76%;
     border-radius: 999px;
     background: rgb(190 220 255 / 0.12);
-    box-shadow: 0 0 24px rgb(156 182 255 / 0.18);
+    box-shadow: 0 0 26px rgb(156 182 255 / 0.18);
     content: "";
   }
 
@@ -837,15 +841,41 @@
   0%,
   100% {
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.2),
-      0 0 16px rgb(125 223 255 / 0.1),
-      0 0 20px rgb(244 214 130 / 0.07);
+      inset 0 0 0 1px rgb(255 239 187 / 0.34),
+      inset 0 1px 0 rgb(233 226 255 / 0.16),
+      0 0 14px rgb(116 181 255 / 0.1),
+      0 0 18px rgb(182 141 70 / 0.07);
   }
   50% {
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.24),
-      0 0 21px rgb(159 140 255 / 0.16),
-      0 0 25px rgb(244 214 130 / 0.1);
+      inset 0 0 0 1px rgb(255 244 198 / 0.4),
+      inset 0 1px 0 rgb(235 229 255 / 0.2),
+      0 0 18px rgb(135 183 255 / 0.14),
+      0 0 22px rgb(192 152 78 / 0.1);
+  }
+}
+
+@keyframes profileTitleGuideShimmer {
+  0%,
+  18% {
+    opacity: 0;
+    transform: translate3d(-300%, 38%, 0) rotate(-34deg) scale(0.68);
+  }
+  32% {
+    opacity: 0.14;
+    transform: translate3d(-170%, 18%, 0) rotate(-34deg) scale(0.8);
+  }
+  54% {
+    opacity: 0.22;
+    transform: translate3d(-35%, -12%, 0) rotate(-34deg) scale(0.96);
+  }
+  76% {
+    opacity: 0;
+    transform: translate3d(185%, -52%, 0) rotate(-34deg) scale(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(185%, -52%, 0) rotate(-34deg) scale(1.12);
   }
 }
 
@@ -899,6 +929,7 @@
 
   .onboarding-mini-chia,
   .profile-title-badge-celestial-guide,
+  .profile-title-badge-celestial-guide::before,
   [data-onboarding-target] {
     animation: none;
     scroll-behavior: auto;
