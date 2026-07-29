@@ -8351,7 +8351,7 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
         <ProfileTitleEmblem placement="header" size="profile" title={primaryTitle} />
       </div>
       <div className="p-4 pt-0">
-        <div className="-mt-7 flex items-end">
+        <div className={`-mt-7 flex items-end${primaryTitle ? " profile-avatar-title-layout" : ""}`}>
           {canOpenAvatar ? (
             <button
               aria-label={`${displayName}の星影を見る`}
@@ -8364,12 +8364,16 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
           ) : (
             <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" frame={profile.activeFrame} />
           )}
+          {primaryTitle && (
+            <div className="profile-avatar-title-plate">
+              <ProfileTitleBadge size="profile" title={primaryTitle} />
+            </div>
+          )}
         </div>
-        <div className="mt-3">
+        <div className={primaryTitle ? "mt-1" : "mt-3"}>
           <p className="text-xs font-black text-comet">My Constellation</p>
           <div className="profile-title-profile-layout">
             <h2 className="mt-1 min-w-0 text-lg font-black text-white">{displayName}</h2>
-            <ProfileTitleBadge size="profile" title={primaryTitle} />
           </div>
           <p className="text-sm text-slate-400">{username}</p>
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
@@ -9862,7 +9866,7 @@ function ProfileCard({ profile }) {
         <ProfileTitleEmblem placement="header" size="profile" title={primaryTitle} />
       </div>
       <div className="p-4 pt-0">
-        <div className="-mt-7 flex items-end">
+        <div className={`-mt-7 flex items-end${primaryTitle ? " profile-avatar-title-layout" : ""}`}>
           {canOpenAvatar ? (
             <button
               aria-label={`${displayName}の星影を見る`}
@@ -9875,11 +9879,15 @@ function ProfileCard({ profile }) {
           ) : (
             <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" frame={activeFrame} />
           )}
+          {primaryTitle && (
+            <div className="profile-avatar-title-plate">
+              <ProfileTitleBadge size="profile" title={primaryTitle} />
+            </div>
+          )}
         </div>
-        <div className="mt-3">
+        <div className={primaryTitle ? "mt-1" : "mt-3"}>
           <div className="profile-title-profile-layout">
             <h2 className="min-w-0 text-lg font-black text-white">{displayName}</h2>
-            <ProfileTitleBadge size="profile" title={primaryTitle} />
           </div>
           <p className="text-sm text-slate-400">{username}</p>
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
