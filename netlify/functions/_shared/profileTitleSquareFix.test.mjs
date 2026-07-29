@@ -35,3 +35,10 @@ test("celestial guide title stays square, aligns with the avatar baseline, and v
     /prefers-reduced-motion[\s\S]*profile-title-badge-celestial-guide::before[\s\S]*animation: none/,
   );
 });
+
+test("post cards hide only the redundant meteor label in the author row", () => {
+  assert.match(
+    cssSource,
+    /\.post-card[\s\S]*\.post-card-content[\s\S]*\.flex\.flex-wrap\.items-center[\s\S]*span:last-child[\s\S]*display: none/,
+  );
+});

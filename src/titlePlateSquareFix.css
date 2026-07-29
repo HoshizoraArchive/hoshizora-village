@@ -26,6 +26,16 @@
   font-size: 0.85rem;
 }
 
+/* The card itself already establishes that this is a meteor letter. */
+.post-card
+  .post-card-content
+  > .flex.items-start
+  > .min-w-0.flex-1
+  > .flex.flex-wrap.items-center
+  > span:last-child {
+  display: none;
+}
+
 .profile-title-badge-celestial-guide::before {
   width: 29%;
   height: 265%;
