@@ -11,12 +11,13 @@
 
 .profile-avatar-title-layout {
   min-height: 5.25rem;
+  margin-bottom: 0.5rem;
 }
 
 .profile-avatar-title-plate {
-  left: 3.85rem;
-  bottom: -0.25rem;
-  max-width: calc(100% - 3.85rem);
+  left: 4.5rem;
+  bottom: 0;
+  max-width: calc(100% - 4.5rem);
 }
 
 .profile-avatar-title-plate .profile-title-badge-profile {

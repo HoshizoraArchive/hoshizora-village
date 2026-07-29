@@ -5,7 +5,7 @@ import test from "node:test";
 const mainSource = readFileSync("src/main.jsx", "utf8");
 const cssSource = readFileSync("src/titlePlateSquareFix.css", "utf8");
 
-test("celestial guide title stays square, anchored to the avatar corner, and visibly shimmers", () => {
+test("celestial guide title stays square, aligns with the avatar baseline, and visibly shimmers", () => {
   assert.match(
     mainSource,
     /import "\.\/index\.css";\s*import "\.\/titlePlateSquareFix\.css";/,
@@ -16,7 +16,11 @@ test("celestial guide title stays square, anchored to the avatar corner, and vis
   );
   assert.match(
     cssSource,
-    /profile-avatar-title-plate[\s\S]*left: 3\.85rem[\s\S]*bottom: -0\.25rem/,
+    /profile-avatar-title-layout[\s\S]*margin-bottom: 0\.5rem/,
+  );
+  assert.match(
+    cssSource,
+    /profile-avatar-title-plate[\s\S]*left: 4\.5rem[\s\S]*bottom: 0[\s\S]*max-width: calc\(100% - 4\.5rem\)/,
   );
   assert.match(
     cssSource,
