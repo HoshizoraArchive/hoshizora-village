@@ -11,6 +11,7 @@ import "./onboardingObserveArchiveGate.js";
 import "./onboardingObserveExperience.js";
 import "./onboardingObserveRecovery.js";
 import "./onboardingVisibilityRecovery.js";
+import "./observeLogoData.js";
 import "./index.css";
 import "./titlePlateSquareFix.css";
 import "./observePolish.css";
