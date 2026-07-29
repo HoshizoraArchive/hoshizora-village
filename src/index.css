@@ -142,16 +142,40 @@
   .profile-title-badge-celestial-guide {
     isolation: isolate;
     overflow: hidden;
-    border: 1px solid rgb(244 214 130 / 0.62);
+    border: 1px solid rgb(155 119 54 / 0.78);
     background:
-      linear-gradient(110deg, rgb(125 223 255 / 0.18), rgb(159 140 255 / 0.2) 58%, rgb(255 255 255 / 0.08)),
-      rgb(8 20 48 / 0.72);
+      linear-gradient(135deg, rgb(10 29 66 / 0.92), rgb(28 32 91 / 0.86) 56%, rgb(48 38 96 / 0.82)),
+      rgb(7 16 43 / 0.88);
     color: rgb(255 248 219);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.2),
-      0 0 18px rgb(125 223 255 / 0.12),
-      0 0 22px rgb(244 214 130 / 0.08);
+      inset 0 0 0 1px rgb(255 239 187 / 0.34),
+      inset 0 1px 0 rgb(233 226 255 / 0.16),
+      0 0 14px rgb(116 181 255 / 0.1),
+      0 0 18px rgb(182 141 70 / 0.07);
     animation: profileTitleGuideGlow 5.5s ease-in-out infinite;
+  }
+
+  .profile-title-badge-celestial-guide::before,
+  .profile-title-badge-celestial-guide::after {
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+    content: "";
+  }
+
+  .profile-title-badge-celestial-guide::before {
+    top: -80%;
+    bottom: -80%;
+    left: 38%;
+    width: 13%;
+    transform: rotate(20deg);
+    background: linear-gradient(90deg, transparent, rgb(255 248 223 / 0.16), transparent);
+  }
+
+  .profile-title-badge-celestial-guide::after {
+    inset: 2px;
+    border: 1px solid rgb(255 241 195 / 0.24);
+    border-radius: inherit;
   }
 
   .profile-title-badge-compact {
@@ -165,8 +189,6 @@
   .profile-title-badge-profile {
     width: fit-content;
     min-height: 2rem;
-    margin-top: 0.55rem;
-    margin-bottom: 0.45rem;
     padding: 0.35rem 1rem;
     border-radius: 0.8rem;
     font-size: 0.875rem;
@@ -189,33 +211,70 @@
   }
 
   .profile-title-emblem-profile {
-    width: clamp(2.25rem, 5vw, 2.75rem);
-    height: clamp(2.25rem, 5vw, 2.75rem);
+    width: clamp(3.5rem, 12vw, 4.25rem);
+    height: clamp(3.5rem, 12vw, 4.25rem);
   }
 
   .profile-title-profile-layout {
     display: flex;
     max-width: 100%;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.45rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
   }
 
-  .profile-title-layout-break {
-    flex-basis: 100%;
-    height: 0;
+  .profile-card-header {
+    position: relative;
+  }
+
+  .profile-card-header-actions {
+    position: absolute;
+    z-index: 2;
+    top: 0.55rem;
+    right: 1rem;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .profile-title-emblem-header-slot {
+    position: absolute;
+    z-index: 2;
+    right: 1rem;
+    bottom: -2.1rem;
+    display: grid;
+    width: clamp(3.5rem, 12vw, 4.25rem);
+    height: clamp(3.5rem, 12vw, 4.25rem);
+    place-items: center;
+  }
+
+  .profile-title-emblem-header-slot::before {
+    position: absolute;
+    z-index: -1;
+    width: 74%;
+    height: 74%;
+    border-radius: 999px;
+    background: rgb(190 220 255 / 0.12);
+    box-shadow: 0 0 24px rgb(156 182 255 / 0.18);
+    content: "";
+  }
+
+  .profile-title-emblem-header-slot .profile-title-emblem {
+    width: 100%;
+    height: 100%;
   }
 
   .profile-title-guide-label {
     position: relative;
-    z-index: 1;
+    z-index: 2;
     min-width: 0;
+    text-shadow: 0 1px 9px rgb(255 244 196 / 0.2);
   }
 
   .profile-title-guide-stars {
     position: absolute;
     inset: 0.15rem 0.25rem auto auto;
     width: 3.4rem;
+    z-index: 1;
     color: rgb(255 233 159 / 0.45);
     pointer-events: none;
   }

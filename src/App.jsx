@@ -8337,9 +8337,21 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
 
   return (
     <section className="glass-panel overflow-hidden">
-      <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
+      <div className="profile-card-header">
+        <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
+        <div className="profile-card-header-actions">
+          <button
+            className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
+            onClick={onShare}
+            type="button"
+          >
+            共有
+          </button>
+        </div>
+        <ProfileTitleEmblem placement="header" size="profile" title={primaryTitle} />
+      </div>
       <div className="p-4 pt-0">
-        <div className="-mt-7 flex items-end justify-between gap-3">
+        <div className="-mt-7 flex items-end">
           {canOpenAvatar ? (
             <button
               aria-label={`${displayName}の星影を見る`}
@@ -8352,20 +8364,11 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
           ) : (
             <AvatarFrame avatar={avatar} avatarUrl={profile.avatar_url} className="h-16 w-16 rounded-3xl text-xl" frame={profile.activeFrame} />
           )}
-          <button
-            className="mb-2 min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
-            onClick={onShare}
-            type="button"
-          >
-            共有
-          </button>
         </div>
         <div className="mt-3">
           <p className="text-xs font-black text-comet">My Constellation</p>
           <div className="profile-title-profile-layout">
             <h2 className="mt-1 min-w-0 text-lg font-black text-white">{displayName}</h2>
-            <ProfileTitleEmblem size="profile" title={primaryTitle} />
-            <span aria-hidden="true" className="profile-title-layout-break" />
             <ProfileTitleBadge size="profile" title={primaryTitle} />
           </div>
           <p className="text-sm text-slate-400">{username}</p>
@@ -9832,9 +9835,34 @@ function ProfileCard({ profile }) {
 
   return (
     <section className="glass-panel overflow-hidden">
-      <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
+      <div className="profile-card-header">
+        <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
+        <div className="profile-card-header-actions">
+          {profile.canEdit && (
+            <button
+              className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+              onClick={profile.onOpenSettings}
+              type="button"
+            >
+              ⚙
+            </button>
+          )}
+          {profile.canEdit && (
+            <button
+              className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+              data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
+              disabled={profile.loading}
+              onClick={profile.onStartEdit}
+              type="button"
+            >
+              {profile.loading ? "読込中" : "編集"}
+            </button>
+          )}
+        </div>
+        <ProfileTitleEmblem placement="header" size="profile" title={primaryTitle} />
+      </div>
       <div className="p-4 pt-0">
-        <div className="-mt-7 flex items-end justify-between gap-3">
+        <div className="-mt-7 flex items-end">
           {canOpenAvatar ? (
             <button
               aria-label={`${displayName}の星影を見る`}
@@ -9847,34 +9875,10 @@ function ProfileCard({ profile }) {
           ) : (
             <AvatarFrame avatar={avatar} avatarUrl={avatarUrl} className="h-16 w-16 rounded-3xl text-xl" frame={activeFrame} />
           )}
-          <div className="mb-2 flex items-center gap-2">
-            {profile.canEdit && (
-              <button
-                className="min-h-9 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
-                onClick={profile.onOpenSettings}
-                type="button"
-              >
-                ⚙
-              </button>
-            )}
-            {profile.canEdit && (
-              <button
-                className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
-                data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
-                disabled={profile.loading}
-                onClick={profile.onStartEdit}
-                type="button"
-              >
-                {profile.loading ? "読込中" : "編集"}
-              </button>
-            )}
-          </div>
         </div>
         <div className="mt-3">
           <div className="profile-title-profile-layout">
             <h2 className="min-w-0 text-lg font-black text-white">{displayName}</h2>
-            <ProfileTitleEmblem size="profile" title={primaryTitle} />
-            <span aria-hidden="true" className="profile-title-layout-break" />
             <ProfileTitleBadge size="profile" title={primaryTitle} />
           </div>
           <p className="text-sm text-slate-400">{username}</p>
