@@ -13,6 +13,7 @@ import VillageGuideAdminScreen from "./VillageGuideAdmin";
 import StarMovieObservationMode from "./StarMovieObservationMode";
 import InteractiveOnboarding from "./InteractiveOnboarding";
 import ProfileTitleBadge from "./ProfileTitleBadge";
+import ProfileTitleEmblem from "./ProfileTitleEmblem";
 import {
   PROFILE_TITLES_RELATION_SELECT,
   getPrimaryProfileTitle,
@@ -8361,8 +8362,12 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
         </div>
         <div className="mt-3">
           <p className="text-xs font-black text-comet">My Constellation</p>
-          <h2 className="mt-1 text-lg font-black text-white">{displayName}</h2>
-          <ProfileTitleBadge size="profile" title={primaryTitle} />
+          <div className="profile-title-profile-layout">
+            <h2 className="mt-1 min-w-0 text-lg font-black text-white">{displayName}</h2>
+            <ProfileTitleEmblem size="profile" title={primaryTitle} />
+            <span aria-hidden="true" className="profile-title-layout-break" />
+            <ProfileTitleBadge size="profile" title={primaryTitle} />
+          </div>
           <p className="text-sm text-slate-400">{username}</p>
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
           {profile.constellation_note && (
@@ -9028,6 +9033,7 @@ function SentStarLetterCard({ item, onOpenStarLetterThread }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-black text-white">{item.name}</span>
+            <ProfileTitleEmblem decorative size="compact" title={item.primaryTitle} />
             <ProfileTitleBadge size="compact" title={item.primaryTitle} />
             <span className="text-xs text-slate-500">{item.handle}</span>
             <span className="text-xs text-slate-500">· {item.time}</span>
@@ -9217,6 +9223,7 @@ function ArchivedStarLetterCard({ archive, item }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-black text-white">{item.name}</span>
+            <ProfileTitleEmblem decorative size="compact" title={item.primaryTitle} />
             <ProfileTitleBadge size="compact" title={item.primaryTitle} />
             <span className="text-xs text-slate-500">{item.handle}</span>
             <span className="text-xs text-slate-500">· {item.time}</span>
@@ -9864,8 +9871,12 @@ function ProfileCard({ profile }) {
           </div>
         </div>
         <div className="mt-3">
-          <h2 className="text-lg font-black text-white">{displayName}</h2>
-          <ProfileTitleBadge size="profile" title={primaryTitle} />
+          <div className="profile-title-profile-layout">
+            <h2 className="min-w-0 text-lg font-black text-white">{displayName}</h2>
+            <ProfileTitleEmblem size="profile" title={primaryTitle} />
+            <span aria-hidden="true" className="profile-title-layout-break" />
+            <ProfileTitleBadge size="profile" title={primaryTitle} />
+          </div>
           <p className="text-sm text-slate-400">{username}</p>
           <p className="mt-3 text-sm leading-7 text-slate-300">{bio}</p>
           {constellationNote && (
@@ -12468,6 +12479,7 @@ function PostCard({
               ) : (
                 <h3 className="font-black text-white">{post.name}</h3>
               )}
+              <ProfileTitleEmblem decorative size="compact" title={post.primaryTitle} />
               <ProfileTitleBadge size="compact" title={post.primaryTitle} />
               <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
                 {post.badge}
@@ -12739,6 +12751,7 @@ function StarLetterItem({ letter, starLetters }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-sm font-black text-white">{letter.name}</span>
+            <ProfileTitleEmblem decorative size="compact" title={letter.primaryTitle} />
             <ProfileTitleBadge size="compact" title={letter.primaryTitle} />
             <span className="text-xs text-slate-500">{letter.handle}</span>
             <span className="text-xs text-slate-500">· {letter.time}</span>
