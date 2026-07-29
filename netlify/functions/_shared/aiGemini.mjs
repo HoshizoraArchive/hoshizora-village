@@ -308,12 +308,20 @@ async function cleanupLocalFiles(localPaths) {
   await Promise.allSettled(localPaths.map((path) => unlink(path)));
 }
 
-function buildGeminiInput({ post, mediaRows, uploadedFiles, observationContext, authorProfile }) {
+function buildGeminiInput({
+  post,
+  mediaRows,
+  uploadedFiles,
+  observationContext,
+  authorProfile,
+  isFirstPostWelcome,
+}) {
   const prompt = buildObservationPrompt({
     post,
     mediaRows,
     observationContext,
     authorProfile,
+    isFirstPostWelcome,
   });
   const input = [{ type: "text", text: prompt }];
 
@@ -345,6 +353,7 @@ export async function runGeminiObservation({
   supabase,
   observationContext,
   authorProfile,
+  isFirstPostWelcome,
   signal,
 }) {
   const mediaUpload = await uploadMediaFiles({
@@ -365,6 +374,7 @@ export async function runGeminiObservation({
           uploadedFiles: mediaUpload.uploadedFiles,
           observationContext,
           authorProfile,
+          isFirstPostWelcome,
         }),
         response_format: {
           type: "text",

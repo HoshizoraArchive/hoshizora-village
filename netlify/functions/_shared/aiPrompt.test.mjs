@@ -3,6 +3,7 @@ import test from "node:test";
 import { logAiEvent } from "./aiErrors.mjs";
 import {
   CHIA_PERSONALITY_GUIDE,
+  FIRST_POST_WELCOME_GUIDE,
   buildObservationPrompt,
   isDirectChiaQuestion,
   sanitizeAuthorCallName,
@@ -176,6 +177,27 @@ test("automatic text observation prompt nudges star-letter creation without chan
   assert.equal(automaticPrompt.includes("<meteor_text>"), true);
   assert.equal(automaticPrompt.includes("星空ちあすき"), true);
   assert.equal(automaticPrompt.includes("</meteor_text>"), true);
+});
+
+test("first-post context asks for a grounded welcome without altering ordinary automatic prompts", () => {
+  const post = { type: "text", body: "はじめての夜です", youtube_video_id: null };
+  const ordinary = buildObservationPrompt({
+    post,
+    mediaRows: [],
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    authorProfile: { display_name: "花音", username: "kanon" },
+  });
+  const firstPost = buildObservationPrompt({
+    post,
+    mediaRows: [],
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    authorProfile: { display_name: "花音", username: "kanon" },
+    isFirstPostWelcome: true,
+  });
+
+  assert.equal(ordinary.includes(FIRST_POST_WELCOME_GUIDE), false);
+  assert.equal(firstPost.includes(FIRST_POST_WELCOME_GUIDE), true);
+  assert.equal(firstPost.includes("投稿本文に実際に触れた"), true);
 });
 
 test("direct questions to Chia add a short answer context", () => {

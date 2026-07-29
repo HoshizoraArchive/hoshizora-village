@@ -59,7 +59,7 @@ test("AI observation config accepts enabled server-only settings", () => {
     minDelaySeconds: 60,
     maxDelaySeconds: 900,
     dispatchBatchSize: 5,
-    starLetterProbabilityPercent: 50,
+    starLetterProbabilityPercent: 70,
     starLetterMinConfidencePercent: 75,
     starLetterDailyLimit: 20,
     starLetterAuthorCooldownSeconds: 21600,
@@ -117,11 +117,11 @@ test("AI observation config accepts automatic observation overrides", () => {
 
 test("AI observation config reads the production star-letter probability and cooldown", () => {
   const config = readAiObservationConfig(enabledEnv({
-    AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT: "50",
+    AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT: "70",
     AI_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS: "21600",
   }));
 
-  assert.equal(config.autoObservation.starLetterProbabilityPercent, 50);
+  assert.equal(config.autoObservation.starLetterProbabilityPercent, 70);
   assert.equal(config.autoObservation.starLetterAuthorCooldownSeconds, 21600);
 });
 

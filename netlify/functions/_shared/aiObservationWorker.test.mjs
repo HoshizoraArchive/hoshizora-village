@@ -115,6 +115,7 @@ function createMockSupabase({
   failOutcome = "failed",
   processingCount = 1,
   posts,
+  firstPostWelcome = false,
 } = {}) {
   const calls = {
     rpc: [],
@@ -172,6 +173,13 @@ function createMockSupabase({
               attempt_count: calls.attempts,
               max_attempts: 2,
             }],
+            error: null,
+          });
+        }
+
+        if (name === "get_chia_first_post_welcome_candidate") {
+          return Promise.resolve({
+            data: [{ is_first_post_welcome: firstPostWelcome }],
             error: null,
           });
         }
@@ -438,6 +446,70 @@ test("automatic text observation can suppress star letters while keeping observa
   assert.equal(calls.completeArgs.p_star_letter_body, null);
 });
 
+test("first automatic post bypasses confidence and probability gates and records welcome completion data", async () => {
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    firstPostWelcome: true,
+  });
+  const firstPostConfig = {
+    ...config(),
+    autoObservation: {
+      ...config().autoObservation,
+      starLetterProbabilityPercent: 0,
+      starLetterMinConfidencePercent: 100,
+    },
+  };
+
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: firstPostConfig,
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    runProvider: async ({ isFirstPostWelcome }) => {
+      assert.equal(isFirstPostWelcome, true);
+      return {
+        output: output({ confidence: 0.1, should_post: false, star_letter: null }),
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, actualCostMicroUsd: 11 },
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "completed");
+  assert.equal(calls.completeArgs.p_should_post, true);
+  assert.equal(calls.completeArgs.p_is_first_post_fallback, false);
+  assert.match(calls.completeArgs.p_star_letter_body, /最初の流星便/);
+  assert.match(calls.completeArgs.p_first_post_fallback_star_letter_body, /最初の流星便/);
+});
+
+test("first automatic post falls back without a blind generation retry and completion stays idempotent", async () => {
+  const { supabase, calls } = createMockSupabase({
+    claimObservationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    firstPostWelcome: true,
+  });
+  let providerCalls = 0;
+  const result = await runAiObservationJob({
+    jobId: "77777777-7777-4777-8777-777777777777",
+    requestId: "request",
+    supabase,
+    config: config(),
+    geminiClient: {},
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    runProvider: async () => {
+      providerCalls += 1;
+      throw aiHttpError(503, AI_ERROR.GEMINI_TIMEOUT);
+    },
+  });
+
+  assert.equal(result.outcome, "completed");
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.completeArgs.p_is_first_post_fallback, true);
+  assert.equal(calls.completeArgs.p_should_post, false);
+  assert.equal(calls.completeArgs.p_first_post_fallback_star_letter_body.includes("最初の流星便"), true);
+  assert.equal(calls.failArgs, null);
+});
+
 test("provider failure after attempt is not blindly retried", async () => {
   const { supabase, calls } = createMockSupabase();
   let providerCalls = 0;
@@ -457,6 +529,10 @@ test("provider failure after attempt is not blindly retried", async () => {
   assert.equal(providerCalls, 1);
   assert.equal(calls.attempts, 1);
   assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.MEDIA_UNAVAILABLE[0]);
+  assert.equal(
+    calls.rpc.some((call) => call.name === "get_chia_first_post_welcome_candidate"),
+    false,
+  );
 });
 
 test("provider timeout is recorded as failed instead of remaining processing", async () => {

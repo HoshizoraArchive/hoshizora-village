@@ -14,6 +14,10 @@ const starLetterConversationMigrationSql = readFileSync(
   "supabase/migrations/20260728210000_add_star_letter_conversation_foundation.sql",
   "utf8",
 );
+const chiaFirstPostWelcomeMigrationSql = readFileSync(
+  "supabase/migrations/20260729093000_add_chia_first_post_welcomes.sql",
+  "utf8",
+);
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
@@ -256,6 +260,52 @@ test("AI automatic observation expansion keeps old Netlify RPC wrappers deploy-o
       "old complete wrapper should keep the old completion return shape",
     );
   }
+});
+
+test("first-post welcome migration keeps the once-only record and completion path service-role only", () => {
+  const newCompletionSignature = "uuid, uuid, text, jsonb, text, boolean, text, integer, integer, integer, bigint, integer, integer, text, boolean";
+  const tokens = [
+    "create table if not exists public.chia_first_post_welcomes",
+    "author_id uuid primary key references public.profiles(id) on delete cascade",
+    "first_post_id uuid references public.posts(id) on delete set null",
+    "star_letter_id uuid references public.star_letters(id) on delete set null",
+    "public.get_chia_first_post_welcome_candidate",
+    "for share",
+    "for update",
+    "pg_advisory_xact_lock(hashtext('chia_first_post_welcome:' || v_post.author_id::text)::bigint)",
+    "(earlier.created_at, earlier.id) < (v_post.created_at, v_post.id)",
+    "insert into public.chia_first_post_welcomes (author_id, first_post_id, star_letter_id)",
+    "p_first_post_fallback_star_letter_body text",
+    "p_is_first_post_fallback boolean",
+    "v_actual_cost_micro_usd := greatest(p_actual_cost_micro_usd, v_job.reserved_cost_micro_usd)",
+    "revoke all on table public.chia_first_post_welcomes from public, anon, authenticated",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(chiaFirstPostWelcomeMigrationSql.includes(token), true, `first-post migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing ${token}`);
+  }
+
+  for (const sql of [chiaFirstPostWelcomeMigrationSql, schemaSql]) {
+    assert.equal(
+      new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.complete_ai_observation_job\\(\\s*${newCompletionSignature.replaceAll(" ", "\\s*").replaceAll(",", "\\s*,\\s*")}\\s*\\)\\s+from\\s+public,\\s+anon,\\s+authenticated`, "i").test(sql),
+      true,
+    );
+    assert.equal(
+      /grant\s+execute\s+on\s+function\s+public\.complete_ai_observation_job\([\s\S]*?text,\s*boolean\s*\)\s+to\s+service_role/i.test(sql),
+      true,
+    );
+  }
+
+  const migrationBody = chiaFirstPostWelcomeMigrationSql
+    .replace(/^--[^\n]*\n--[^\n]*\n\nbegin;\n\n/, "begin;\n\n")
+    .replace(/\ncommit;\s*$/i, "")
+    .trim();
+  const schemaBlock = schemaSql
+    .split("-- 20260729093000_add_chia_first_post_welcomes.sql\n")[1]
+    ?.trim();
+
+  assert.equal(schemaBlock, migrationBody, "first-post migration and schema block must stay synchronized");
 });
 
 test("automatic completion creates one resonance independently from optional star letters", () => {
@@ -864,6 +914,7 @@ test("star-letter conversation migration and schema keep the normalized foundati
     .trim();
   const schemaBlock = schemaSql
     .split("-- Issue #108: star-letter conversation foundation.")[1]
+    ?.split("-- 20260729093000_add_chia_first_post_welcomes.sql")[0]
     ?.replace(/\s+/g, " ")
     .trim();
 

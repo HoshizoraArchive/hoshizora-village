@@ -710,7 +710,8 @@ completion RPCはtransaction内で対象 `posts` を `FOR UPDATE`、対象 `post
 - workerは `public.claim_ai_observation_job(...)` でrow lockを取り、同じjobの並列処理を防ぐ
 - provider呼び出し直前に `public.start_ai_observation_attempt(...)` で `attempt_count` を増やす
 - `public.complete_ai_observation_job(...)` は期待fingerprintと公開・未削除状態を確認し、`observations` insert、`auto_text_post` の場合のちあ名義 `resonances` insert、必要時の `star_letters` insert、job `succeeded` 更新を同一transactionで行う
-- `auto_text_post` の星文は、Function側の確率・confidence判定に加えて、completion RPC内で星空ちあ全体の日次上限と投稿者単位クールダウンを確認し、上限時は観測結果だけ保存して星文作成を抑制する
+- `auto_text_post` の通常星文は、Function側の70%確率・confidence判定に加えて、completion RPC内で星空ちあ全体の日次上限と投稿者単位クールダウンを確認し、上限時は観測結果だけ保存して星文作成を抑制する
+- `public.chia_first_post_welcomes` は投稿者ごとの初投稿歓迎を一度だけ残す内部記録。completion RPCは投稿行と投稿者単位advisory lockで最初の公開・未削除投稿かを再判定し、初投稿だけは通常の確率・日次上限・投稿者クールダウンをバイパスして、星文・歓迎記録・job完了を同一transactionで確定する。投稿削除後も歓迎済みの `author_id` は残る
 - `public.fail_ai_observation_job(...)` と `public.cancel_ai_observation_job(...)` は安全な公開エラーコードだけを保存する
 - `public.recover_stale_ai_observation_jobs(...)` はservice_role専用で、worker timeoutなどにより古くなった `processing` jobだけを `cancelled` + `WORKER_STALE` へ戻し、同じ投稿の将来予約を詰まらせない。Geminiの自動再送は行わない
 - すべてのAI job RPCは `security definer` + `set search_path = ''` とし、browser roleからのEXECUTEを許可しない
