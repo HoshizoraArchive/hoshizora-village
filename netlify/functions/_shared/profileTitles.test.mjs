@@ -201,13 +201,15 @@ test("profile title UI keeps the guide emblem and title as independent elements"
   assert.match(cssSource, /\.profile-title-emblem-profile/);
   assert.match(cssSource, /\.profile-card-header[\s\S]*position: relative/);
   assert.match(cssSource, /\.profile-card-header-actions[\s\S]*position: absolute/);
-  assert.match(cssSource, /\.profile-title-emblem-header-slot[\s\S]*bottom: -2\.1rem/);
+  assert.match(cssSource, /\.profile-title-emblem-header-slot[\s\S]*bottom: -2\.35rem/);
+  assert.match(cssSource, /\.profile-title-emblem-header-slot[\s\S]*clamp\(4rem, 11vw, 4\.75rem\)/);
   assert.match(cssSource, /\.profile-title-emblem-header-slot::before/);
   assert.match(cssSource, /\.profile-title-profile-layout[\s\S]*flex-direction: column/);
-  assert.match(cssSource, /\.profile-title-badge-celestial-guide::before[\s\S]*rotate\(20deg\)/);
+  assert.match(cssSource, /\.profile-title-badge-celestial-guide::before[\s\S]*profileTitleGuideShimmer 4\.4s ease-in-out infinite/);
   assert.match(cssSource, /\.profile-title-badge-celestial-guide::after[\s\S]*rgb\(255 241 195/);
+  assert.match(cssSource, /@keyframes profileTitleGuideShimmer[\s\S]*translate3d\(-300%, 38%, 0\)[\s\S]*scale\(1\.12\)/);
   assert.doesNotMatch(emblemCssBlock, /background|border|box-shadow/);
-  assert.match(cssSource, /prefers-reduced-motion[\s\S]*profile-title-badge-celestial-guide/);
+  assert.match(cssSource, /prefers-reduced-motion[\s\S]*profile-title-badge-celestial-guide::before/);
 });
 
 test("My Constellation, public profiles, meteor cards, and star letters render primary titles", () => {
