@@ -37,7 +37,7 @@ function buildConstellationGraphic() {
     viewBox: "0 0 760 460",
   });
 
-  const glow = createSvgElement("defs");
+  const defs = createSvgElement("defs");
   const filter = createSvgElement("filter", {
     height: "180%",
     id: "my-star-chart-star-glow",
@@ -52,16 +52,14 @@ function buildConstellationGraphic() {
     createSvgElement("feMergeNode", { in: "SourceGraphic" }),
   );
   filter.append(blur, merge);
-  glow.append(filter);
-  svg.append(glow);
+  defs.append(filter);
+  svg.append(defs);
 
-  const paths = [
+  [
     "M98 304 L196 216 L286 258 L379 150 L472 222 L580 126 L666 198",
     "M196 216 L218 104 L379 150 L420 70",
     "M286 258 L330 354 L472 222 L544 330",
-  ];
-
-  paths.forEach((pathData, index) => {
+  ].forEach((pathData, index) => {
     svg.append(
       createSvgElement("path", {
         class: `my-star-chart-preview__constellation-line line-${index + 1}`,
@@ -70,7 +68,7 @@ function buildConstellationGraphic() {
     );
   });
 
-  const stars = [
+  [
     [98, 304, 7],
     [196, 216, 9],
     [218, 104, 6],
@@ -82,16 +80,24 @@ function buildConstellationGraphic() {
     [544, 330, 6],
     [580, 126, 9],
     [666, 198, 7],
-  ];
-
-  stars.forEach(([cx, cy, radius], index) => {
+  ].forEach(([cx, cy, radius], index) => {
     const starGroup = createSvgElement("g", {
       class: `my-star-chart-preview__star star-${index + 1}`,
       filter: "url(#my-star-chart-star-glow)",
     });
     starGroup.append(
-      createSvgElement("circle", { class: "my-star-chart-preview__star-halo", cx, cy, r: radius * 2.5 }),
-      createSvgElement("circle", { class: "my-star-chart-preview__star-core", cx, cy, r: radius }),
+      createSvgElement("circle", {
+        class: "my-star-chart-preview__star-halo",
+        cx,
+        cy,
+        r: radius * 2.5,
+      }),
+      createSvgElement("circle", {
+        class: "my-star-chart-preview__star-core",
+        cx,
+        cy,
+        r: radius,
+      }),
     );
     svg.append(starGroup);
   });
@@ -206,18 +212,33 @@ function openStarChartPreview(trigger, profileSection, entryCard) {
   });
 }
 
-function getOwnProfileSection(entryCard) {
-  const profileSection = entryCard.closest("section");
-
-  if (!profileSection) {
-    return null;
+function sectionHasProfileIdentity(section) {
+  if (!section.querySelector("h2")) {
+    return false;
   }
 
-  const hasShareButton = Array.from(profileSection.querySelectorAll("button")).some(
-    (button) => button.textContent?.trim() === "星座URLを共有",
+  return Array.from(section.querySelectorAll("p")).some((element) =>
+    element.textContent?.trim().startsWith("@"),
   );
+}
 
-  return hasShareButton ? profileSection : null;
+function getProfileSection(entryCard) {
+  let section = entryCard.closest("section");
+  let nearestSectionWithHeading = null;
+
+  while (section) {
+    if (!nearestSectionWithHeading && section.querySelector("h2")) {
+      nearestSectionWithHeading = section;
+    }
+
+    if (sectionHasProfileIdentity(section)) {
+      return section;
+    }
+
+    section = section.parentElement?.closest("section") || null;
+  }
+
+  return nearestSectionWithHeading;
 }
 
 function decorateStarChartEntries() {
@@ -232,7 +253,7 @@ function decorateStarChartEntries() {
       return;
     }
 
-    const profileSection = getOwnProfileSection(entryCard);
+    const profileSection = getProfileSection(entryCard);
 
     if (!profileSection) {
       return;
