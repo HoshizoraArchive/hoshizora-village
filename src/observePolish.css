@@ -119,11 +119,11 @@
 .observe-screen .profile-title-emblem-post-card-slot {
   position: absolute;
   z-index: 1;
-  top: 1rem;
-  right: 1rem;
+  top: 0.8rem;
+  right: 0.8rem;
   display: grid;
-  width: 2.15rem;
-  height: 2.15rem;
+  width: 4rem;
+  height: 4rem;
   place-items: center;
   pointer-events: none;
 }
