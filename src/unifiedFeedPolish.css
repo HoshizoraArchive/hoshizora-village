@@ -1,114 +1,123 @@
 /*
- * My Universe, Archive and public-profile feeds remain structurally connected,
- * but their outer surfaces stay quiet enough for the star field and shared
- * meteor-post surface to remain visible.
+ * Shared content surfaces for pages that show profile information and saved
+ * letters. These classes describe roles instead of joining unrelated panels
+ * through page-specific selectors.
  */
 
-/* -------------------------------------------------------------------------- */
-/* My Universe: join profile card, tabs, and feed into one light surface.      */
-/* -------------------------------------------------------------------------- */
-
-main.mx-auto.max-w-2xl.space-y-4:has(> section.glass-panel [aria-label="My Universeの記録"])
-  > section.glass-panel:first-of-type {
-  margin-bottom: 0;
-  border-bottom-color: transparent;
-  border-bottom-right-radius: 0;
-  border-bottom-left-radius: 0;
-  box-shadow: none;
+.content-page {
+  padding-bottom: 2.5rem;
 }
 
-section.glass-panel:has([aria-label="My Universeの記録"]) {
-  overflow: hidden;
-  margin-top: 0 !important;
-  padding: 0;
-  border: 1px solid rgb(210 232 255 / 0.06);
-  border-top: 1px solid rgb(210 232 255 / 0.045);
-  border-radius: 0 0 24px 24px;
-  background:
-    linear-gradient(180deg, rgb(197 226 255 / 0.025), transparent 34%),
-    linear-gradient(120deg, rgb(10 25 56 / 0.14), rgb(7 13 35 / 0.06));
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+.content-flow {
+  display: grid;
+  gap: 1.25rem;
+  padding: 0.25rem 0.75rem 2.5rem;
 }
 
-section.glass-panel:has([aria-label="My Universeの記録"]) > div.mt-4 {
-  margin-top: 0;
-}
-
-section.glass-panel:has([aria-label="My Universeの記録"]) [aria-label="My Universeの記録"] {
-  margin: 0;
-  padding: 0.75rem 1rem 0.625rem;
-  border: 0;
-  border-bottom: 1px solid rgb(210 232 255 / 0.04);
-  border-radius: 0;
-  background: rgb(7 13 35 / 0.035);
-}
-
-/* Public profiles use separate React sections too; visually join them as one. */
-main.mx-auto.max-w-3xl
-  > section.space-y-5:has(> section.glass-panel > .profile-card-header)
-  > section.glass-panel:has(> .profile-card-header) {
-  margin-bottom: 0;
-  border-bottom-color: transparent;
-  border-bottom-right-radius: 0;
-  border-bottom-left-radius: 0;
-  box-shadow: none;
-}
-
-main.mx-auto.max-w-3xl
-  > section.space-y-5:has(> section.glass-panel > .profile-card-header)
-  > section.glass-panel:has(> .profile-card-header)
-  + section.glass-panel {
-  margin-top: 0 !important;
-  border-color: rgb(210 232 255 / 0.06);
-  border-top: 1px solid rgb(210 232 255 / 0.045);
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-  background:
-    linear-gradient(180deg, rgb(197 226 255 / 0.025), transparent 34%),
-    linear-gradient(120deg, rgb(10 25 56 / 0.14), rgb(7 13 35 / 0.06));
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Archive: header, tabs, and entries share one very light surface.            */
-/* -------------------------------------------------------------------------- */
-
-main.mx-auto.max-w-3xl:has(> section.glass-panel [aria-label="Archiveの種類"]) {
-  overflow: hidden;
-  border: 1px solid rgb(210 232 255 / 0.06);
-  border-radius: 24px;
-  background:
-    linear-gradient(180deg, rgb(197 226 255 / 0.025), transparent 34%),
-    linear-gradient(120deg, rgb(10 25 56 / 0.14), rgb(7 13 35 / 0.06));
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-main.mx-auto.max-w-3xl:has(> section.glass-panel [aria-label="Archiveの種類"])
-  > section.glass-panel.mb-4 {
-  margin-bottom: 0;
-  border: 0;
+.profile-surface {
+  margin-inline: 0.75rem;
+  border-top: 1px solid rgb(210 232 255 / 0.06);
   border-bottom: 1px solid rgb(210 232 255 / 0.045);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: linear-gradient(180deg, rgb(197 226 255 / 0.025), transparent 38%);
 }
 
-main.mx-auto.max-w-3xl:has(> section.glass-panel [aria-label="Archiveの種類"])
-  > section.space-y-5 {
-  padding: 0 0 2.5rem;
+.feed-section {
+  margin: 1.25rem 0.75rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(210 232 255 / 0.06);
+}
+
+.content-tabs {
+  border: 1px solid rgb(210 232 255 / 0.08);
+  border-radius: 0.85rem;
+  background: rgb(7 13 35 / 0.055);
+  padding: 0.2rem;
+}
+
+.content-tab {
+  border-radius: 0.65rem;
+  color: rgb(148 163 184);
+  transition:
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.content-tab:hover {
+  background: rgb(255 255 255 / 0.045);
+  color: rgb(241 245 249);
+}
+
+.content-tab:focus-visible {
+  outline: 2px solid rgb(125 223 255 / 0.48);
+  outline-offset: -2px;
+}
+
+.content-tab-active {
+  background: rgb(125 223 255 / 0.12);
+  color: rgb(125 223 255);
+}
+
+.section-heading {
+  margin-bottom: 0.85rem;
+  color: rgb(241 245 249);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.content-feed-list > .post-card-panel + .post-card-panel,
+.content-feed-list > .content-letter-row + .content-letter-row {
+  margin-top: 0.9rem !important;
+}
+
+.content-letter-row {
+  border-top: 1px solid rgb(210 232 255 / 0.055);
+  border-bottom: 1px solid rgb(210 232 255 / 0.04);
+  background: linear-gradient(180deg, rgb(197 226 255 / 0.02), transparent 45%);
+}
+
+.source-post-reference {
+  border-top: 1px solid rgb(210 232 255 / 0.06);
+}
+
+.star-letter-panel {
+  border-top: 1px solid rgb(210 232 255 / 0.07);
+  border-bottom: 1px solid rgb(210 232 255 / 0.04);
+  background: rgb(7 13 35 / 0.025);
+}
+
+.star-letter-item {
+  border-top: 1px solid rgb(210 232 255 / 0.055);
   background: transparent;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.star-letter-item-reply {
+  border-left: 2px solid rgb(125 223 255 / 0.28);
+}
+
+.star-letter-item-highlighted {
+  border-color: rgb(125 223 255 / 0.5);
+  background: rgb(125 223 255 / 0.075);
+}
+
+.empty-state {
+  margin: 1.25rem 0.75rem 0;
+  border-top: 1px solid rgb(210 232 255 / 0.06);
+  border-bottom: 1px solid rgb(210 232 255 / 0.04);
+  background: rgb(7 13 35 / 0.025);
 }
 
 @media (min-width: 640px) {
-  section.glass-panel:has([aria-label="My Universeの記録"]) [aria-label="My Universeの記録"] {
+  .content-flow {
     padding-inline: 1.25rem;
+  }
+
+  .profile-surface,
+  .feed-section,
+  .empty-state {
+    margin-inline: 1.25rem;
   }
 }

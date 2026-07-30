@@ -7662,7 +7662,7 @@ function MeteorDetailScreen({
   const isDeleted = Boolean(post?.deletedAt);
 
   return (
-    <main className="mx-auto max-w-3xl">
+    <main className="content-page mx-auto max-w-3xl">
       <section className="mb-4 flex flex-wrap items-center justify-between gap-3 px-3 sm:px-5">
         <button
           className="min-h-10 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
@@ -7681,7 +7681,7 @@ function MeteorDetailScreen({
         </button>
       </section>
 
-      <section className="space-y-4 px-3 pb-10 sm:px-5">
+      <section className="content-feed-list space-y-4 px-3 pb-10 sm:px-5">
         {(detail.loading || detail.error || detail.shareMessage || detail.shareError) && (
           <p
             className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
@@ -7705,13 +7705,13 @@ function MeteorDetailScreen({
         ) : null}
 
         {isDeleted ? (
-          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+          <div className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
             この流星便は削除されました。
           </div>
         ) : null}
 
         {!detail.loading && !detail.error && !post ? (
-          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+          <div className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
             この流星便は見つかりませんでした。
           </div>
         ) : null}
@@ -7748,7 +7748,7 @@ function PublicStarProfileScreen({
   const displayName = profile?.display_name || defaultProfileView.display_name;
 
   return (
-    <main className="mx-auto max-w-3xl">
+    <main className="content-page public-profile-page mx-auto max-w-3xl">
       <section className="mb-4 flex flex-wrap items-center justify-between gap-3 px-3 sm:px-5">
         <button
           className="min-h-10 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
@@ -7767,7 +7767,7 @@ function PublicStarProfileScreen({
         </button>
       </section>
 
-      <section className="space-y-5 px-3 pb-10 sm:px-5">
+      <section className="content-flow">
         {(profileRoute.loading || profileRoute.error || profileRoute.shareMessage || profileRoute.shareError) && (
           <p
             className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
@@ -7783,7 +7783,7 @@ function PublicStarProfileScreen({
         )}
 
         {isNotFound ? (
-          <section className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+          <section className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
             <h2 className="text-xl font-black text-white">この星座はまだ見つかりませんでした。</h2>
             <p className="mt-3">URLが間違っているか、まだ作成されていない星座かもしれません。</p>
             <button
@@ -7798,6 +7798,7 @@ function PublicStarProfileScreen({
 
         {profile && !isNotFound ? (
           <>
+            <PageIntro subtitle="わたしだけの宇宙" title="My Universe" />
             <PublicProfileCard
               displayName={displayName}
               onOpenAvatar={() => profileRoute.onOpenAvatar(profile.avatar_url, `${displayName}の星影`)}
@@ -7806,11 +7807,12 @@ function PublicStarProfileScreen({
               tags={profileRoute.tags}
             />
 
-            <Panel title={`${displayName}の流星便`} eyebrow="public meteor letters">
+            <section className="feed-section">
+              <h2 className="section-heading">{displayName}の流星便</h2>
               {profileRoute.posts.length === 0 ? (
                 <p className="text-sm leading-7 text-slate-400">公開されている流星便はまだありません。</p>
               ) : (
-                <div className="space-y-5">
+                <div className="content-feed-list space-y-5">
                   {profileRoute.posts.map((post) => (
                     <PostCard
                       archive={archive}
@@ -7827,7 +7829,7 @@ function PublicStarProfileScreen({
                   ))}
                 </div>
               )}
-            </Panel>
+            </section>
           </>
         ) : null}
       </section>
@@ -7846,7 +7848,7 @@ function MeteorTagScreen({
   const tagLabel = meteorTagRoute.tag?.label || getMeteorTagLabel(meteorTagRoute.tag?.name) || "#流星タグ";
 
   return (
-    <main className="mx-auto max-w-3xl">
+    <main className="content-page mx-auto max-w-3xl">
       <section className="mb-4 flex flex-wrap items-center justify-between gap-3 px-3 sm:px-5">
         <button
           className="min-h-10 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-amber-300/35 hover:bg-amber-300/10 hover:text-amber-100"
@@ -7857,14 +7859,13 @@ function MeteorTagScreen({
         </button>
       </section>
 
-      <section className="space-y-5 px-3 pb-10 sm:px-5">
-        <div className="glass-panel p-5 sm:p-6">
-          <p className="text-xs font-bold normal-case text-amber-200">meteor tag</p>
-          <h2 className="mt-2 break-words text-2xl font-black text-amber-100 sm:text-3xl">{tagLabel}</h2>
-          <p className="mt-4 text-sm leading-7 text-slate-300">
+      <section className="content-feed-list space-y-5 px-3 pb-10 sm:px-5">
+        <section className="page-intro">
+          <h1 className="break-words text-amber-100">{tagLabel}</h1>
+          <p className="text-slate-300">
             同じ流星タグが添えられた公開流星便を、新しい順に観測します。
           </p>
-        </div>
+        </section>
 
         {(meteorTagRoute.loading || meteorTagRoute.error) && (
           <p
@@ -7877,7 +7878,7 @@ function MeteorTagScreen({
         )}
 
         {!meteorTagRoute.loading && !meteorTagRoute.error && meteorTagRoute.posts.length === 0 ? (
-          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+          <div className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
             この流星タグの公開流星便はまだありません。
           </div>
         ) : (
@@ -8338,7 +8339,7 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
   const primaryTitle = getPrimaryProfileTitle(profile);
 
   return (
-    <section className="glass-panel overflow-hidden">
+    <section className="profile-surface overflow-hidden">
       <div className="profile-card-header">
         <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
         <div className="profile-card-header-actions">
@@ -8373,8 +8374,6 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
           )}
         </div>
         <div className={primaryTitle ? "mt-1" : "mt-3"}>
-          <p className="text-xs font-black text-comet">My Universe</p>
-          <p className="mt-1 text-xs font-medium text-slate-400">わたしだけの宇宙</p>
           <div className="profile-title-profile-layout">
             <h2 className="mt-1 min-w-0 text-lg font-black text-white">{displayName}</h2>
           </div>
@@ -9009,7 +9008,8 @@ function ProfileScreen({
   }
 
   return (
-    <main className="mx-auto max-w-2xl space-y-4">
+    <main className="content-page my-universe-page mx-auto max-w-2xl">
+      <PageIntro subtitle="わたしだけの宇宙" title="My Universe" />
       <ProfileCard profile={profile} />
       <MyConstellationActivityPanel
         archive={archive}
@@ -9032,7 +9032,7 @@ function SentStarLetterCard({ item, onOpenStarLetterThread }) {
   const sourcePreview = sourcePost?.text?.trim() || "画像・動画を含む流星便";
 
   return (
-    <article className="glass-panel overflow-hidden p-4 sm:p-5">
+    <article className="content-letter-row overflow-hidden p-4 sm:p-5">
       <div className="flex gap-3">
         <AvatarFrame
           avatar={item.avatar}
@@ -9055,7 +9055,7 @@ function SentStarLetterCard({ item, onOpenStarLetterThread }) {
             <LinkedText>{item.body}</LinkedText>
           </p>
 
-          <div className="mt-4 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3">
+          <div className="source-post-reference mt-4 py-3">
             <p className="text-[11px] font-black text-slate-500">元の流星便</p>
             {sourcePost ? (
               <>
@@ -9118,7 +9118,7 @@ function MyConstellationActivityPanel({
     }
 
     return (
-      <div className="space-y-5">
+      <div className="content-feed-list space-y-5">
         {currentPosts.items.map((post) => (
           <PostCard
             archive={archive}
@@ -9138,20 +9138,12 @@ function MyConstellationActivityPanel({
   }
 
   return (
-    <Panel
-      eyebrow="my universe"
-      title={
-        <>
-          <span className="block">My Universe</span>
-          <span className="mt-1 block text-xs font-medium text-slate-400">わたしだけの宇宙</span>
-        </>
-      }
-    >
-      <div aria-label="My Universeの記録" className="mb-5 grid grid-cols-3 rounded-2xl border border-white/10 bg-night-950/45 p-1" role="tablist">
+    <section className="feed-section">
+      <div aria-label="My Universeの記録" className="content-tabs mb-5 grid grid-cols-3" role="tablist">
         <button
           aria-selected={activeView === "posts"}
-          className={`min-h-11 rounded-xl px-2 text-xs font-black transition ${
-            activeView === "posts" ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+          className={`content-tab min-h-11 px-2 text-xs font-black ${
+            activeView === "posts" ? "content-tab-active" : "text-slate-400"
           }`}
           onClick={() => myConstellation?.onViewChange?.("posts")}
           role="tab"
@@ -9161,8 +9153,8 @@ function MyConstellationActivityPanel({
         </button>
         <button
           aria-selected={isResonatedView}
-          className={`min-h-11 rounded-xl px-2 text-xs font-black transition ${
-            isResonatedView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+          className={`content-tab min-h-11 px-2 text-xs font-black ${
+            isResonatedView ? "content-tab-active" : "text-slate-400"
           }`}
           onClick={() => myConstellation?.onViewChange?.("resonated")}
           role="tab"
@@ -9172,8 +9164,8 @@ function MyConstellationActivityPanel({
         </button>
         <button
           aria-selected={isStarLetterView}
-          className={`min-h-11 rounded-xl px-2 text-xs font-black transition ${
-            isStarLetterView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+          className={`content-tab min-h-11 px-2 text-xs font-black ${
+            isStarLetterView ? "content-tab-active" : "text-slate-400"
           }`}
           onClick={() => myConstellation?.onViewChange?.("starLetters")}
           role="tab"
@@ -9207,7 +9199,7 @@ function MyConstellationActivityPanel({
             まだ送った星文はありません。流星便に言葉を届けると、ここに残ります。
           </p>
         ) : (
-          <div className="space-y-5">
+          <div className="content-feed-list space-y-5">
             {myConstellation.sentStarLetters.items.map((item) => (
               <SentStarLetterCard
                 item={item}
@@ -9220,7 +9212,7 @@ function MyConstellationActivityPanel({
       ) : (
         renderPostList()
       )}
-    </Panel>
+    </section>
   );
 }
 
@@ -9230,7 +9222,7 @@ function ArchivedStarLetterCard({ archive, item }) {
   const isSaving = archive.starLetterSavingIds?.has(item.id);
 
   return (
-    <article className="glass-panel overflow-hidden p-4 sm:p-5">
+    <article className="content-letter-row overflow-hidden p-4 sm:p-5">
       <div className="flex gap-3">
         <AvatarFrame
           avatar={item.avatar}
@@ -9253,7 +9245,7 @@ function ArchivedStarLetterCard({ archive, item }) {
             <LinkedText>{item.isDeleted ? "削除された星文です。" : item.body}</LinkedText>
           </p>
 
-          <div className="mt-4 rounded-2xl border border-white/10 bg-night-950/35 px-3 py-3">
+          <div className="source-post-reference mt-4 py-3">
             <p className="text-[11px] font-black text-slate-500">元の流星便</p>
             {sourcePost ? (
               <>
@@ -9309,19 +9301,16 @@ function ArchiveScreen({
   const message = isStarLetterView ? starLetters?.message : archive.message;
 
   return (
-    <main className="mx-auto max-w-3xl">
-      <section className="glass-panel mb-4 p-5 sm:p-6">
-        <p className="text-xs font-bold normal-case text-comet">Archive</p>
-        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">Archive</h2>
-        <p className="mt-4 text-sm leading-7 text-slate-300">
-          自分の星空に残しておきたい流星便と星文を集めます。
-        </p>
+    <main className="content-page archive-page mx-auto max-w-3xl">
+      <section className="page-intro archive-intro">
+        <h1>Archive</h1>
+        <p>自分の星空に残しておきたい流星便と星文を集めます。</p>
         {archive.session ? (
-          <div aria-label="Archiveの種類" className="mt-5 grid grid-cols-2 rounded-2xl border border-white/10 bg-night-950/45 p-1" role="tablist">
+          <div aria-label="Archiveの種類" className="content-tabs mt-5 grid grid-cols-2" role="tablist">
             <button
               aria-selected={!isStarLetterView}
-              className={`min-h-11 rounded-xl px-3 text-xs font-black transition ${
-                !isStarLetterView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+              className={`content-tab min-h-11 px-3 text-xs font-black ${
+                !isStarLetterView ? "content-tab-active" : "text-slate-400"
               }`}
               onClick={() => archive.onViewChange?.("posts")}
               role="tab"
@@ -9331,8 +9320,8 @@ function ArchiveScreen({
             </button>
             <button
               aria-selected={isStarLetterView}
-              className={`min-h-11 rounded-xl px-3 text-xs font-black transition ${
-                isStarLetterView ? "bg-comet/15 text-comet shadow-glow" : "text-slate-400 hover:bg-white/5 hover:text-white"
+              className={`content-tab min-h-11 px-3 text-xs font-black ${
+                isStarLetterView ? "content-tab-active" : "text-slate-400"
               }`}
               onClick={() => archive.onViewChange?.("starLetters")}
               role="tab"
@@ -9345,11 +9334,11 @@ function ArchiveScreen({
       </section>
 
       {!archive.session ? (
-        <section className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+        <section className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
           ログインすると、Archiveした流星便と星文を確認できます。
         </section>
       ) : (
-        <section className="space-y-5 px-3 pb-10 sm:px-5">
+        <section className="content-feed-list space-y-5 px-3 pb-10 sm:px-5">
           {(loading || error || message) && (
             <p
               className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${
@@ -9373,7 +9362,7 @@ function ArchiveScreen({
 
           {isStarLetterView ? (
             !loading && !error && archive.starLetterItems.length === 0 ? (
-              <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+              <div className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
                 まだArchiveされた星文はありません。
               </div>
             ) : (
@@ -9382,7 +9371,7 @@ function ArchiveScreen({
               ))
             )
           ) : !loading && !error && archive.items.length === 0 ? (
-            <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+            <div className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
               まだArchiveされた流星便はありません。
             </div>
           ) : (
@@ -9849,7 +9838,7 @@ function ProfileCard({ profile }) {
   const statusMessage = profile.error || profile.shareError || profile.message || profile.shareMessage;
 
   return (
-    <section className="glass-panel overflow-hidden">
+    <section className="profile-surface overflow-hidden">
       <div className="profile-card-header">
         <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />
         <div className="profile-card-header-actions">
@@ -11797,7 +11786,7 @@ function Timeline({
 
       <div className="timeline-post-list space-y-5 px-3 pb-10 pt-4 sm:px-5">
         {!postsLoading && !postsError && posts.length === 0 ? (
-          <div className="glass-panel px-4 py-8 text-center text-sm leading-7 text-slate-400">
+          <div className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
             まだ流星便はありません。最初の光を放流してみましょう。
           </div>
         ) : (
@@ -12685,7 +12674,7 @@ function StarLettersPanel({ draft, letters, loading, postId, onChange, onSubmit,
 
   return (
     <div
-      className="mt-5 rounded-3xl border border-white/10 bg-night-950/35 p-3 sm:p-4"
+      className="star-letter-panel mt-5 p-3 sm:p-4"
       data-card-action="true"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
@@ -12773,9 +12762,9 @@ function StarLetterItem({ letter, starLetters }) {
   return (
     <article
       aria-label={`${letter.name}の星文`}
-      className={`rounded-2xl border bg-white/5 px-3 py-3 transition-colors ${
-        letter.displayDepth ? "ml-3 border-l-2 border-l-comet/30 border-white/10 sm:ml-5" : "border-white/10"
-      } ${starLetters?.highlightedId === letter.id ? "border-comet/60 bg-comet/10 shadow-glow" : ""}`}
+      className={`star-letter-item px-3 py-3 ${
+        letter.displayDepth ? "ml-3 star-letter-item-reply sm:ml-5" : ""
+      } ${starLetters?.highlightedId === letter.id ? "star-letter-item-highlighted" : ""}`}
       id={`star-letter-${letter.id}`}
       tabIndex={-1}
     >
@@ -12849,6 +12838,15 @@ function Panel({ eyebrow, title, children }) {
       <h2 className="mt-1 text-lg font-black text-white">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+function PageIntro({ subtitle, title }) {
+  return (
+    <header className="page-intro">
+      <h1>{title}</h1>
+      {subtitle ? <p>{subtitle}</p> : null}
+    </header>
   );
 }
 
