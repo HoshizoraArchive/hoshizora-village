@@ -21,6 +21,10 @@ test("observe header polish stays scoped and preserves the starry background", (
   assert.match(cssSource, /\.observe-brand-header\s*\{[\s\S]*background: transparent/);
   assert.match(cssSource, /\.observe-brand-header\.is-scrolled[\s\S]*backdrop-filter: blur\(7px\)/);
   assert.match(cssSource, /\.observe-brand-header-logo[\s\S]*height: var\(--observe-brand-logo-source-height\)/);
+  assert.match(cssSource, /\.observe-brand-header\s*\{[\s\S]*--observe-brand-logo-source-height: 19rem[\s\S]*min-height: 6\.45rem[\s\S]*overflow: hidden/);
+  assert.match(cssSource, /\.observe-brand-header-logo-slot[\s\S]*width: min\(22rem, 94vw\)[\s\S]*height: 5\.4rem/);
+  assert.match(cssSource, /\.observe-brand-header\.is-scrolled[\s\S]*--observe-brand-logo-source-height: 15\.5rem[\s\S]*min-height: 5rem/);
+  assert.match(cssSource, /\.observe-screen \.timeline-post-list\s*\{[\s\S]*padding: 1\.1rem 0 2\.75rem/);
   assert.doesNotMatch(headerSource, /createObjectURL|data:image|dangerouslySetInnerHTML|backgroundImage/);
   assert.doesNotMatch(cssSource, /\.observe-screen::before/);
   assert.match(cssSource, /\.observe-screen[\s\S]*border-inline: 0/);

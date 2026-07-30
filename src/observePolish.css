@@ -9,17 +9,20 @@
 }
 
 .observe-brand-header {
+  --observe-brand-logo-source-height: 19rem;
+
   position: sticky;
   top: 0;
   z-index: 24;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 3.25rem;
+  min-height: 6.45rem;
   /* At the scroll origin, .app-shell already owns the standalone safe area. */
-  padding: 0.3rem 1rem 0.4rem;
+  padding: 0.35rem 1rem 0.7rem;
   border-bottom: 1px solid transparent;
   background: transparent;
+  overflow: hidden;
   transition:
     min-height 180ms ease,
     padding 180ms ease,
@@ -29,9 +32,11 @@
 }
 
 .observe-brand-header.is-scrolled {
-  min-height: 3.2rem;
+  --observe-brand-logo-source-height: 15.5rem;
+
+  min-height: 5rem;
   /* Once sticky, the header itself protects the status-bar safe area. */
-  padding: max(0.2rem, env(safe-area-inset-top)) 1rem 0.15rem;
+  padding: max(0.2rem, env(safe-area-inset-top)) 1rem 0.25rem;
   border-bottom-color: rgb(191 221 255 / 0.045);
   background: rgb(8 16 39 / 0.18);
   backdrop-filter: blur(7px) saturate(106%);
@@ -39,20 +44,16 @@
 }
 
 .observe-brand-header-logo-slot {
-  --observe-brand-logo-source-height: 10.25rem;
-
   position: relative;
   display: grid;
-  width: min(16.5rem, 76vw);
-  height: 3.15rem;
+  width: min(22rem, 94vw);
+  height: 5.4rem;
   place-items: center;
   transition: height 180ms ease;
 }
 
 .observe-brand-header.is-scrolled .observe-brand-header-logo-slot {
-  --observe-brand-logo-source-height: 9.4rem;
-
-  height: 2.65rem;
+  height: 4.1rem;
 }
 
 .observe-brand-header-logo {
@@ -86,7 +87,7 @@
 }
 
 .observe-screen .timeline-post-list {
-  padding: 0.75rem 0 2.75rem;
+  padding: 1.1rem 0 2.75rem;
 }
 
 .observe-screen .timeline-post-list > * + * {
@@ -149,14 +150,19 @@
 
 @media (min-width: 640px) {
   .observe-brand-header {
-    min-height: 3.55rem;
+    --observe-brand-logo-source-height: 20rem;
+
+    min-height: 6.9rem;
   }
 
   .observe-brand-header-logo-slot {
-    --observe-brand-logo-source-height: 10.75rem;
+    width: min(25rem, 82vw);
+    height: 5.85rem;
   }
 
   .observe-brand-header.is-scrolled .observe-brand-header-logo-slot {
-    --observe-brand-logo-source-height: 9.8rem;
+    --observe-brand-logo-source-height: 16rem;
+
+    height: 4.35rem;
   }
 }
