@@ -4,17 +4,17 @@ import test from "node:test";
 
 const source = readFileSync("src/App.jsx", "utf8");
 
-test("My Constellationは流星便・共鳴・星文の3タブを切り替える", () => {
+test("My Universeは流星便・共鳴・星文の3タブを切り替える", () => {
   for (const token of [
     'const [myConstellationView, setMyConstellationView] = useState("posts")',
     'myConstellation?.onViewChange?.("posts")',
     'myConstellation?.onViewChange?.("resonated")',
     'myConstellation?.onViewChange?.("starLetters")',
-    'aria-label="My Constellationの記録"',
+    'aria-label="My Universeの記録"',
     'function SentStarLetterCard({ item, onOpenStarLetterThread })',
     'onOpenStarLetterThread?.(item.postId, item.id)',
   ]) {
-    assert.equal(source.includes(token), true, `missing My Constellation behavior: ${token}`);
+    assert.equal(source.includes(token), true, `missing My Universe behavior: ${token}`);
   }
 });
 
@@ -30,7 +30,7 @@ test("共鳴一覧と送った星文はログイン中の本人に限定して�
   }
 });
 
-test("My Constellationの投稿カードは既存の操作・メディア・星文表示を再利用する", () => {
+test("My Universeの投稿カードは既存の操作・メディア・星文表示を再利用する", () => {
   for (const token of [
     'const currentPosts = isResonatedView ? myConstellation.resonatedPosts : ownPosts',
     '<PostCard',
@@ -42,4 +42,18 @@ test("My Constellationの投稿カードは既存の操作・メディア・星�
   ]) {
     assert.equal(source.includes(token), true, `missing shared post behavior: ${token}`);
   }
+});
+
+test("My Universe uses the asterism navigation icon and keeps My Star Chart distinct", () => {
+  for (const token of [
+    '{ id: "profile", label: "My Universe", ariaLabel: "My Universe", icon: "asterism" }',
+    '<span className="block">My Universe</span>',
+    'わたしだけの宇宙',
+    'if (icon === "asterism")',
+    '<svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">',
+  ]) {
+    assert.equal(source.includes(token), true, `missing My Universe UI: ${token}`);
+  }
+
+  assert.equal(source.includes("My Star Chart"), true, "My Star Chart must remain available");
 });

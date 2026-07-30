@@ -59,7 +59,7 @@ const STEP_DEFINITIONS = {
     navigateTo: "profile",
   },
   profile_setup: {
-    lines: ["まずは「My Const.」へ行こう！", "この編集ボタンを押して、あなたの名前と姿を教えてね！"],
+    lines: ["まずは「My Universe」へ行こう！", "この編集ボタンを押して、あなたの名前と姿を教えてね！"],
     target: "profile-setup",
   },
   profile_success: {
