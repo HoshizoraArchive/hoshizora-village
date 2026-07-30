@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ERROR_OPERATION,
   createUserFacingError,
@@ -73,6 +73,16 @@ import {
   createOperationRequestIdStore,
   isStarLetterThreadNotification,
 } from "./starLetterThread";
+import {
+  OBSERVE_PULL_REFRESH_THRESHOLD_PX,
+  OBSERVE_TIMELINE_POLL_INTERVAL_MS,
+  getObservePullGesture,
+  isInteractiveObserveTimelineTarget,
+  isPublicPostNewer,
+  isUnseenPublicTimelinePost,
+  runObserveTimelineSingleFlight,
+  shouldTriggerObservePullRefresh,
+} from "./observeTimelineRefresh";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -90,6 +100,8 @@ const METEOR_TAG_MAX_LENGTH = 30;
 const FEEDBACK_TYPES = ["不具合", "分かりにくい", "改善案", "ほしい機能", "感想", "その他"];
 const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
 const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
+const PUBLIC_POST_FRESHNESS_SELECT_COLUMNS = "id, created_at, visibility, type";
+const PUBLIC_POST_FRESHNESS_SELECT_COLUMNS_WITH_DELETED_AT = `${PUBLIC_POST_FRESHNESS_SELECT_COLUMNS}, deleted_at`;
 const METEOR_TAG_SELECT_COLUMNS = "id, name, normalized_name, created_by, created_at";
 const POST_METEOR_TAG_SELECT_COLUMNS = "post_id, tag_id, sort_order, meteor_tags(id, name, normalized_name)";
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
@@ -814,6 +826,25 @@ async function runPostQuery(buildQuery) {
     ...result,
     supportsSoftDelete: true,
   };
+}
+
+async function readLatestPublicPost() {
+  const buildQuery = (columns, supportsSoftDelete) => {
+    let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("visibility", "public"));
+
+    if (supportsSoftDelete) {
+      query = query.is("deleted_at", null);
+    }
+
+    return query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+  };
+  const result = await buildQuery(PUBLIC_POST_FRESHNESS_SELECT_COLUMNS_WITH_DELETED_AT, true);
+
+  if (result.error && isMissingDeletedAtError(result.error)) {
+    return buildQuery(PUBLIC_POST_FRESHNESS_SELECT_COLUMNS, false);
+  }
+
+  return result;
 }
 
 async function runProfileQuery(buildQuery, columnsWithFrame, fallbackColumns) {
@@ -1707,6 +1738,15 @@ function App() {
   const [sentStarLettersError, setSentStarLettersError] = useState("");
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState("");
+  const [timelineRefreshing, setTimelineRefreshing] = useState(false);
+  const [timelinePullDistance, setTimelinePullDistance] = useState(0);
+  const [timelineHasNewPosts, setTimelineHasNewPosts] = useState(false);
+  const publicPostsRefreshInFlightRef = useRef(false);
+  const publicPostsFreshnessCheckInFlightRef = useRef(false);
+  const publicTimelineKnownPostIdsRef = useRef(new Set());
+  const publicTimelineTopPostRef = useRef(null);
+  const isObserveTimelineActiveRef = useRef(false);
+  const appMountedRef = useRef(true);
   const [postDraft, setPostDraft] = useState("");
   const [postImageDrafts, setPostImageDrafts] = useState([]);
   const postImageDraftsRef = useRef([]);
@@ -3616,82 +3656,301 @@ function App() {
   }, [session?.user?.id, profileFrames]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function readPublicPosts() {
-      setPostsLoading(true);
-      setPostsError("");
-
-      const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
-        let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("visibility", "public"));
-
-        if (supportsSoftDelete) {
-          query = query.is("deleted_at", null);
-        }
-
-        return query.order("created_at", { ascending: false }).limit(20);
-      });
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (error) {
-        setPostsLoading(false);
-        setPostsError(getUserFacingError(error, ERROR_OPERATION.POST_LOAD));
-        return;
-      }
-
-      const authorIds = [...new Set((data ?? []).map((post) => post.author_id).filter(Boolean))];
-      const profilesById = new Map();
-
-      if (authorIds.length > 0) {
-        const { data: profileRows, error: profileRowsError } = await runProfileQuery(
-          (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
-          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
-          PROFILE_BASIC_SELECT_COLUMNS,
-        );
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (profileRowsError) {
-          setPostsLoading(false);
-          setPostsError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
-          return;
-        }
-
-        for (const profileRow of profileRows ?? []) {
-          profilesById.set(profileRow.id, profileRow);
-        }
-      }
-
-      if (!isMounted) {
-        return;
-      }
-
-      const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id), profileFrames));
-      const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
-        logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
-      }
-
-      setSavedPosts(hydratedPosts);
-      setPostsLoading(false);
-    }
-
-    readPublicPosts();
+    appMountedRef.current = true;
 
     return () => {
-      isMounted = false;
+      appMountedRef.current = false;
     };
-  }, [profileFrames]);
+  }, []);
+
+  const refreshPublicPosts = useCallback(
+    async ({ initial = false } = {}) => {
+      if (publicPostsRefreshInFlightRef.current) {
+        return false;
+      }
+
+      publicPostsRefreshInFlightRef.current = true;
+      const isInitialLoad = initial && publicTimelineKnownPostIdsRef.current.size === 0;
+
+      if (isInitialLoad) {
+        setPostsLoading(true);
+      } else {
+        setTimelineRefreshing(true);
+      }
+      setPostsError("");
+
+      try {
+        const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
+          let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("visibility", "public"));
+
+          if (supportsSoftDelete) {
+            query = query.is("deleted_at", null);
+          }
+
+          return query.order("created_at", { ascending: false }).limit(20);
+        });
+
+        if (!appMountedRef.current) {
+          return false;
+        }
+
+        if (error) {
+          setPostsError(getUserFacingError(error, ERROR_OPERATION.POST_LOAD));
+          return false;
+        }
+
+        const authorIds = [...new Set((data ?? []).map((post) => post.author_id).filter(Boolean))];
+        const profilesById = new Map();
+
+        if (authorIds.length > 0) {
+          const { data: profileRows, error: profileRowsError } = await runProfileQuery(
+            (columns) => supabase.from("profiles").select(columns).in("id", authorIds),
+            PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+            PROFILE_BASIC_SELECT_COLUMNS,
+          );
+
+          if (!appMountedRef.current) {
+            return false;
+          }
+
+          if (profileRowsError) {
+            setPostsError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
+            return false;
+          }
+
+          for (const profileRow of profileRows ?? []) {
+            profilesById.set(profileRow.id, profileRow);
+          }
+        }
+
+        const mappedPosts = (data ?? []).map((post) => mapSavedPost(post, profilesById.get(post.author_id), profileFrames));
+        const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
+
+        if (!appMountedRef.current) {
+          return false;
+        }
+
+        if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
+          logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
+        }
+
+        setSavedPosts(hydratedPosts);
+        return true;
+      } catch (error) {
+        if (appMountedRef.current) {
+          logSafeError(ERROR_OPERATION.POST_LOAD, error);
+          setPostsError(getUserFacingError(error, ERROR_OPERATION.POST_LOAD));
+        }
+        return false;
+      } finally {
+        publicPostsRefreshInFlightRef.current = false;
+
+        if (appMountedRef.current) {
+          setPostsLoading(false);
+          setTimelineRefreshing(false);
+        }
+      }
+    },
+    [profileFrames],
+  );
+
+  useEffect(() => {
+    publicTimelineKnownPostIdsRef.current = new Set(savedPosts.map((post) => post.id).filter(Boolean));
+    publicTimelineTopPostRef.current = savedPosts[0] ?? null;
+  }, [savedPosts]);
+
+  useEffect(() => {
+    void refreshPublicPosts({ initial: true });
+  }, [refreshPublicPosts]);
+
+  const isObserveTimelineActive = route.name === "home" && activeTab === "observe";
+  isObserveTimelineActiveRef.current = isObserveTimelineActive;
+
+  const refreshObserveTimeline = useCallback(
+    async ({ scrollToTop = false } = {}) => {
+      const refreshed = await refreshPublicPosts();
+
+      if (!refreshed) {
+        return false;
+      }
+
+      setTimelineHasNewPosts(false);
+
+      if (scrollToTop) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      return true;
+    },
+    [refreshPublicPosts],
+  );
+
+  const checkForNewPublicPosts = useCallback(async () => {
+    if (!isObserveTimelineActive || document.visibilityState !== "visible") {
+      return false;
+    }
+
+    return runObserveTimelineSingleFlight(publicPostsFreshnessCheckInFlightRef, async () => {
+      const { data: latestPost, error } = await readLatestPublicPost();
+
+      if (
+        error ||
+        !latestPost ||
+        !appMountedRef.current ||
+        !isObserveTimelineActiveRef.current ||
+        document.visibilityState !== "visible"
+      ) {
+        return false;
+      }
+
+      if (
+        isUnseenPublicTimelinePost(latestPost, publicTimelineKnownPostIdsRef.current) &&
+        isPublicPostNewer(latestPost, publicTimelineTopPostRef.current)
+      ) {
+        setTimelineHasNewPosts(true);
+        return true;
+      }
+
+      return false;
+    });
+  }, [isObserveTimelineActive]);
+
+  useEffect(() => {
+    if (!isObserveTimelineActive) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let channel;
+
+    try {
+      channel = supabase
+        .channel("observe-public-post-inserts")
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "posts" }, (payload) => {
+          const post = payload.new;
+
+          if (
+            !disposed &&
+            isObserveTimelineActiveRef.current &&
+            isUnseenPublicTimelinePost(post, publicTimelineKnownPostIdsRef.current)
+          ) {
+            setTimelineHasNewPosts(true);
+          }
+        })
+        .subscribe();
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.POST_LOAD, error);
+    }
+
+    return () => {
+      disposed = true;
+
+      if (channel) {
+        void supabase.removeChannel(channel);
+      }
+    };
+  }, [isObserveTimelineActive]);
+
+  useEffect(() => {
+    if (!isObserveTimelineActive) {
+      return undefined;
+    }
+
+    let pollTimer = null;
+    const stopPolling = () => {
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+    const ensurePollingStarted = () => {
+      if (document.visibilityState === "visible" && pollTimer === null) {
+        pollTimer = window.setInterval(checkForNewPublicPosts, OBSERVE_TIMELINE_POLL_INTERVAL_MS);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void checkForNewPublicPosts();
+        ensurePollingStarted();
+      } else {
+        stopPolling();
+      }
+    };
+    const handleFocus = () => {
+      void checkForNewPublicPosts();
+      ensurePollingStarted();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    void checkForNewPublicPosts();
+    ensurePollingStarted();
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      stopPolling();
+    };
+  }, [checkForNewPublicPosts, isObserveTimelineActive]);
+
+  useEffect(() => {
+    if (!isObserveTimelineActive) {
+      setTimelinePullDistance(0);
+      return undefined;
+    }
+
+    let gesture = null;
+    let triggered = false;
+
+    const handleTouchStart = (event) => {
+      if (event.touches.length !== 1 || window.scrollY > 2 || isInteractiveObserveTimelineTarget(event.target)) {
+        gesture = null;
+        return;
+      }
+
+      const touch = event.touches[0];
+      gesture = { startX: touch.clientX, startY: touch.clientY };
+      triggered = false;
+    };
+
+    const handleTouchMove = (event) => {
+      if (!gesture || event.touches.length !== 1) {
+        return;
+      }
+
+      const touch = event.touches[0];
+      const nextGesture = getObservePullGesture({
+        ...gesture,
+        currentX: touch.clientX,
+        currentY: touch.clientY,
+        scrollY: window.scrollY,
+      });
+      gesture = { ...gesture, ...nextGesture };
+      setTimelinePullDistance(nextGesture.distance);
+    };
+
+    const handleTouchEnd = () => {
+      if (shouldTriggerObservePullRefresh({ gesture, refreshing: publicPostsRefreshInFlightRef.current, triggered })) {
+        triggered = true;
+        void refreshObserveTimeline();
+      }
+
+      gesture = null;
+      setTimelinePullDistance(0);
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchEnd);
+    };
+  }, [isObserveTimelineActive, refreshObserveTimeline]);
 
   useEffect(() => {
     let isMounted = true;
@@ -5285,6 +5544,8 @@ function App() {
         onboardingPostCompletionRef.current = false;
       }
 
+      publicTimelineKnownPostIdsRef.current.add(newPost.id);
+      publicTimelineTopPostRef.current = newPost;
       setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
       setOwnPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
       setPostDraft("");
@@ -7184,6 +7445,12 @@ function App() {
           posts={posts}
           postsError={postsError}
           postsLoading={postsLoading}
+          timelineRefresh={{
+            hasNewPosts: timelineHasNewPosts,
+            onRefresh: refreshObserveTimeline,
+            pullDistance: timelinePullDistance,
+            refreshing: timelineRefreshing,
+          }}
           ownPosts={ownPostState}
           myConstellation={myConstellationState}
           profile={profileState}
@@ -7311,6 +7578,7 @@ function TabContent({
   posts,
   postsError,
   postsLoading,
+  timelineRefresh,
   profile,
   publicStarProfile,
   resonance,
@@ -7415,6 +7683,7 @@ function TabContent({
       posts={posts}
       postsError={postsError}
       postsLoading={postsLoading}
+      timelineRefresh={timelineRefresh}
       onOpenMeteorDetail={onOpenMeteorDetail}
       onOpenPostMedia={onOpenPostMedia}
       onOpenStarMovieObservation={onOpenStarMovieObservation}
@@ -7579,12 +7848,14 @@ function ObserveScreen({
   posts,
   postsError,
   postsLoading,
+  timelineRefresh,
   resonance,
   starLetters,
 }) {
   return (
     <main className="observe-screen mx-auto min-w-0 max-w-3xl border-x border-white/10">
       <ObserveBrandHeader />
+      <ObserveTimelineRefreshNotice timelineRefresh={timelineRefresh} />
       <Timeline
         archive={archive}
         onboarding={onboarding}
@@ -7600,6 +7871,39 @@ function ObserveScreen({
         starLetters={starLetters}
       />
     </main>
+  );
+}
+
+function ObserveTimelineRefreshNotice({ timelineRefresh }) {
+  const pullReady = timelineRefresh.pullDistance >= OBSERVE_PULL_REFRESH_THRESHOLD_PX;
+  const statusMessage = timelineRefresh.refreshing
+    ? "✦ 流星便を観測中…"
+    : timelineRefresh.pullDistance > 0
+      ? pullReady
+        ? "✦ 離して更新"
+        : "↓ 引いて更新"
+      : "";
+
+  if (!statusMessage && !timelineRefresh.hasNewPosts) {
+    return null;
+  }
+
+  return (
+    <div className="observe-timeline-refresh-slot" aria-live="polite">
+      {statusMessage ? (
+        <p className="observe-timeline-refresh-status" role="status">
+          {statusMessage}
+        </p>
+      ) : (
+        <button
+          className="observe-timeline-new-posts-button"
+          onClick={() => void timelineRefresh.onRefresh({ scrollToTop: true })}
+          type="button"
+        >
+          ✦ 新しい流星便があります
+        </button>
+      )}
+    </div>
   );
 }
 

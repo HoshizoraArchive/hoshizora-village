@@ -89,6 +89,61 @@
   padding: 0.75rem 0 2.75rem;
 }
 
+.observe-timeline-refresh-slot {
+  position: sticky;
+  top: calc(3.25rem + env(safe-area-inset-top));
+  z-index: 23;
+  display: grid;
+  min-height: 0;
+  justify-items: center;
+  padding: 0.35rem 0.75rem 0;
+  pointer-events: none;
+}
+
+.observe-timeline-refresh-status,
+.observe-timeline-new-posts-button {
+  min-height: 2.5rem;
+  border: 1px solid rgb(184 221 255 / 0.14);
+  border-radius: 999px;
+  background: rgb(10 24 56 / 0.52);
+  box-shadow: 0 6px 18px rgb(2 7 22 / 0.14);
+  color: rgb(224 243 255);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.015em;
+  line-height: 1.2;
+  backdrop-filter: blur(9px) saturate(108%);
+  -webkit-backdrop-filter: blur(9px) saturate(108%);
+}
+
+.observe-timeline-refresh-status {
+  display: grid;
+  min-width: 8.75rem;
+  margin: 0;
+  padding: 0.65rem 1rem;
+  place-items: center;
+}
+
+.observe-timeline-new-posts-button {
+  padding: 0.65rem 1.1rem;
+  pointer-events: auto;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.observe-timeline-new-posts-button:hover {
+  border-color: rgb(154 222 255 / 0.34);
+  background: rgb(19 49 93 / 0.66);
+  color: white;
+}
+
+.observe-timeline-new-posts-button:focus-visible {
+  outline: 2px solid rgb(125 223 255 / 0.7);
+  outline-offset: 2px;
+}
+
 .observe-screen .timeline-post-list > * + * {
   /* Separate letters with air, not with a stack of dark containers. */
   margin-top: 0.9rem !important;

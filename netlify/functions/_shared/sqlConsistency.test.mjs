@@ -18,6 +18,10 @@ const chiaFirstPostWelcomeMigrationSql = readFileSync(
   "supabase/migrations/20260729093000_add_chia_first_post_welcomes.sql",
   "utf8",
 );
+const postsRealtimePublicationMigrationSql = readFileSync(
+  "supabase/migrations/20260730155837_add_posts_to_realtime_publication.sql",
+  "utf8",
+);
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
 const observationMvpPreflightSql = readFileSync("docs/ai-observation-mvp-preflight.sql", "utf8");
 const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-verification.sql", "utf8");
@@ -1421,4 +1425,24 @@ test("Legal consent verification SQL checks grants, null-safe RPC, and rejecting
   assert.equal(legalConsentVerificationSql.includes("insert into"), false);
   assert.equal(legalConsentVerificationSql.includes("update public"), false);
   assert.equal(legalConsentVerificationSql.includes("delete from"), false);
+});
+
+test("posts Realtime publication migration is idempotent and synchronized with schema.sql", () => {
+  const tokens = [
+    "from pg_publication",
+    "pubname = 'supabase_realtime'",
+    "from pg_publication_tables",
+    "schemaname = 'public'",
+    "tablename = 'posts'",
+    "alter publication supabase_realtime add table public.posts",
+  ];
+
+  for (const token of tokens) {
+    assert.equal(postsRealtimePublicationMigrationSql.includes(token), true, `Realtime migration missing ${token}`);
+    assert.equal(schemaSql.includes(token), true, `schema.sql missing Realtime token ${token}`);
+  }
+
+  assert.equal(postsRealtimePublicationMigrationSql.includes("alter table public.posts"), false);
+  assert.equal(postsRealtimePublicationMigrationSql.includes("create policy"), false);
+  assert.equal(postsRealtimePublicationMigrationSql.includes("grant "), false);
 });

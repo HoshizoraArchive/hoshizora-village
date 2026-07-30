@@ -326,6 +326,26 @@ comment on column public.posts.duration_seconds is 'audioの長さ。post_media�
 comment on column public.posts.media_url is 'audioなどのファイルURL。画像/動画投稿MVPではpost_mediaを正として扱う。';
 comment on column public.posts.deleted_at is '流星便のソフト削除時刻。null のものだけ通常一覧に表示する。';
 
+-- Realtime publication membership is independent from table definitions and RLS.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_publication
+    where pubname = 'supabase_realtime'
+  )
+  and not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'posts'
+  ) then
+    alter publication supabase_realtime add table public.posts;
+  end if;
+end;
+$$;
+
 -- post_media: 流星便に添える画像/動画.
 -- Storage pathを保存し、公開URLはクライアント側で生成する。
 create table if not exists public.post_media (
