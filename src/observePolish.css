@@ -1,6 +1,7 @@
 /*
- * Observation-screen visual polish pilot.
- * Scoped to .observe-screen so the starry background and other tabs remain unchanged.
+ * Observation header polish plus the shared meteor-post surface.
+ * Every PostCard should let the starry background breathe while preserving
+ * readable text and clear controls.
  */
 
 .observe-screen {
@@ -93,7 +94,8 @@
   margin-top: 0.9rem !important;
 }
 
-.observe-screen .post-card-panel {
+/* Shared across Observe, detail, tags, My Universe, Archive and public profiles. */
+.post-card-panel {
   border: 0;
   border-top: 1px solid rgb(210 232 255 / 0.055);
   border-bottom: 1px solid rgb(210 232 255 / 0.04);
@@ -106,12 +108,12 @@
   -webkit-backdrop-filter: none;
 }
 
-.observe-screen .post-card-panel > div:first-child {
+.post-card-panel > div:first-child {
   height: 1px;
   opacity: 0.14;
 }
 
-.observe-screen .post-card-panel.is-clickable:hover {
+.post-card-panel.is-clickable:hover {
   border-top-color: rgb(138 217 255 / 0.1);
   border-bottom-color: rgb(138 217 255 / 0.075);
   background:
@@ -120,17 +122,22 @@
   box-shadow: none;
 }
 
-.observe-screen .post-card-panel.is-clickable:focus-visible {
+.post-card-panel.is-clickable:focus-visible {
   outline: 2px solid rgb(125 223 255 / 0.45);
   outline-offset: -2px;
 }
 
-.observe-screen .post-card-panel.is-clickable:active {
+.post-card-panel.is-clickable:active {
   filter: brightness(1.025);
 }
 
-.observe-screen .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button {
+.post-card-content > .mt-5.flex.flex-wrap.gap-3 > button {
   box-shadow: none;
+}
+
+/* Keep a shared airy rhythm anywhere multiple meteor posts are listed. */
+.space-y-5 > .post-card-panel + .post-card-panel {
+  margin-top: 0.9rem !important;
 }
 
 .observe-screen .timeline-post-list > .glass-panel:not(.post-card-panel) {
