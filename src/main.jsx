@@ -17,6 +17,7 @@ import "./index.css";
 import "./titlePlateSquareFix.css";
 import "./observePolish.css";
 import "./myUniversePolish.css";
+import "./unifiedFeedPolish.css";
 import "./myStarChartPreview.css";
 import "./starLetterProfileNavigation.css";
 
