@@ -19,18 +19,23 @@ test("observe screen polish stays scoped and preserves the starry background", (
   assert.match(headerSource, /observe-brand-header-fallback[\s\S]*星空Village/);
   assert.match(headerSource, /window\.addEventListener\("scroll", scheduleScrollState, \{ passive: true \}\)/);
   assert.match(cssSource, /\.observe-brand-header\s*\{[\s\S]*background: transparent/);
-  assert.match(cssSource, /\.observe-brand-header\.is-scrolled[\s\S]*backdrop-filter: blur\(10px\)/);
+  assert.match(cssSource, /\.observe-brand-header\.is-scrolled[\s\S]*backdrop-filter: blur\(7px\)/);
   assert.match(cssSource, /\.observe-brand-header-logo[\s\S]*height: var\(--observe-brand-logo-source-height\)/);
   assert.doesNotMatch(headerSource, /createObjectURL|data:image|dangerouslySetInnerHTML|backgroundImage/);
   assert.doesNotMatch(cssSource, /\.observe-screen::before/);
   assert.match(cssSource, /\.observe-screen[\s\S]*border-inline: 0/);
   assert.match(
     cssSource,
-    /\.observe-screen \.timeline-post-list > \* \+ \*[\s\S]*margin-top: 0 !important/,
+    /\.observe-screen \.timeline-post-list > \* \+ \*[\s\S]*margin-top: 0\.9rem !important/,
   );
   assert.match(
     cssSource,
-    /\.observe-screen \.post-card-panel[\s\S]*border-radius: 0[\s\S]*box-shadow: none/,
+    /\.observe-screen \.post-card-panel[\s\S]*border-top: 1px solid rgb\(210 232 255 \/ 0\.055\)[\s\S]*border-bottom: 1px solid rgb\(210 232 255 \/ 0\.04\)[\s\S]*border-radius: 0[\s\S]*backdrop-filter: none/,
+  );
+  assert.match(cssSource, /\.observe-screen \.post-card-panel > div:first-child[\s\S]*opacity: 0\.14/);
+  assert.match(
+    cssSource,
+    /\.observe-screen \.post-card-panel\.is-clickable:focus-visible[\s\S]*outline: 2px solid rgb\(125 223 255 \/ 0\.45\)/,
   );
   assert.doesNotMatch(cssSource, /cosmic-background|stars-layer|distant-stars|foreground-stardust/);
 });
