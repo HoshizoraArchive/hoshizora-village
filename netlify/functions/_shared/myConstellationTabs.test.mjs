@@ -66,6 +66,8 @@ test("My Universe is the page heading above both owner and public profile header
   assert.match(myUniverseCssSource, /main\.mx-auto\.max-w-3xl > section\.space-y-5:has/);
   assert.match(myUniverseCssSource, /content: "My Universe"/);
   assert.match(myUniverseCssSource, /content: "わたしだけの宇宙"/);
+  assert.match(myUniverseCssSource, /color: rgb\(158 220 255\)/);
+  assert.match(myUniverseCssSource, /text-shadow: 0 0 12px rgb\(120 210 255 \/ 0\.18\)/);
   assert.match(
     myUniverseCssSource,
     /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\) > h2[\s\S]*display: none/,
