@@ -11,12 +11,13 @@ main.mx-auto.max-w-2xl.space-y-4:has(> section.glass-panel [aria-label="My Unive
 main.mx-auto.max-w-3xl > section.space-y-5:has(> section.glass-panel > .profile-card-header)::before {
   order: -2;
   padding-inline: 0.25rem;
-  color: rgb(248 250 252);
+  color: rgb(158 220 255);
   content: "My Universe";
   font-size: clamp(1.45rem, 6vw, 1.8rem);
   font-weight: 900;
   letter-spacing: -0.02em;
   line-height: 1.15;
+  text-shadow: 0 0 12px rgb(120 210 255 / 0.18);
 }
 
 main.mx-auto.max-w-2xl.space-y-4:has(> section.glass-panel [aria-label="My Universeの記録"])::after,
