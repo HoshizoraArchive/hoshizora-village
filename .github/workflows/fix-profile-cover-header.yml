@@ -1,0 +1,198 @@
+name: Remove profile cover header safely
+
+on:
+  push:
+    branches:
+      - fix/remove-profile-cover-header
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/remove-profile-cover-header
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Remove only the purple profile cover header
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          app_path = Path('src/App.jsx')
+          app = app_path.read_text()
+
+          gradient = '        <div className="h-20 bg-[radial-gradient(circle_at_24%_30%,rgba(125,223,255,0.55),transparent_28%),linear-gradient(120deg,rgba(159,140,255,0.36),rgba(255,139,207,0.18))]" />\n'
+          assert app.count(gradient) == 2, 'profile cover gradient count changed'
+          app = app.replace(gradient, '')
+
+          public_header = '''function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }) {
+'''
+          assert public_header in app, 'PublicProfileCard signature changed'
+          app = app.replace(
+              public_header,
+              'function PublicProfileCard({ displayName, onOpenAvatar, profile, tags }) {\n',
+              1,
+          )
+
+          public_header_open = '''    <section className="profile-surface overflow-hidden">
+      <div className="profile-card-header">
+'''
+          assert app.count(public_header_open) >= 1, 'public profile header structure changed'
+          app = app.replace(
+              public_header_open,
+              '''    <section className="profile-surface overflow-hidden">
+      <div className="profile-card-header profile-card-header-simple profile-card-header-public">
+''',
+              1,
+          )
+
+          public_share = '''        <div className="profile-card-header-actions">
+          <button
+            className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
+            onClick={onShare}
+            type="button"
+          >
+            共有
+          </button>
+        </div>
+'''
+          assert app.count(public_share) == 1, 'public profile duplicate share button changed'
+          app = app.replace(public_share, '', 1)
+
+          public_share_prop = '              onShare={() => profileRoute.onShareProfile(profile.username)}\n'
+          assert app.count(public_share_prop) == 1, 'public profile share prop changed'
+          app = app.replace(public_share_prop, '', 1)
+
+          owner_marker = '''function ProfileCard({ profile }) {
+'''
+          owner_index = app.index(owner_marker)
+          owner_tail = app[owner_index:]
+          owner_header_open = '''    <section className="profile-surface overflow-hidden">
+      <div className="profile-card-header">
+'''
+          assert owner_tail.count(owner_header_open) >= 1, 'owner profile header structure changed'
+          owner_tail = owner_tail.replace(
+              owner_header_open,
+              '''    <section className="profile-surface overflow-hidden">
+      <div className="profile-card-header profile-card-header-simple profile-card-header-owner">
+''',
+              1,
+          )
+          app = app[:owner_index] + owner_tail
+
+          assert app.count('      <div className="p-4 pt-0">\n') == 2, 'profile content wrappers changed'
+          app = app.replace(
+              '      <div className="p-4 pt-0">\n',
+              '      <div className="profile-card-content p-4">\n',
+          )
+
+          identity = '        <div className={`-mt-7 flex items-end${primaryTitle ? " profile-avatar-title-layout" : ""}`}>\n'
+          assert app.count(identity) == 2, 'profile identity rows changed'
+          app = app.replace(
+              identity,
+              '        <div className={`profile-card-identity flex items-end${primaryTitle ? " profile-avatar-title-layout" : ""}`}>\n',
+          )
+
+          app_path.write_text(app)
+
+          css_path = Path('src/myUniversePolish.css')
+          css = css_path.read_text()
+          hidden_heading = '''.my-universe-page > .page-intro,
+.public-profile-page > .content-flow > .page-intro {
+  display: none;
+}
+
+'''
+          assert css.count(hidden_heading) == 1, 'temporary My Universe heading hide rule changed'
+          css = css.replace(hidden_heading, '', 1)
+
+          profile_layout = '''
+/* Profile identity starts directly on the star field; the old purple cover band is removed. */
+.profile-card-header-simple {
+  height: 0;
+  min-height: 0;
+}
+
+.profile-card-header-owner .profile-card-header-actions {
+  top: 0.75rem;
+  right: 1rem;
+}
+
+.profile-card-header-owner .profile-title-emblem-header-slot {
+  top: 3.4rem;
+  right: 1rem;
+  bottom: auto;
+}
+
+.profile-card-header-public .profile-title-emblem-header-slot {
+  top: 0.75rem;
+  right: 1rem;
+  bottom: auto;
+}
+
+.profile-card-content {
+  position: relative;
+  padding-top: 1rem;
+}
+
+.profile-card-identity {
+  min-height: 4.75rem;
+  margin-top: 0;
+  padding-right: 5rem;
+}
+'''
+          css = css.rstrip() + '\n' + profile_layout
+          css_path.write_text(css)
+
+          test_path = Path('netlify/functions/_shared/myConstellationTabs.test.mjs')
+          test_source = test_path.read_text()
+          pattern = re.compile(
+              r'test\("My Universe opens directly with the profile and hides only its duplicate page heading", \(\) => \{.*?\n\}\);',
+              re.S,
+          )
+          replacement = '''test("My Universe keeps its page identity and removes only the purple profile cover band", () => {
+  assert.match(mainSource, /import "\\.\\/myUniversePolish\\.css";/);
+  assert.match(source, /<PageIntro subtitle="わたしだけの宇宙" title="My Universe" \\/>/);
+  assert.match(source, /className="content-page my-universe-page mx-auto max-w-2xl"/);
+  assert.match(source, /className="content-page public-profile-page mx-auto max-w-3xl"/);
+  assert.equal((source.match(/profile-card-header profile-card-header-simple/g) ?? []).length, 2);
+  assert.doesNotMatch(
+    source,
+    /h-20 bg-\\[radial-gradient\\(circle_at_24%_30%/,
+  );
+  assert.doesNotMatch(
+    myUniverseCssSource,
+    /\\.my-universe-page > \\.page-intro|\\.public-profile-page > \\.content-flow > \\.page-intro/,
+  );
+  assert.match(myUniverseCssSource, /\\.profile-card-header-owner \\.profile-card-header-actions/);
+  assert.match(myUniverseCssSource, /\\.profile-card-header-public \\.profile-title-emblem-header-slot/);
+  assert.doesNotMatch(myUniverseCssSource, /:has\\(|content:|text-shadow/);
+});'''
+          test_source, count = pattern.subn(replacement, test_source, count=1)
+          assert count == 1, 'My Universe header test changed unexpectedly'
+          test_path.write_text(test_source)
+          PY
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - name: Commit verified profile header cleanup
+        run: |
+          rm .github/workflows/fix-profile-cover-header.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.jsx src/myUniversePolish.css netlify/functions/_shared/myConstellationTabs.test.mjs .github/workflows/fix-profile-cover-header.yml
+          git commit -m "fix: My Universeの紫ヘッダー帯を削除"
+          git push origin HEAD:fix/remove-profile-cover-header
