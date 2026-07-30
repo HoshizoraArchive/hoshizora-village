@@ -123,8 +123,10 @@ if (typeof document !== "undefined") {
   const observer = new MutationObserver(scheduleDecoration);
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  document.addEventListener("click", handleProfileLinkClick);
-  document.addEventListener("keydown", handleProfileLinkKeydown);
+  // StarLettersPanel stops bubbling so the post card itself does not open.
+  // Listen during capture so profile navigation runs before that stopPropagation.
+  document.addEventListener("click", handleProfileLinkClick, true);
+  document.addEventListener("keydown", handleProfileLinkKeydown, true);
 }
 
 export { buildStarProfilePath, normalizeUsername };

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const mainSource = readFileSync("src/main.jsx", "utf8");
+const appSource = readFileSync("src/App.jsx", "utf8");
 const navigationSource = readFileSync("src/starLetterProfileNavigation.js", "utf8");
 const cssSource = readFileSync("src/starLetterProfileNavigation.css", "utf8");
 
@@ -24,6 +25,13 @@ test("avatar, display name, and handle are all keyboard-accessible profile links
   assert.match(navigationSource, /element\.tabIndex = 0/);
   assert.match(navigationSource, /event\.key !== "Enter" && event\.key !== " "/);
   assert.match(cssSource, /\.star-letter-profile-link:focus-visible/);
+});
+
+test("profile events use capture because StarLettersPanel stops bubbling", () => {
+  assert.match(appSource, /onClick=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(appSource, /onKeyDown=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(navigationSource, /document\.addEventListener\("click", handleProfileLinkClick, true\)/);
+  assert.match(navigationSource, /document\.addEventListener\("keydown", handleProfileLinkKeydown, true\)/);
 });
 
 test("profile navigation stays client-only and does not touch data APIs", () => {
