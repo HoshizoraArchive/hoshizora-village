@@ -59,14 +59,16 @@ test("My Universe uses the asterism navigation icon and keeps My Star Chart dist
   assert.equal(source.includes("My Star Chart"), true, "My Star Chart must remain available");
 });
 
-test("My Universe is a real page heading above both owner and public profile headers", () => {
+test("My Universe opens directly with the profile and hides only its duplicate page heading", () => {
   assert.match(mainSource, /import "\.\/myUniversePolish\.css";/);
-  assert.match(source, /function PageIntro\(\{ subtitle, title \}\)/);
   assert.match(source, /<PageIntro subtitle="わたしだけの宇宙" title="My Universe" \/>/);
   assert.match(source, /className="content-page my-universe-page mx-auto max-w-2xl"/);
   assert.match(source, /className="content-page public-profile-page mx-auto max-w-3xl"/);
+  assert.match(
+    myUniverseCssSource,
+    /\.my-universe-page > \.page-intro,\s*\.public-profile-page > \.content-flow > \.page-intro \{\s*display: none;/,
+  );
   assert.match(myUniverseCssSource, /\.page-intro h1/);
   assert.match(myUniverseCssSource, /\.page-intro p/);
-  assert.match(myUniverseCssSource, /color: rgb\(158 220 255\)/);
-  assert.doesNotMatch(myUniverseCssSource, /:has\(|content:|display: none|text-shadow/);
+  assert.doesNotMatch(myUniverseCssSource, /:has\(|content:|text-shadow/);
 });

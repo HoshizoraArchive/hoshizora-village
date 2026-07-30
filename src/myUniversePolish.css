@@ -1,5 +1,10 @@
-/* Page identity stays in the markup so profile and public-profile views share
- * the same hierarchy without generated labels or selector-based hiding. */
+/* My Universe opens directly with the profile. The shared .page-intro style
+ * remains available for other screens such as meteor-tag pages. */
+
+.my-universe-page > .page-intro,
+.public-profile-page > .content-flow > .page-intro {
+  display: none;
+}
 
 .page-intro {
   margin: 0.25rem 0.75rem 1.25rem;
