@@ -1,9 +1,48 @@
-/* My Universe opens directly with the profile. The shared .page-intro style
- * remains available for other screens such as meteor-tag pages. */
+/* My Universe keeps its page identity, while profile content begins directly on the star field. */
 
-.my-universe-page > .page-intro,
-.public-profile-page > .content-flow > .page-intro {
+.my-universe-page .profile-card-header > div:first-child,
+.public-profile-page .profile-card-header > div:first-child {
   display: none;
+}
+
+.my-universe-page .profile-card-header,
+.public-profile-page .profile-card-header {
+  height: 0;
+  min-height: 0;
+}
+
+.my-universe-page .profile-card-header-actions {
+  top: 0.75rem;
+  right: 1rem;
+}
+
+.public-profile-page .profile-card-header-actions {
+  display: none;
+}
+
+.my-universe-page .profile-title-emblem-header-slot {
+  top: 0.4rem;
+  right: 8.75rem;
+  bottom: auto;
+}
+
+.public-profile-page .profile-title-emblem-header-slot {
+  top: 0.75rem;
+  right: 1rem;
+  bottom: auto;
+}
+
+.my-universe-page .profile-surface > .p-4.pt-0,
+.public-profile-page .profile-surface > .p-4.pt-0 {
+  position: relative;
+  padding-top: 1rem;
+}
+
+.my-universe-page .profile-surface > .p-4.pt-0 > div:first-child,
+.public-profile-page .profile-surface > .p-4.pt-0 > div:first-child {
+  min-height: 4.75rem;
+  margin-top: 0 !important;
+  padding-right: 5rem;
 }
 
 .page-intro {
