@@ -60,12 +60,15 @@ test("My Universe uses the asterism navigation icon and keeps My Star Chart dist
   assert.equal(source.includes("My Star Chart"), true, "My Star Chart must remain available");
 });
 
-test("My Universe panel hides the duplicate eyebrow while keeping the formal title", () => {
+test("My Universe is the page heading above both owner and public profile headers", () => {
   assert.match(mainSource, /import "\.\/myUniversePolish\.css";/);
+  assert.match(myUniverseCssSource, /main\.mx-auto\.max-w-2xl\.space-y-4:has/);
+  assert.match(myUniverseCssSource, /main\.mx-auto\.max-w-3xl > section\.space-y-5:has/);
+  assert.match(myUniverseCssSource, /content: "My Universe"/);
+  assert.match(myUniverseCssSource, /content: "わたしだけの宇宙"/);
   assert.match(
     myUniverseCssSource,
-    /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\) > p:first-child\s*\{[\s\S]*display: none/,
+    /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\) > h2[\s\S]*display: none/,
   );
-  assert.match(source, /<span className="block">My Universe<\/span>/);
-  assert.match(source, /わたしだけの宇宙/);
+  assert.match(myUniverseCssSource, /p:nth-child\(-n \+ 2\)[\s\S]*display: none/);
 });
