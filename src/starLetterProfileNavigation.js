@@ -1,10 +1,25 @@
 const STAR_LETTER_SELECTOR = 'article[id^="star-letter-"]';
 const PROFILE_LINK_ATTRIBUTE = "data-star-letter-profile-username";
+const SENT_STAR_LETTER_SOURCE_LABEL = "元の流星便";
 
 let decorationFrame = 0;
 
 function normalizeUsername(value) {
-  return String(value || "").trim().replace(/^@/, "");
+  return String(value || "")
+    .trim()
+    .replace(/^@/, "")
+    .replace(/[.,!?;:、。！？）」』】]+$/u, "");
+}
+
+function extractUsernameFromText(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/(?:^|\s)@([^\s·]+)/u);
+
+  if (match?.[1]) {
+    return normalizeUsername(match[1]);
+  }
+
+  return text.startsWith("@") ? normalizeUsername(text) : "";
 }
 
 function buildStarProfilePath(username) {
@@ -31,47 +46,104 @@ function navigateToStarProfile(username) {
 }
 
 function makeProfileLink(element, username, displayName) {
-  if (!element || element.hasAttribute(PROFILE_LINK_ATTRIBUTE)) {
+  const normalized = normalizeUsername(username);
+
+  if (!element || !normalized) {
     return;
   }
 
-  element.setAttribute(PROFILE_LINK_ATTRIBUTE, username);
-  element.setAttribute("aria-label", `${displayName || username}のプロフィールを見る`);
+  element.setAttribute(PROFILE_LINK_ATTRIBUTE, normalized);
+  element.setAttribute("aria-label", `${displayName || normalized}のプロフィールを見る`);
   element.setAttribute("role", "button");
   element.tabIndex = 0;
   element.classList.add("star-letter-profile-link");
 }
 
-function decorateStarLetter(article) {
-  const identityRow = article.querySelector(":scope > div > div > div");
+function findHandleElement(root) {
+  if (!root) {
+    return null;
+  }
 
-  if (!identityRow) {
+  return Array.from(root.querySelectorAll("span, p, button")).find((element) =>
+    Boolean(extractUsernameFromText(element.textContent)),
+  ) ?? null;
+}
+
+function getDisplayName(root, username) {
+  const text = String(root?.textContent || "")
+    .replace(`@${username}`, "")
+    .split("·")[0]
+    .trim();
+
+  return text || username;
+}
+
+function decorateThreadStarLetter(article) {
+  if (!article?.matches?.(STAR_LETTER_SELECTOR)) {
     return;
   }
 
-  const textElements = Array.from(identityRow.querySelectorAll("span"));
-  const handleElement = textElements.find((element) => element.textContent?.trim().startsWith("@"));
-  const username = normalizeUsername(handleElement?.textContent);
+  const authorRow = article.querySelector(":scope > div");
+  const avatarElement = authorRow?.firstElementChild;
+  const identityColumn = avatarElement?.nextElementSibling;
+  const identityRow = identityColumn?.firstElementChild;
+  const handleElement = findHandleElement(identityRow);
+  const username = extractUsernameFromText(handleElement?.textContent || identityRow?.textContent);
 
   if (!username) {
     return;
   }
 
-  const nameElement = textElements.find((element) => {
-    const text = element.textContent?.trim();
-    return text && !text.startsWith("@") && !text.startsWith("·") && text !== "削除済み";
-  });
-  const displayName = nameElement?.textContent?.trim() || handleElement.textContent?.trim() || username;
-  const authorColumn = article.querySelector(":scope > div");
-  const avatarElement = authorColumn?.firstElementChild;
+  const displayName = getDisplayName(identityRow, username);
 
   makeProfileLink(avatarElement, username, displayName);
-  makeProfileLink(nameElement, username, displayName);
-  makeProfileLink(handleElement, username, displayName);
+  makeProfileLink(identityRow, username, displayName);
+}
+
+function findSentStarLetterSourceContainer(article) {
+  const sourceLabel = Array.from(article?.querySelectorAll?.("p") || []).find(
+    (element) => element.textContent?.trim() === SENT_STAR_LETTER_SOURCE_LABEL,
+  );
+
+  return sourceLabel?.parentElement ?? null;
+}
+
+function decorateSentStarLetterCard(article) {
+  const sourceContainer = findSentStarLetterSourceContainer(article);
+
+  if (!sourceContainer) {
+    return;
+  }
+
+  const authorRow = article.querySelector(":scope > div");
+  const avatarElement = authorRow?.firstElementChild;
+  const identityColumn = avatarElement?.nextElementSibling;
+  const identityRow = identityColumn?.firstElementChild;
+  const authorUsername = extractUsernameFromText(identityRow?.textContent);
+
+  if (authorUsername) {
+    const displayName = getDisplayName(identityRow, authorUsername);
+    makeProfileLink(avatarElement, authorUsername, displayName);
+    makeProfileLink(identityRow, authorUsername, displayName);
+  }
+
+  const sourceIdentity = Array.from(sourceContainer.querySelectorAll("p")).find(
+    (element) => extractUsernameFromText(element.textContent),
+  );
+  const sourceUsername = extractUsernameFromText(sourceIdentity?.textContent);
+
+  if (sourceUsername) {
+    makeProfileLink(sourceIdentity, sourceUsername, getDisplayName(sourceIdentity, sourceUsername));
+  }
+}
+
+function decorateArticle(article) {
+  decorateThreadStarLetter(article);
+  decorateSentStarLetterCard(article);
 }
 
 function decorateStarLetterProfiles() {
-  document.querySelectorAll(STAR_LETTER_SELECTOR).forEach(decorateStarLetter);
+  document.querySelectorAll("article").forEach(decorateArticle);
 }
 
 function scheduleDecoration() {
@@ -86,9 +158,25 @@ function scheduleDecoration() {
 }
 
 function getProfileLinkTarget(event) {
-  return event.target instanceof Element
-    ? event.target.closest(`[${PROFILE_LINK_ATTRIBUTE}]`)
-    : null;
+  if (!(event.target instanceof Element)) {
+    return null;
+  }
+
+  let target = event.target.closest(`[${PROFILE_LINK_ATTRIBUTE}]`);
+
+  if (target) {
+    return target;
+  }
+
+  const article = event.target.closest("article");
+
+  if (!article) {
+    return null;
+  }
+
+  decorateArticle(article);
+  target = event.target.closest(`[${PROFILE_LINK_ATTRIBUTE}]`);
+  return target;
 }
 
 function handleProfileLinkClick(event) {
@@ -99,6 +187,7 @@ function handleProfileLinkClick(event) {
   }
 
   event.preventDefault();
+  event.stopPropagation();
   navigateToStarProfile(target.getAttribute(PROFILE_LINK_ATTRIBUTE));
 }
 
@@ -114,6 +203,7 @@ function handleProfileLinkKeydown(event) {
   }
 
   event.preventDefault();
+  event.stopPropagation();
   navigateToStarProfile(target.getAttribute(PROFILE_LINK_ATTRIBUTE));
 }
 
@@ -129,4 +219,4 @@ if (typeof document !== "undefined") {
   document.addEventListener("keydown", handleProfileLinkKeydown, true);
 }
 
-export { buildStarProfilePath, normalizeUsername };
+export { buildStarProfilePath, extractUsernameFromText, normalizeUsername };
