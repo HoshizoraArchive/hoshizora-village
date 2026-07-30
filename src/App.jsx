@@ -11,6 +11,7 @@ import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw";
 import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import VillageGuideAdminScreen from "./VillageGuideAdmin";
 import StarMovieObservationMode from "./StarMovieObservationMode";
+import ObserveBrandHeader from "./ObserveBrandHeader";
 import InteractiveOnboarding from "./InteractiveOnboarding";
 import ProfileTitleBadge from "./ProfileTitleBadge";
 import ProfileTitleEmblem from "./ProfileTitleEmblem";
@@ -7583,6 +7584,7 @@ function ObserveScreen({
 }) {
   return (
     <main className="observe-screen mx-auto min-w-0 max-w-3xl border-x border-white/10">
+      <ObserveBrandHeader />
       <Timeline
         archive={archive}
         onboarding={onboarding}
