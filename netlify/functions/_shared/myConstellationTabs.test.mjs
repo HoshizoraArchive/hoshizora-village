@@ -59,16 +59,21 @@ test("My Universe uses the asterism navigation icon and keeps My Star Chart dist
   assert.equal(source.includes("My Star Chart"), true, "My Star Chart must remain available");
 });
 
-test("My Universe opens directly with the profile and hides only its duplicate page heading", () => {
+test("My Universe keeps its page heading and removes only the purple profile cover band", () => {
   assert.match(mainSource, /import "\.\/myUniversePolish\.css";/);
   assert.match(source, /<PageIntro subtitle="わたしだけの宇宙" title="My Universe" \/>/);
   assert.match(source, /className="content-page my-universe-page mx-auto max-w-2xl"/);
   assert.match(source, /className="content-page public-profile-page mx-auto max-w-3xl"/);
+  assert.doesNotMatch(
+    myUniverseCssSource,
+    /\.my-universe-page > \.page-intro|\.public-profile-page > \.content-flow > \.page-intro/,
+  );
   assert.match(
     myUniverseCssSource,
-    /\.my-universe-page > \.page-intro,\s*\.public-profile-page > \.content-flow > \.page-intro \{\s*display: none;/,
+    /\.my-universe-page \.profile-card-header > div:first-child,[\s\S]*display: none/,
   );
-  assert.match(myUniverseCssSource, /\.page-intro h1/);
-  assert.match(myUniverseCssSource, /\.page-intro p/);
+  assert.match(myUniverseCssSource, /\.public-profile-page \.profile-card-header-actions[\s\S]*display: none/);
+  assert.match(myUniverseCssSource, /\.my-universe-page \.profile-title-emblem-header-slot/);
+  assert.match(myUniverseCssSource, /\.public-profile-page \.profile-title-emblem-header-slot/);
   assert.doesNotMatch(myUniverseCssSource, /:has\(|content:|text-shadow/);
 });
