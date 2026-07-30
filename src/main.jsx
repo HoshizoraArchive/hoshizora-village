@@ -5,6 +5,7 @@ import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./myStarChartPreviewExperience.js";
+import "./starLetterProfileNavigation.js";
 import "./onboardingFirstPostExample.js";
 import "./onboardingStarLetterButtonCompatibility.js";
 import "./onboardingObserveBootstrap.js";
@@ -16,6 +17,7 @@ import "./index.css";
 import "./titlePlateSquareFix.css";
 import "./observePolish.css";
 import "./myStarChartPreview.css";
+import "./starLetterProfileNavigation.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

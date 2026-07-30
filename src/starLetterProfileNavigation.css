@@ -1,0 +1,16 @@
+.star-letter-profile-link {
+  cursor: pointer;
+  border-radius: 0.75rem;
+  outline: none;
+  transition:
+    opacity 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.star-letter-profile-link:hover {
+  opacity: 0.86;
+}
+
+.star-letter-profile-link:focus-visible {
+  box-shadow: 0 0 0 2px rgb(125 223 255 / 0.5);
+}
