@@ -1,0 +1,108 @@
+name: Remove My Universe header safely
+
+on:
+  push:
+    branches:
+      - fix/remove-my-universe-header
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/remove-my-universe-header
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Remove only the duplicate My Universe headings
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app_path = Path('src/App.jsx')
+          app = app_path.read_text()
+
+          public_heading = '            <PageIntro subtitle="わたしだけの宇宙" title="My Universe" />\n'
+          owner_heading = '      <PageIntro subtitle="わたしだけの宇宙" title="My Universe" />\n'
+          component = '''function PageIntro({ subtitle, title }) {
+            return (
+              <header className="page-intro">
+                <h1>{title}</h1>
+                {subtitle ? <p>{subtitle}</p> : null}
+              </header>
+            );
+          }
+
+          '''
+
+          assert app.count(public_heading) == 1, 'public My Universe heading count changed'
+          assert app.count(owner_heading) == 1, 'owner My Universe heading count changed'
+          assert app.count(component) == 1, 'PageIntro component count changed'
+
+          app = app.replace(public_heading, '', 1)
+          app = app.replace(owner_heading, '', 1)
+          app = app.replace(component, '', 1)
+          app_path.write_text(app)
+
+          test_path = Path('netlify/functions/_shared/myConstellationTabs.test.mjs')
+          test_source = test_path.read_text()
+          test_source = test_source.replace("    'わたしだけの宇宙',\n", '', 1)
+
+          old_test = '''test("My Universe is a real page heading above both owner and public profile headers", () => {
+            assert.match(mainSource, /import "\\.\\/myUniversePolish\\.css";/);
+            assert.match(source, /function PageIntro\\(\\{ subtitle, title \\}\\)/);
+            assert.match(source, /<PageIntro subtitle="わたしだけの宇宙" title="My Universe" \\/>/);
+            assert.match(source, /className="content-page my-universe-page mx-auto max-w-2xl"/);
+            assert.match(source, /className="content-page public-profile-page mx-auto max-w-3xl"/);
+            assert.match(myUniverseCssSource, /\\.page-intro h1/);
+            assert.match(myUniverseCssSource, /\\.page-intro p/);
+            assert.match(myUniverseCssSource, /color: rgb\\(158 220 255\\)/);
+            assert.doesNotMatch(myUniverseCssSource, /:has\\(|content:|display: none|text-shadow/);
+          });
+          '''
+
+          new_test = '''test("My Universe opens directly with the profile and has no duplicate page heading", () => {
+            assert.match(mainSource, /import "\\.\\/myUniversePolish\\.css";/);
+            assert.doesNotMatch(source, /function PageIntro\\(\\{ subtitle, title \\}\\)/);
+            assert.doesNotMatch(source, /<PageIntro subtitle="わたしだけの宇宙" title="My Universe" \\/>/);
+            assert.match(
+              source,
+              /className="content-page my-universe-page mx-auto max-w-2xl">\\s*<ProfileCard profile=\\{profile\\} \\/>/,
+            );
+            assert.match(
+              source,
+              /profile && !isNotFound[\\s\\S]*?<>\\s*<PublicProfileCard/,
+            );
+            assert.match(source, /className="content-page public-profile-page mx-auto max-w-3xl"/);
+            assert.match(myUniverseCssSource, /\\.page-intro h1/);
+            assert.match(myUniverseCssSource, /\\.page-intro p/);
+            assert.doesNotMatch(myUniverseCssSource, /:has\\(|content:|display: none|text-shadow/);
+          });
+          '''
+
+          assert old_test in test_source, 'My Universe heading test changed unexpectedly'
+          test_source = test_source.replace(old_test, new_test, 1)
+          test_path.write_text(test_source)
+          PY
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - name: Commit the verified minimal change
+        run: |
+          rm .github/workflows/remove-my-universe-header.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.jsx netlify/functions/_shared/myConstellationTabs.test.mjs .github/workflows/remove-my-universe-header.yml
+          git commit -m "fix: My Universeの重複ヘッダーを削除"
+          git push origin HEAD:fix/remove-my-universe-header
