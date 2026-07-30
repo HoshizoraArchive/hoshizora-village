@@ -1,53 +1,32 @@
-/* My Universe is the name of the whole profile page, not only the activity panel.
- * Render the page title above the profile header on both the signed-in profile
- * and public profile screens. */
-main.mx-auto.max-w-2xl.space-y-4:has(> section.glass-panel [aria-label="My Universeの記録"]),
-main.mx-auto.max-w-3xl > section.space-y-5:has(> section.glass-panel > .profile-card-header) {
-  display: flex;
-  flex-direction: column;
+/* Page identity stays in the markup so profile and public-profile views share
+ * the same hierarchy without generated labels or selector-based hiding. */
+
+.page-intro {
+  margin: 0.25rem 0.75rem 1.25rem;
 }
 
-main.mx-auto.max-w-2xl.space-y-4:has(> section.glass-panel [aria-label="My Universeの記録"])::before,
-main.mx-auto.max-w-3xl > section.space-y-5:has(> section.glass-panel > .profile-card-header)::before {
-  order: -2;
-  padding-inline: 0.25rem;
+.page-intro h1 {
   color: rgb(158 220 255);
-  content: "My Universe";
   font-size: clamp(1.45rem, 6vw, 1.8rem);
   font-weight: 900;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   line-height: 1.15;
-  text-shadow: 0 0 12px rgb(120 210 255 / 0.18);
 }
 
-main.mx-auto.max-w-2xl.space-y-4:has(> section.glass-panel [aria-label="My Universeの記録"])::after,
-main.mx-auto.max-w-3xl > section.space-y-5:has(> section.glass-panel > .profile-card-header)::after {
-  order: -1;
+.page-intro p {
   margin-top: 0.3rem;
-  margin-bottom: 1rem;
-  padding-inline: 0.25rem;
   color: rgb(148 163 184);
-  content: "わたしだけの宇宙";
   font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.5;
 }
 
-/* The activity panel now begins directly with its tabs. */
-section.glass-panel:has([aria-label="My Universeの記録"]) > p:first-child,
-section.glass-panel:has([aria-label="My Universeの記録"]) > h2 {
-  display: none;
+.archive-intro {
+  margin-bottom: 1rem;
 }
 
-section.glass-panel:has([aria-label="My Universeの記録"]) > div.mt-4 {
-  margin-top: 0;
-}
-
-/* Public profiles used to repeat My Universe inside the profile card.
- * Keep the profile identity first inside the card now that the page owns the title. */
-section.glass-panel:has(> .profile-card-header)
-  > div:last-child
-  > div:nth-child(2):has(> p:first-child)
-  > p:nth-child(-n + 2) {
-  display: none;
+@media (min-width: 640px) {
+  .page-intro {
+    margin-inline: 1.25rem;
+  }
 }

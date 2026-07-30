@@ -49,7 +49,6 @@ test("My Universeの投稿カードは既存の操作・メディア・星文表
 test("My Universe uses the asterism navigation icon and keeps My Star Chart distinct", () => {
   for (const token of [
     '{ id: "profile", label: "My Universe", ariaLabel: "My Universe", icon: "asterism" }',
-    '<span className="block">My Universe</span>',
     'わたしだけの宇宙',
     'if (icon === "asterism")',
     '<svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">',
@@ -60,17 +59,14 @@ test("My Universe uses the asterism navigation icon and keeps My Star Chart dist
   assert.equal(source.includes("My Star Chart"), true, "My Star Chart must remain available");
 });
 
-test("My Universe is the page heading above both owner and public profile headers", () => {
+test("My Universe is a real page heading above both owner and public profile headers", () => {
   assert.match(mainSource, /import "\.\/myUniversePolish\.css";/);
-  assert.match(myUniverseCssSource, /main\.mx-auto\.max-w-2xl\.space-y-4:has/);
-  assert.match(myUniverseCssSource, /main\.mx-auto\.max-w-3xl > section\.space-y-5:has/);
-  assert.match(myUniverseCssSource, /content: "My Universe"/);
-  assert.match(myUniverseCssSource, /content: "わたしだけの宇宙"/);
+  assert.match(source, /function PageIntro\(\{ subtitle, title \}\)/);
+  assert.match(source, /<PageIntro subtitle="わたしだけの宇宙" title="My Universe" \/>/);
+  assert.match(source, /className="content-page my-universe-page mx-auto max-w-2xl"/);
+  assert.match(source, /className="content-page public-profile-page mx-auto max-w-3xl"/);
+  assert.match(myUniverseCssSource, /\.page-intro h1/);
+  assert.match(myUniverseCssSource, /\.page-intro p/);
   assert.match(myUniverseCssSource, /color: rgb\(158 220 255\)/);
-  assert.match(myUniverseCssSource, /text-shadow: 0 0 12px rgb\(120 210 255 \/ 0\.18\)/);
-  assert.match(
-    myUniverseCssSource,
-    /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\) > h2[\s\S]*display: none/,
-  );
-  assert.match(myUniverseCssSource, /p:nth-child\(-n \+ 2\)[\s\S]*display: none/);
+  assert.doesNotMatch(myUniverseCssSource, /:has\(|content:|display: none|text-shadow/);
 });
