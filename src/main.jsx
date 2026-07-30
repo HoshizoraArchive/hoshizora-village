@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
+import "./myStarChartPreviewExperience.js";
 import "./onboardingFirstPostExample.js";
 import "./onboardingStarLetterButtonCompatibility.js";
 import "./onboardingObserveBootstrap.js";
@@ -14,6 +15,7 @@ import "./onboardingVisibilityRecovery.js";
 import "./index.css";
 import "./titlePlateSquareFix.css";
 import "./observePolish.css";
+import "./myStarChartPreview.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
