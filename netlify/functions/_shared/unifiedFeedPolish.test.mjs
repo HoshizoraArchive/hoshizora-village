@@ -19,9 +19,19 @@ test("shared feed rows remove nested cards and keep the observation surface", ()
   assert.match(cssSource, /margin-top: 0 !important/);
 });
 
-test("My Universe activity panel no longer renders as a nested glass card", () => {
-  assert.match(
-    cssSource,
-    /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\)[\s\S]*background: transparent[\s\S]*backdrop-filter: none/,
-  );
+test("My Universe joins the profile card, tabs, and feed into one continuous surface", () => {
+  assert.match(cssSource, /section\.glass-panel:first-of-type[\s\S]*border-bottom-right-radius: 0/);
+  assert.match(cssSource, /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\)[\s\S]*border-radius: 0 0 24px 24px/);
+  assert.match(cssSource, /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\)[\s\S]*margin-top: 0 !important/);
+});
+
+test("Archive wraps its header, tabs, and feed in one glass surface", () => {
+  assert.match(cssSource, /main\.mx-auto\.max-w-3xl:has\(> section\.glass-panel \[aria-label="Archiveの種類"\]\)[\s\S]*border-radius: 24px/);
+  assert.match(cssSource, /> section\.glass-panel\.mb-4[\s\S]*margin-bottom: 0/);
+  assert.match(cssSource, /> section\.space-y-5[\s\S]*padding: 0 0 2\.5rem/);
+});
+
+test("public profiles also join their profile and meteor feed panels", () => {
+  assert.match(cssSource, /section\.glass-panel:has\(> \.profile-card-header\)[\s\S]*border-bottom-left-radius: 0/);
+  assert.match(cssSource, /\+ section\.glass-panel[\s\S]*border-top-left-radius: 0/);
 });
