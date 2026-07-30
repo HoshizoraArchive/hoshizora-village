@@ -12493,7 +12493,7 @@ function PostCard({
           ) : (
             <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} frame={post.avatarFrame} />
           )}
-          <div className={`min-w-0 flex-1 pt-0.5${hasCornerEmblem ? " pr-10" : ""}`}>
+          <div className={`min-w-0 flex-1 pt-0.5${hasCornerEmblem ? " pr-20" : ""}`}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
