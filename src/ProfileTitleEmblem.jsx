@@ -24,5 +24,9 @@ export default function ProfileTitleEmblem({ decorative = false, placement = "in
     return <span className="profile-title-emblem-header-slot">{emblem}</span>;
   }
 
+  if (placement === "post-card") {
+    return <span className="profile-title-emblem-post-card-slot">{emblem}</span>;
+  }
+
   return emblem;
 }

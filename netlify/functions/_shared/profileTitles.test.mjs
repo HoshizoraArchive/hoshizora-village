@@ -192,6 +192,8 @@ test("profile title UI keeps the guide emblem and title as independent elements"
   assert.match(emblemSource, /placement = "inline"/);
   assert.match(emblemSource, /placement === "header"/);
   assert.match(emblemSource, /profile-title-emblem-header-slot/);
+  assert.match(emblemSource, /placement === "post-card"/);
+  assert.match(emblemSource, /profile-title-emblem-post-card-slot/);
   assert.match(emblemSource, /aria-hidden=\{decorative \? "true" : undefined\}/);
   assert.match(badgeSource, /aria-hidden="true"/);
   assert.doesNotMatch(badgeSource, /GuideReflection/);
@@ -216,7 +218,7 @@ test("profile title UI keeps the guide emblem and title as independent elements"
   assert.match(cssSource, /prefers-reduced-motion[\s\S]*profile-title-badge-celestial-guide::before/);
 });
 
-test("My Constellation, public profiles, meteor cards, and star letters render primary titles", () => {
+test("profile pages, meteor cards, and star letters render primary titles without mixing card-corner emblems into other screens", () => {
   assert.match(appSource, /function ProfileCard[\s\S]*ProfileTitleBadge size="profile"/);
   assert.match(appSource, /function PublicProfileCard[\s\S]*ProfileTitleBadge size="profile"/);
   assert.match(appSource, /function ProfileCard[\s\S]*ProfileTitleEmblem placement="header" size="profile"/);
@@ -230,9 +232,12 @@ test("My Constellation, public profiles, meteor cards, and star letters render p
     /function PublicProfileCard[\s\S]*ProfileTitleEmblem placement="header" size="profile"[\s\S]*profile-avatar-title-plate[\s\S]*ProfileTitleBadge size="profile"/,
   );
   assert.match(appSource, /function PostCard[\s\S]*ProfileTitleBadge size="compact" title=\{post\.primaryTitle\}/);
-  assert.match(appSource, /function PostCard[\s\S]*ProfileTitleEmblem decorative size="compact" title=\{post\.primaryTitle\}/);
+  assert.match(appSource, /function PostCard[\s\S]*emblemPlacement = "inline"/);
+  assert.match(appSource, /function PostCard[\s\S]*hasCornerEmblem[\s\S]*placement="post-card"/);
+  assert.match(appSource, /function Timeline[\s\S]*emblemPlacement="corner"/);
   assert.match(appSource, /function StarLetterItem[\s\S]*ProfileTitleBadge size="compact" title=\{letter\.primaryTitle\}/);
   assert.match(appSource, /function StarLetterItem[\s\S]*ProfileTitleEmblem decorative size="compact" title=\{letter\.primaryTitle\}/);
+  assert.match(appSource, /function ArchivedStarLetterCard[\s\S]*ProfileTitleEmblem decorative size="compact" title=\{item\.primaryTitle\}/);
   assert.match(appSource, /min-w-0 flex-1/);
   assert.match(appSource, /flex flex-wrap items-center/);
 });
