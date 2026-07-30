@@ -11,7 +11,7 @@ test("My Star Chart card opens a dedicated placeholder experience", () => {
   assert.match(mainSource, /import "\.\/myStarChartPreview\.css";/);
   assert.match(experienceSource, /STAR_CHART_ENTRY_LABEL = "My Star Chart"/);
   assert.match(experienceSource, /ここはまだ実装途中です。/);
-  assert.match(experienceSource, /My Constellationへ戻る/);
+  assert.match(experienceSource, /My Universeへ戻る/);
   assert.match(experienceSource, /role", "dialog"/);
   assert.match(experienceSource, /event\.key === "Escape"/);
   assert.match(cssSource, /\.my-star-chart-preview\s*\{[\s\S]*position: fixed[\s\S]*min-height: 100dvh/);

@@ -79,7 +79,7 @@ const bottomNavItems = [
   { id: "rconnect", label: "R.Connect", icon: "bell" },
   { id: "post", label: "流星便", icon: "plus", primary: true },
   { id: "archive", label: "Archive", icon: "bookmark" },
-  { id: "profile", label: "My Const.", ariaLabel: "My Constellation", icon: "constellation" },
+  { id: "profile", label: "My Universe", ariaLabel: "My Universe", icon: "asterism" },
 ];
 
 const STAR_LETTER_MAX_LENGTH = 500;
@@ -6531,7 +6531,7 @@ function App() {
     setProfileShareError("");
 
     if (!username) {
-      setProfileShareError("星座URLの共有にはusernameが必要です。");
+      setProfileShareError("My Universeの共有にはusernameが必要です。");
       return;
     }
 
@@ -6540,18 +6540,18 @@ function App() {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: "星空VillageのMy Constellation",
-          text: "星空VillageのMy Constellationです。",
+          title: "星空VillageのMy Universe",
+          text: "星空VillageのMy Universeです。",
           url: starProfileUrl,
         });
-        setProfileShareMessage("星座URLを共有できます");
+        setProfileShareMessage("My UniverseのURLを共有できます");
         return;
       }
 
       await navigator.clipboard.writeText(starProfileUrl);
-      setProfileShareMessage("星座URLをコピーしました");
+      setProfileShareMessage("My UniverseのURLをコピーしました");
     } catch (_error) {
-      setProfileShareError("星座URLのコピーに失敗しました。");
+      setProfileShareError("My UniverseのURLのコピーに失敗しました。");
     }
   }
 
@@ -8373,7 +8373,8 @@ function PublicProfileCard({ displayName, onOpenAvatar, onShare, profile, tags }
           )}
         </div>
         <div className={primaryTitle ? "mt-1" : "mt-3"}>
-          <p className="text-xs font-black text-comet">My Constellation</p>
+          <p className="text-xs font-black text-comet">My Universe</p>
+          <p className="mt-1 text-xs font-medium text-slate-400">わたしだけの宇宙</p>
           <div className="profile-title-profile-layout">
             <h2 className="mt-1 min-w-0 text-lg font-black text-white">{displayName}</h2>
           </div>
@@ -9137,8 +9138,16 @@ function MyConstellationActivityPanel({
   }
 
   return (
-    <Panel title="わたしの星座" eyebrow="my constellation">
-      <div aria-label="My Constellationの記録" className="mb-5 grid grid-cols-3 rounded-2xl border border-white/10 bg-night-950/45 p-1" role="tablist">
+    <Panel
+      eyebrow="my universe"
+      title={
+        <>
+          <span className="block">My Universe</span>
+          <span className="mt-1 block text-xs font-medium text-slate-400">わたしだけの宇宙</span>
+        </>
+      }
+    >
+      <div aria-label="My Universeの記録" className="mb-5 grid grid-cols-3 rounded-2xl border border-white/10 bg-night-950/45 p-1" role="tablist">
         <button
           aria-selected={activeView === "posts"}
           className={`min-h-11 rounded-xl px-2 text-xs font-black transition ${
@@ -10863,6 +10872,16 @@ function BottomNavIcon({ icon }) {
     return (
       <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
         <path d="M7 4h10v16l-5-3-5 3V4Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+
+  if (icon === "asterism") {
+    return (
+      <svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+        <path d="m12 2.6 1.05 3.15 3.15 1.05-3.15 1.05L12 11l-1.05-3.15L7.8 6.8l3.15-1.05L12 2.6Z" />
+        <path d="m5.7 12.9.82 2.45 2.45.82-2.45.82-.82 2.45-.82-2.45-2.45-.82 2.45-.82.82-2.45Z" />
+        <path d="m18.3 12.9.82 2.45 2.45.82-2.45.82-.82 2.45-.82-2.45-2.45-.82 2.45-.82.82-2.45Z" />
       </svg>
     );
   }

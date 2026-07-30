@@ -29,7 +29,7 @@ const miniChia = readFileSync("public/images/onboarding/mini-chia.png");
 test("Issue #97の台詞とR.Connectが流星便より前の順序を維持する", () => {
   const expectedDialogue = {
     mini_chia_intro: ["おはちあ！ また会ったね！", "ここからは、ちあが星空Villageをいろいろ案内するよ！"],
-    profile_setup: ["まずは「My Const.」へ行こう！", "この編集ボタンを押して、あなたの名前と姿を教えてね！"],
+    profile_setup: ["まずは「My Universe」へ行こう！", "この編集ボタンを押して、あなたの名前と姿を教えてね！"],
     profile_success: [
       "わあ！ 星空ほしくんっていうんだ！",
       "素敵な名前だね！",

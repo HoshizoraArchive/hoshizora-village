@@ -143,7 +143,7 @@ function buildPreviewOverlay({ displayName, constellationNote }) {
   );
 
   const header = createElement("header", "my-star-chart-preview__header");
-  const backButton = createElement("button", "my-star-chart-preview__back", "← My Constellationへ戻る");
+  const backButton = createElement("button", "my-star-chart-preview__back", "← My Universeへ戻る");
   backButton.type = "button";
   backButton.addEventListener("click", closeStarChartPreview);
   header.append(backButton);
