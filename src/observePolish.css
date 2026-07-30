@@ -43,13 +43,17 @@
   width: min(16.5rem, 76vw);
   height: 3.15rem;
   place-items: center;
-  transition: height 180ms ease;
+  transform: translateY(-1.125rem);
+  transition:
+    height 180ms ease,
+    transform 180ms ease;
 }
 
 .observe-brand-header.is-scrolled .observe-brand-header-logo-slot {
   --observe-brand-logo-source-height: 9.4rem;
 
   height: 2.65rem;
+  transform: translateY(0);
 }
 
 .observe-brand-header-logo {
@@ -83,7 +87,7 @@
 }
 
 .observe-screen .timeline-post-list {
-  padding: 0.25rem 0 2.5rem;
+  padding: 1rem 0 2.5rem;
 }
 
 .observe-screen .timeline-post-list > * + * {
