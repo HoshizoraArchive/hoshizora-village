@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync("src/App.jsx", "utf8");
+const mainSource = readFileSync("src/main.jsx", "utf8");
+const myUniverseCssSource = readFileSync("src/myUniversePolish.css", "utf8");
 
 test("My Universeは流星便・共鳴・星文の3タブを切り替える", () => {
   for (const token of [
@@ -56,4 +58,14 @@ test("My Universe uses the asterism navigation icon and keeps My Star Chart dist
   }
 
   assert.equal(source.includes("My Star Chart"), true, "My Star Chart must remain available");
+});
+
+test("My Universe panel hides the duplicate eyebrow while keeping the formal title", () => {
+  assert.match(mainSource, /import "\.\/myUniversePolish\.css";/);
+  assert.match(
+    myUniverseCssSource,
+    /section\.glass-panel:has\(\[aria-label="My Universeの記録"\]\) > p:first-child\s*\{[\s\S]*display: none/,
+  );
+  assert.match(source, /<span className="block">My Universe<\/span>/);
+  assert.match(source, /わたしだけの宇宙/);
 });

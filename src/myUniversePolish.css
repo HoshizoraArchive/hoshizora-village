@@ -1,0 +1,5 @@
+/* My Universe already renders its formal title inside Panel's h2.
+ * Hide only the duplicated eyebrow label for this panel. */
+section.glass-panel:has([aria-label="My Universeの記録"]) > p:first-child {
+  display: none;
+}
