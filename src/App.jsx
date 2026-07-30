@@ -11793,6 +11793,7 @@ function Timeline({
           posts.map((post) => (
             <PostCard
               archive={archive}
+              emblemPlacement="corner"
               key={post.id ?? post.handle}
               onboarding={onboarding}
               onOpenAuthorProfile={onOpenStarProfile}
@@ -12370,6 +12371,7 @@ function PostThumbnailDraftPreview({ disabled, draft, onEdit, onRemove }) {
 function PostCard({
   archive,
   detailMode = false,
+  emblemPlacement = "inline",
   onboarding,
   onOpenAuthorProfile,
   onOpenDetail,
@@ -12411,6 +12413,7 @@ function PostCard({
   const canOpenAuthorProfile = Boolean(onOpenAuthorProfile && authorUsername);
   const isOnboardingTargetPost =
     onboarding?.active && onboarding.targetPostId === post.id;
+  const hasCornerEmblem = emblemPlacement === "corner" && Boolean(post.primaryTitle?.emblemPath);
 
   function isCardActionTarget(target) {
     return Boolean(
@@ -12462,7 +12465,7 @@ function PostCard({
   return (
     <article
       aria-label={canOpenDetail ? `${post.name}の流星便を開く` : undefined}
-      className={`glass-panel post-card-panel post-card group overflow-hidden ${
+      className={`glass-panel post-card-panel post-card group relative overflow-hidden ${
         canOpenDetail ? "is-clickable" : ""
       }`}
       data-onboarding-target={isOnboardingTargetPost ? "onboarding-archive-post" : undefined}
@@ -12472,6 +12475,9 @@ function PostCard({
       tabIndex={canOpenDetail ? 0 : undefined}
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
+      {hasCornerEmblem ? (
+        <ProfileTitleEmblem decorative placement="post-card" size="compact" title={post.primaryTitle} />
+      ) : null}
       <div className="post-card-content p-4 sm:p-5">
         <div className="flex items-start gap-3">
           {canOpenAuthorProfile ? (
@@ -12487,7 +12493,7 @@ function PostCard({
           ) : (
             <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} frame={post.avatarFrame} />
           )}
-          <div className="min-w-0 flex-1 pt-0.5">
+          <div className={`min-w-0 flex-1 pt-0.5${hasCornerEmblem ? " pr-10" : ""}`}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
@@ -12501,7 +12507,7 @@ function PostCard({
               ) : (
                 <h3 className="font-black text-white">{post.name}</h3>
               )}
-              <ProfileTitleEmblem decorative size="compact" title={post.primaryTitle} />
+              {!hasCornerEmblem ? <ProfileTitleEmblem decorative size="compact" title={post.primaryTitle} /> : null}
               <ProfileTitleBadge size="compact" title={post.primaryTitle} />
               <span className="rounded-full border border-comet/20 bg-comet/10 px-2 py-0.5 text-[11px] font-bold text-comet">
                 {post.badge}
