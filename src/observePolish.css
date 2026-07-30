@@ -7,26 +7,59 @@
   border-inline: 0;
 }
 
-.observe-screen::before {
+.observe-brand-header {
   position: sticky;
   top: 0;
   z-index: 24;
   display: flex;
-  min-height: 3.75rem;
   align-items: center;
   justify-content: center;
-  padding: 0.85rem 1rem 0.75rem;
-  border-bottom: 1px solid rgb(255 255 255 / 0.055);
-  background: rgb(3 5 17 / 0.72);
-  color: rgb(250 252 255);
+  min-height: 3.8rem;
+  padding: max(0.55rem, env(safe-area-inset-top)) 1rem 0.5rem;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    backdrop-filter 180ms ease;
+}
+
+.observe-brand-header.is-scrolled {
+  border-bottom-color: rgb(191 221 255 / 0.1);
+  background: rgb(8 16 39 / 0.38);
+  backdrop-filter: blur(10px) saturate(110%);
+  -webkit-backdrop-filter: blur(10px) saturate(110%);
+}
+
+.observe-brand-header-logo-slot {
+  --observe-brand-logo-source-height: 8.5rem;
+
+  position: relative;
+  display: grid;
+  width: min(14rem, 68vw);
+  height: 2.8rem;
+  place-items: center;
+}
+
+.observe-brand-header-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: auto;
+  height: var(--observe-brand-logo-source-height);
+  max-width: none;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 1px 6px rgb(4 10 32 / 0.28));
+  user-select: none;
+}
+
+.observe-brand-header-fallback {
+  color: rgb(242 248 255);
   font-size: clamp(1.12rem, 4.4vw, 1.34rem);
   font-weight: 900;
   letter-spacing: 0.018em;
   text-shadow: 0 1px 14px rgb(155 205 255 / 0.16);
-  backdrop-filter: blur(18px) saturate(118%);
-  -webkit-backdrop-filter: blur(18px) saturate(118%);
-  content: "星空Village";
-  user-select: none;
 }
 
 .observe-screen .timeline-post-list {
@@ -80,7 +113,7 @@
 }
 
 @media (min-width: 640px) {
-  .observe-screen::before {
+  .observe-brand-header {
     min-height: 4rem;
   }
 }
