@@ -7,6 +7,7 @@ import {
   getObservePullGesture,
   isPublicPostNewer,
   isUnseenPublicTimelinePost,
+  runObserveTimelineSingleFlight,
   shouldTriggerObservePullRefresh,
 } from "../../../src/observeTimelineRefresh.js";
 
@@ -85,6 +86,39 @@ test("observe refresh uses one shared loader and cleans up realtime, polling, an
   assert.match(appSource, /window\.removeEventListener\("touchmove", handleTouchMove\)/);
   assert.match(appSource, /window\.removeEventListener\("touchend", handleTouchEnd\)/);
   assert.equal(OBSERVE_TIMELINE_POLL_INTERVAL_MS, 45_000);
+});
+
+test("observe focus and visible returns check immediately while keeping one freshness request in flight", async () => {
+  let resolveFirstCheck;
+  let calls = 0;
+  const inFlightRef = { current: false };
+  const firstCheck = runObserveTimelineSingleFlight(inFlightRef, async () => {
+    calls += 1;
+    await new Promise((resolve) => {
+      resolveFirstCheck = resolve;
+    });
+    return true;
+  });
+  const overlappingFocusOrPollCheck = await runObserveTimelineSingleFlight(inFlightRef, async () => {
+    calls += 1;
+    return true;
+  });
+
+  assert.equal(overlappingFocusOrPollCheck, false);
+  assert.equal(calls, 1);
+  resolveFirstCheck();
+  assert.equal(await firstCheck, true);
+  assert.equal(inFlightRef.current, false);
+  assert.match(
+    appSource,
+    /const handleFocus = \(\) => \{[\s\S]*void checkForNewPublicPosts\(\);[\s\S]*ensurePollingStarted\(\);/,
+  );
+  assert.match(
+    appSource,
+    /if \(document\.visibilityState === "visible"\) \{[\s\S]*void checkForNewPublicPosts\(\);[\s\S]*ensurePollingStarted\(\);/,
+  );
+  assert.match(appSource, /const ensurePollingStarted = \(\) => \{[\s\S]*pollTimer === null/);
+  assert.match(appSource, /runObserveTimelineSingleFlight\(publicPostsFreshnessCheckInFlightRef/);
 });
 
 test("observe refresh banner reloads without shifting readers until they choose it", () => {

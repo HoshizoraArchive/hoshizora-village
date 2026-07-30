@@ -80,6 +80,7 @@ import {
   isInteractiveObserveTimelineTarget,
   isPublicPostNewer,
   isUnseenPublicTimelinePost,
+  runObserveTimelineSingleFlight,
   shouldTriggerObservePullRefresh,
 } from "./observeTimelineRefresh";
 
@@ -1741,6 +1742,7 @@ function App() {
   const [timelinePullDistance, setTimelinePullDistance] = useState(0);
   const [timelineHasNewPosts, setTimelineHasNewPosts] = useState(false);
   const publicPostsRefreshInFlightRef = useRef(false);
+  const publicPostsFreshnessCheckInFlightRef = useRef(false);
   const publicTimelineKnownPostIdsRef = useRef(new Set());
   const publicTimelineTopPostRef = useRef(null);
   const isObserveTimelineActiveRef = useRef(false);
@@ -3788,27 +3790,29 @@ function App() {
       return false;
     }
 
-    const { data: latestPost, error } = await readLatestPublicPost();
+    return runObserveTimelineSingleFlight(publicPostsFreshnessCheckInFlightRef, async () => {
+      const { data: latestPost, error } = await readLatestPublicPost();
 
-    if (
-      error ||
-      !latestPost ||
-      !appMountedRef.current ||
-      !isObserveTimelineActiveRef.current ||
-      document.visibilityState !== "visible"
-    ) {
+      if (
+        error ||
+        !latestPost ||
+        !appMountedRef.current ||
+        !isObserveTimelineActiveRef.current ||
+        document.visibilityState !== "visible"
+      ) {
+        return false;
+      }
+
+      if (
+        isUnseenPublicTimelinePost(latestPost, publicTimelineKnownPostIdsRef.current) &&
+        isPublicPostNewer(latestPost, publicTimelineTopPostRef.current)
+      ) {
+        setTimelineHasNewPosts(true);
+        return true;
+      }
+
       return false;
-    }
-
-    if (
-      isUnseenPublicTimelinePost(latestPost, publicTimelineKnownPostIdsRef.current) &&
-      isPublicPostNewer(latestPost, publicTimelineTopPostRef.current)
-    ) {
-      setTimelineHasNewPosts(true);
-      return true;
-    }
-
-    return false;
+    });
   }, [isObserveTimelineActive]);
 
   useEffect(() => {
@@ -3859,24 +3863,28 @@ function App() {
         pollTimer = null;
       }
     };
-    const startPolling = () => {
+    const ensurePollingStarted = () => {
       if (document.visibilityState === "visible" && pollTimer === null) {
-        void checkForNewPublicPosts();
         pollTimer = window.setInterval(checkForNewPublicPosts, OBSERVE_TIMELINE_POLL_INTERVAL_MS);
       }
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        startPolling();
+        void checkForNewPublicPosts();
+        ensurePollingStarted();
       } else {
         stopPolling();
       }
     };
-    const handleFocus = () => startPolling();
+    const handleFocus = () => {
+      void checkForNewPublicPosts();
+      ensurePollingStarted();
+    };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleFocus);
-    startPolling();
+    void checkForNewPublicPosts();
+    ensurePollingStarted();
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);

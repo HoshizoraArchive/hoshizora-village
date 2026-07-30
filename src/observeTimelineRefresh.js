@@ -37,6 +37,20 @@ export function isInteractiveObserveTimelineTarget(target) {
   return Boolean(target?.closest?.("a, button, input, textarea, select, label, video, iframe, [contenteditable='true']"));
 }
 
+export async function runObserveTimelineSingleFlight(inFlightRef, operation) {
+  if (inFlightRef.current) {
+    return false;
+  }
+
+  inFlightRef.current = true;
+
+  try {
+    return await operation();
+  } finally {
+    inFlightRef.current = false;
+  }
+}
+
 export function isUnseenPublicTimelinePost(post, knownPostIds) {
   return Boolean(
     post?.id &&
