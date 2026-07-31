@@ -12,6 +12,7 @@ const FALLBACK_BODY_BY_TYPE = {
   star_letter: "星文が届きました。",
   star_letter_reply: "星文に返信が届きました。",
   star_letter_resonance: "星文に共鳴が届きました。",
+  content_report: "観測局に新しい異常が届きました",
 };
 
 export function readPushDeliveryConfig() {

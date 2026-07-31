@@ -7231,6 +7231,35 @@ create index content_reports_reviewed_by_idx
   on public.content_reports(reviewed_by)
   where reviewed_by is not null;
 
+alter table public.notifications
+  add column content_report_id uuid references public.content_reports(id) on delete set null;
+
+create index notifications_content_report_id_idx
+  on public.notifications(content_report_id)
+  where content_report_id is not null;
+
+alter table public.notifications
+  drop constraint if exists notifications_type_check;
+alter table public.notifications
+  add constraint notifications_type_check
+  check (type in (
+    'resonance',
+    'archive',
+    'star_letter',
+    'star_letter_reply',
+    'star_letter_resonance',
+    'content_report'
+  ));
+
+alter table public.notifications
+  add constraint notifications_content_report_reference_check
+  check (content_report_id is null or type = 'content_report');
+
+comment on column public.notifications.content_report_id is
+  '観測局の管理通知が指すreport。対象ユーザーや送信者へは公開せず、管理者のR.Connect遷移だけに使用する。';
+comment on column public.notifications.type is
+  '通知タイプ。content_reportは観測局に新しい異常が作成された時だけapp_adminへ送る管理通知。';
+
 alter table public.content_reports enable row level security;
 
 revoke all on table public.content_reports from public, anon, authenticated;
@@ -7265,12 +7294,12 @@ begin
     return;
   end if;
 
-  if p_target_type not in ('post', 'profile') then
+  if p_target_type is null or p_target_type not in ('post', 'profile') then
     return query select 'invalid_target'::text, null::uuid;
     return;
   end if;
 
-  if p_reason not in (
+  if p_reason is null or p_reason not in (
     'harassment',
     'hate_or_abuse',
     'sexual_content',
@@ -7315,21 +7344,25 @@ begin
     select jsonb_build_object(
       'id', v_target_post.id,
       'author_id', v_target_post.author_id,
-      'body', v_target_post.body,
-      'type', v_target_post.type,
-      'visibility', v_target_post.visibility,
+      'body', left(coalesce(v_target_post.body, ''), 500),
+      'body_truncated', char_length(coalesce(v_target_post.body, '')) > 500,
+      'type', left(v_target_post.type, 32),
+      'visibility', left(v_target_post.visibility, 32),
       'created_at', v_target_post.created_at,
-      'youtube_video_id', v_target_post.youtube_video_id,
+      'youtube_video_id', left(v_target_post.youtube_video_id, 128),
+      'youtube_video_id_truncated', char_length(coalesce(v_target_post.youtube_video_id, '')) > 128,
       'media', coalesce(
         (
           select jsonb_agg(
             jsonb_build_object(
-              'media_type', media.media_type,
-              'storage_path', media.storage_path,
-              'thumbnail_storage_path', media.thumbnail_storage_path,
+              'media_type', left(media.media_type, 32),
+              'storage_path', left(media.storage_path, 1024),
+              'storage_path_truncated', char_length(coalesce(media.storage_path, '')) > 1024,
+              'thumbnail_storage_path', left(media.thumbnail_storage_path, 1024),
+              'thumbnail_storage_path_truncated', char_length(coalesce(media.thumbnail_storage_path, '')) > 1024,
               'duration_seconds', media.duration_seconds,
               'sort_order', media.sort_order,
-              'mime_type', media.mime_type,
+              'mime_type', left(media.mime_type, 128),
               'size_bytes', media.size_bytes
             )
             order by media.sort_order, media.id
@@ -7358,11 +7391,16 @@ begin
       return;
     end if;
 
+    v_target_author_id := v_target_profile.id;
+
     select jsonb_build_object(
       'id', v_target_profile.id,
-      'display_name', v_target_profile.display_name,
-      'username', v_target_profile.username,
-      'bio', v_target_profile.bio,
+      'display_name', left(v_target_profile.display_name, 120),
+      'display_name_truncated', char_length(coalesce(v_target_profile.display_name, '')) > 120,
+      'username', left(v_target_profile.username, 32),
+      'username_truncated', char_length(coalesce(v_target_profile.username, '')) > 32,
+      'bio', left(v_target_profile.bio, 2000),
+      'bio_truncated', char_length(coalesce(v_target_profile.bio, '')) > 2000,
       'avatar_url', case
         when v_target_profile.avatar_url is null
           or char_length(v_target_profile.avatar_url) > 2048
@@ -7371,8 +7409,9 @@ begin
           or lower(v_target_profile.avatar_url) like '%/object/sign/%'
           or v_target_profile.avatar_url ~* '[?&](token|signature|x-amz-signature|expires|policy|key-pair-id)='
         then null
-        else v_target_profile.avatar_url
-      end
+        else left(v_target_profile.avatar_url, 2048)
+      end,
+      'avatar_url_truncated', char_length(coalesce(v_target_profile.avatar_url, '')) > 2048
     )
     into v_snapshot;
   end if;
@@ -7430,12 +7469,35 @@ begin
   )
   returning id into v_report_id;
 
+  insert into public.notifications (
+    recipient_id,
+    actor_id,
+    post_id,
+    star_letter_id,
+    content_report_id,
+    type,
+    message
+  )
+  select
+    admin_user.user_id,
+    null,
+    null,
+    null,
+    v_report_id,
+    'content_report',
+    '観測局に新しい異常が届きました'
+  from public.app_admins admin_user
+  join public.profiles admin_profile
+    on admin_profile.id = admin_user.user_id
+  where admin_user.user_id <> v_reporter_id
+    and admin_user.user_id <> v_target_author_id;
+
   return query select 'created'::text, v_report_id;
 end;
 $$;
 
 comment on function public.create_content_report(text, uuid, text, text) is
-  '認証ユーザー専用。送信者とsnapshotをDBで確定し、同一対象・理由の24時間重複をtransaction lockで抑止する。';
+  '認証ユーザー専用。送信者と上限付きsnapshotをDBで確定し、24時間重複を抑止してcreated時だけapp_admin通知を同一transactionで作る。';
 
 revoke all on function public.create_content_report(text, uuid, text, text)
 from public, anon, authenticated, service_role;
@@ -7563,6 +7625,7 @@ begin
   end if;
 
   if p_report_id is null
+    or p_status is null
     or p_status not in ('open', 'reviewing', 'resolved', 'dismissed')
   then
     return query

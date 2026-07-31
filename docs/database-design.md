@@ -791,6 +791,12 @@ Issue #97の新規入村者向け進捗をユーザー単位で1行保存しま�
 `public.advance_initial_onboarding(...)`に限定します。実Pushの成功記録は
 `public.record_initial_onboarding_push_test(...)`をservice_roleだけが実行できます。
 
+## 観測局へ異常を伝える
+
+`public.content_reports`は一般ユーザーへ直接公開せず、作成・管理閲覧・状態更新を固定`search_path`の専用SECURITY DEFINER RPCへ限定します。送信時snapshotはDB内で生成し、本文、プロフィール文字列、メディア参照を項目ごとの固定長へ切り詰めます。24時間の重複判定はtransaction advisory lock内で行い、`already_reported`では新しいreportも通知も作りません。
+
+新しいreportが`created`になった場合だけ、送信者と対象者を除く`app_admins`のうちR.Connectプロフィールを持つ運営アカウントへ、固定文言「観測局に新しい異常が届きました」の`content_report`通知を同じtransaction内で作ります。`actor_id`はnullとし、理由、補足、snapshot、送信者名、対象者名は通知行とPush本文へ含めません。既存のnotifications INSERT triggerがPush jobを作るため、Push未登録でもR.Connect行は残り、Push登録済み端末には同じ安全な固定文言だけを送ります。異常を伝えられた対象ユーザーと送信者本人への通知、R.Connect表示、Push送信は行いません。
+
 ## 今回まだ実装しないこと
 
 今回のPRでは、以下は実装しません。

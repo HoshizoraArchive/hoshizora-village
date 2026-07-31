@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CONTENT_REPORT_RESOLUTION_MAX_LENGTH,
   CONTENT_REPORT_STATUSES,
+  createLatestContentReportRequestGuard,
+  getContentReportReviewDraft,
   getContentReportReasonLabel,
   getContentReportStatusLabel,
   isMissingContentReportsSchemaError,
@@ -38,49 +40,65 @@ function getTargetTitle(report) {
 
 function SnapshotDetails({ report }) {
   const snapshot = report.snapshot ?? {};
+  const snapshotWasTruncated = Object.entries(snapshot).some(
+    ([key, value]) => key.endsWith("_truncated") && value === true,
+  ) || (Array.isArray(snapshot.media) && snapshot.media.some((item) =>
+    Object.entries(item ?? {}).some(
+      ([key, value]) => key.endsWith("_truncated") && value === true,
+    )));
 
   if (report.targetType === "profile") {
     return (
-      <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <SnapshotField label="表示名" value={snapshot.display_name || "未設定"} />
-        <SnapshotField label="ユーザー名" value={snapshot.username ? `@${snapshot.username}` : "未設定"} />
-        <SnapshotField className="sm:col-span-2" label="自己紹介" value={snapshot.bio || "未設定"} />
-        <SnapshotField className="sm:col-span-2" label="送信時のアイコン参照" value={snapshot.avatar_url || "未設定"} />
-      </dl>
+      <>
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <SnapshotField label="表示名" value={snapshot.display_name || "未設定"} />
+          <SnapshotField label="ユーザー名" value={snapshot.username ? `@${snapshot.username}` : "未設定"} />
+          <SnapshotField className="sm:col-span-2" label="自己紹介" value={snapshot.bio || "未設定"} />
+          <SnapshotField className="sm:col-span-2" label="送信時のアイコン参照" value={snapshot.avatar_url || "未設定"} />
+        </dl>
+        {snapshotWasTruncated ? (
+          <p className="mt-3 text-[11px] leading-5 text-slate-500">安全な保存上限を超えた項目は一部省略されています。</p>
+        ) : null}
+      </>
     );
   }
 
   const media = Array.isArray(snapshot.media) ? snapshot.media : [];
 
   return (
-    <dl className="grid gap-3 text-sm sm:grid-cols-2">
-      <SnapshotField label="投稿形式" value={snapshot.type || "不明"} />
-      <SnapshotField label="公開状態" value={snapshot.visibility || "不明"} />
-      <SnapshotField label="投稿日時" value={formatDateTime(snapshot.created_at)} />
-      <SnapshotField label="メディア数" value={`${media.length}件`} />
-      <SnapshotField className="sm:col-span-2" label="本文" value={snapshot.body || "本文なし"} />
-      {media.length ? (
-        <div className="sm:col-span-2">
-          <dt className="text-[11px] font-black text-slate-500">メディア情報</dt>
-          <dd className="mt-2 space-y-2">
-            {media.map((item, index) => (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2" key={`${item.storage_path ?? "media"}-${index}`}>
-                <p className="text-xs font-bold text-slate-200">
-                  {index + 1}. {item.media_type || "不明"}
-                </p>
-                <p className="mt-1 break-all text-[11px] leading-5 text-slate-500">
-                  {item.storage_path || "保存先なし"}
-                </p>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  {item.mime_type || "形式不明"}
-                  {item.duration_seconds ? ` / ${item.duration_seconds}秒` : ""}
-                </p>
-              </div>
-            ))}
-          </dd>
-        </div>
+    <>
+      <dl className="grid gap-3 text-sm sm:grid-cols-2">
+        <SnapshotField label="投稿形式" value={snapshot.type || "不明"} />
+        <SnapshotField label="公開状態" value={snapshot.visibility || "不明"} />
+        <SnapshotField label="投稿日時" value={formatDateTime(snapshot.created_at)} />
+        <SnapshotField label="メディア数" value={`${media.length}件`} />
+        <SnapshotField className="sm:col-span-2" label="本文" value={snapshot.body || "本文なし"} />
+        {media.length ? (
+          <div className="sm:col-span-2">
+            <dt className="text-[11px] font-black text-slate-500">メディア情報</dt>
+            <dd className="mt-2 space-y-2">
+              {media.map((item, index) => (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2" key={`${item.storage_path ?? "media"}-${index}`}>
+                  <p className="text-xs font-bold text-slate-200">
+                    {index + 1}. {item.media_type || "不明"}
+                  </p>
+                  <p className="mt-1 break-all text-[11px] leading-5 text-slate-500">
+                    {item.storage_path || "保存先なし"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {item.mime_type || "形式不明"}
+                    {item.duration_seconds ? ` / ${item.duration_seconds}秒` : ""}
+                  </p>
+                </div>
+              ))}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+      {snapshotWasTruncated ? (
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">安全な保存上限を超えた項目は一部省略されています。</p>
       ) : null}
-    </dl>
+    </>
   );
 }
 
@@ -93,9 +111,9 @@ function SnapshotField({ className = "", label, value }) {
   );
 }
 
-export default function ObservationStationAdminScreen({ isAdmin, onBack }) {
+export default function ObservationStationAdminScreen({ initialReportId = null, isAdmin, onBack }) {
   const [reports, setReports] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(initialReportId);
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -103,6 +121,11 @@ export default function ObservationStationAdminScreen({ isAdmin, onBack }) {
   const [message, setMessage] = useState("");
   const [draftStatus, setDraftStatus] = useState("open");
   const [resolutionNote, setResolutionNote] = useState("");
+  const loadRequestGuardRef = useRef(null);
+
+  if (!loadRequestGuardRef.current) {
+    loadRequestGuardRef.current = createLatestContentReportRequestGuard();
+  }
   const selectedReport = useMemo(
     () => reports.find((report) => report.id === selectedId) ?? null,
     [reports, selectedId],
@@ -110,9 +133,10 @@ export default function ObservationStationAdminScreen({ isAdmin, onBack }) {
 
   async function loadReports(nextStatus = statusFilter) {
     if (!isAdmin) {
-      return;
+      return false;
     }
 
+    const requestId = loadRequestGuardRef.current.begin();
     setLoading(true);
     setError("");
 
@@ -120,26 +144,45 @@ export default function ObservationStationAdminScreen({ isAdmin, onBack }) {
       const nextReports = await readContentReports(supabase, {
         status: nextStatus || null,
       });
+
+      if (!loadRequestGuardRef.current.isCurrent(requestId)) {
+        return false;
+      }
+
       setReports(nextReports);
       setSelectedId((currentId) =>
         nextReports.some((report) => report.id === currentId)
           ? currentId
-          : nextReports[0]?.id ?? null,
+          : nextReports.some((report) => report.id === initialReportId)
+            ? initialReportId
+            : nextReports[0]?.id ?? null,
       );
+      return true;
     } catch (loadError) {
+      if (!loadRequestGuardRef.current.isCurrent(requestId)) {
+        return false;
+      }
+
       logSafeError(ERROR_OPERATION.REPORT_LOAD, loadError);
       setError(
         isMissingContentReportsSchemaError(loadError)
           ? "観測局のDB更新がまだ適用されていません。"
           : getUserFacingError(loadError, ERROR_OPERATION.REPORT_LOAD),
       );
+      return false;
     } finally {
-      setLoading(false);
+      if (loadRequestGuardRef.current.isCurrent(requestId)) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     void loadReports("");
+
+    return () => {
+      loadRequestGuardRef.current.invalidate();
+    };
   }, [isAdmin]);
 
   useEffect(() => {
@@ -147,11 +190,12 @@ export default function ObservationStationAdminScreen({ isAdmin, onBack }) {
       return;
     }
 
-    setDraftStatus(selectedReport.status);
-    setResolutionNote(selectedReport.resolutionNote);
+    const nextDraft = getContentReportReviewDraft(selectedReport);
+    setDraftStatus(nextDraft.status);
+    setResolutionNote(nextDraft.resolutionNote);
     setMessage("");
     setError("");
-  }, [selectedReport?.id]);
+  }, [selectedReport?.id, selectedReport?.resolutionNote, selectedReport?.status]);
 
   async function handleStatusFilterChange(event) {
     const nextStatus = event.target.value;

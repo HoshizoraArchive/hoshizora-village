@@ -92,6 +92,30 @@ export function createContentReportSingleFlight() {
   };
 }
 
+export function createLatestContentReportRequestGuard() {
+  let latestRequestId = 0;
+
+  return {
+    begin() {
+      latestRequestId += 1;
+      return latestRequestId;
+    },
+    invalidate() {
+      latestRequestId += 1;
+    },
+    isCurrent(requestId) {
+      return requestId === latestRequestId;
+    },
+  };
+}
+
+export function getContentReportReviewDraft(report) {
+  return {
+    resolutionNote: report?.resolutionNote ?? "",
+    status: report?.status ?? "open",
+  };
+}
+
 export function isMissingContentReportsSchemaError(error) {
   const code = String(error?.code ?? "");
   const message = String(error?.message ?? "").toLowerCase();

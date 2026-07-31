@@ -8,6 +8,8 @@ import {
   canReportContent,
   createContentReport,
   createContentReportSingleFlight,
+  createLatestContentReportRequestGuard,
+  getContentReportReviewDraft,
   isMissingContentReportsSchemaError,
   readContentReports,
   updateContentReport,
@@ -170,6 +172,38 @@ test("submission single-flight shares one in-flight operation", async () => {
   assert.equal(operationCalls, 1);
 });
 
+test("admin report loading applies only the newest asynchronous response", () => {
+  const guard = createLatestContentReportRequestGuard();
+  const firstRequestId = guard.begin();
+  const secondRequestId = guard.begin();
+
+  assert.equal(guard.isCurrent(firstRequestId), false);
+  assert.equal(guard.isCurrent(secondRequestId), true);
+
+  guard.invalidate();
+  assert.equal(guard.isCurrent(secondRequestId), false);
+});
+
+test("same report id refresh replaces the review draft with server values", () => {
+  const firstDraft = getContentReportReviewDraft({
+    id: "report-a",
+    resolutionNote: "",
+    status: "open",
+  });
+  const refreshedDraft = getContentReportReviewDraft({
+    id: "report-a",
+    resolutionNote: "運営で確認済み",
+    status: "reviewing",
+  });
+
+  assert.deepEqual(firstDraft, { resolutionNote: "", status: "open" });
+  assert.deepEqual(refreshedDraft, {
+    resolutionNote: "運営で確認済み",
+    status: "reviewing",
+  });
+  assert.notDeepEqual(refreshedDraft, firstDraft);
+});
+
 test("admin readers and mutations use only RPC contracts", async () => {
   const calls = [];
   const client = {
@@ -281,6 +315,46 @@ test("create RPC authenticates, creates the snapshot, and serializes 24-hour ded
   assert.doesNotMatch(functionBlock, /p_reporter_id|p_snapshot/);
 });
 
+test("snapshot strings are explicitly bounded in the database function", () => {
+  const functionBlock = migrationSql
+    .split("create or replace function public.create_content_report")[1]
+    ?.split("$$;")[0] ?? "";
+
+  for (const boundedExpression of [
+    "left(coalesce(v_target_post.body, ''), 500)",
+    "left(v_target_post.type, 32)",
+    "left(v_target_post.visibility, 32)",
+    "left(v_target_post.youtube_video_id, 128)",
+    "left(media.media_type, 32)",
+    "left(media.storage_path, 1024)",
+    "left(media.thumbnail_storage_path, 1024)",
+    "left(media.mime_type, 128)",
+    "left(v_target_profile.display_name, 120)",
+    "left(v_target_profile.username, 32)",
+    "left(v_target_profile.bio, 2000)",
+    "left(v_target_profile.avatar_url, 2048)",
+  ]) {
+    assert.equal(functionBlock.includes(boundedExpression), true, `missing ${boundedExpression}`);
+  }
+
+  assert.match(functionBlock, /body_truncated/);
+  assert.match(functionBlock, /bio_truncated/);
+  assert.match(functionBlock, /storage_path_truncated/);
+});
+
+test("nullable enum-like RPC inputs return controlled outcomes", () => {
+  const createBlock = migrationSql
+    .split("create or replace function public.create_content_report")[1]
+    ?.split("$$;")[0] ?? "";
+  const updateBlock = migrationSql
+    .split("create or replace function public.update_content_report")[1]
+    ?.split("$$;")[0] ?? "";
+
+  assert.match(createBlock, /p_target_type is null or p_target_type not in[\s\S]*'invalid_target'/);
+  assert.match(createBlock, /p_reason is null or p_reason not in[\s\S]*'invalid_reason'/);
+  assert.match(updateBlock, /p_status is null[\s\S]*'invalid_payload'/);
+});
+
 test("reports are deny-all tables for browsers while RPC execution is explicit", () => {
   assert.match(
     migrationSql,
@@ -324,15 +398,47 @@ test("admin RPCs reuse app_admins and keep review audit fields server-owned", ()
   assert.doesNotMatch(appSource, /from\("content_reports"\)/);
 });
 
-test("report creation has no notification, push, blocking, or moderation side effects", () => {
+test("created reports notify only eligible app admins with a fixed private message", () => {
   const functionBlock = migrationSql
     .split("create or replace function public.create_content_report")[1]
     ?.split("$$;")[0] ?? "";
+  const notificationBlock = functionBlock
+    .split("insert into public.notifications")[1]
+    ?.split("return query select 'created'")[0] ?? "";
 
-  assert.doesNotMatch(functionBlock, /notifications|push_notification_jobs|profile_blocks/);
+  assert.match(notificationBlock, /from public\.app_admins admin_user/);
+  assert.match(notificationBlock, /'content_report'/);
+  assert.match(notificationBlock, /'観測局に新しい異常が届きました'/);
+  assert.match(notificationBlock, /admin_user\.user_id <> v_reporter_id/);
+  assert.match(notificationBlock, /admin_user\.user_id <> v_target_author_id/);
+  assert.match(notificationBlock, /v_report_id/);
+  assert.doesNotMatch(notificationBlock, /v_details|v_snapshot|display_name|username|reason/);
+  assert.doesNotMatch(functionBlock, /insert into public\.push_notification_jobs/);
   assert.doesNotMatch(functionBlock, /delete from public\.posts|update public\.posts/);
   assert.doesNotMatch(functionBlock, /is_black_hole_protected|is_black_hole_between/);
   assert.doesNotMatch(migrationSql, /create trigger[\s\S]*content_reports/i);
+});
+
+test("admin notification schema supports R.Connect navigation and Push job reuse", () => {
+  assert.match(migrationSql, /content_report_id uuid references public\.content_reports\(id\) on delete set null/);
+  assert.match(migrationSql, /notifications_content_report_id_idx/);
+  assert.match(migrationSql, /notifications_content_report_reference_check/);
+  assert.match(migrationSql, /'content_report'/);
+  assert.match(schemaSql, /notifications_enqueue_push_notification_job/);
+  assert.match(appSource, /観測局を開く/);
+  assert.match(appSource, /onOpenObservationStation\?\.\(notification\.content_report_id\)/);
+  assert.match(appSource, /notification\.type === "content_report"/);
+  assert.match(appSource, /return "観測局に新しい異常が届きました"/);
+});
+
+test("admin screen resyncs same-id reports and ignores stale loads", () => {
+  assert.match(
+    adminSource,
+    /selectedReport\?\.id, selectedReport\?\.resolutionNote, selectedReport\?\.status/,
+  );
+  assert.match(adminSource, /createLatestContentReportRequestGuard/);
+  assert.match(adminSource, /isCurrent\(requestId\)/);
+  assert.match(adminSource, /invalidate\(\)/);
 });
 
 test("UI exposes the exact report language, self guards, modal access, and admin-only route", () => {
@@ -359,7 +465,8 @@ test("verification SQL checks secrecy, RPC grants, indexes, snapshots, and plans
     "07_anon_cannot_execute",
     "08_authenticated_rpc_grants",
     "09_snapshot_is_object",
-    "11_no_report_notifications",
+    "11_admin_notification_contract",
+    "12_admin_notification_push_jobs",
     "explain (costs true, verbose false)",
   ]) {
     assert.equal(verificationSql.includes(token), true, `verification missing ${token}`);

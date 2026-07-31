@@ -140,24 +140,114 @@ with checks as (
   union all
 
   select
-    '11_no_report_notifications',
+    '11_admin_notification_contract',
     count(*)::bigint
-  from pg_catalog.pg_trigger trigger_row
-  join pg_catalog.pg_class table_row on table_row.oid = trigger_row.tgrelid
-  join pg_catalog.pg_namespace namespace_row on namespace_row.oid = table_row.relnamespace
-  where namespace_row.nspname = 'public'
-    and table_row.relname = 'content_reports'
-    and not trigger_row.tgisinternal
+  from public.notifications notification
+  where notification.type = 'content_report'
+    and (
+      notification.actor_id is not null
+      or notification.post_id is not null
+      or notification.star_letter_id is not null
+      or notification.content_report_id is null
+      or notification.message is distinct from '観測局に新しい異常が届きました'
+    )
+
+  union all
+
+  select
+    '12_admin_notification_push_jobs',
+    count(*)::bigint
+  from public.notifications notification
+  left join public.push_notification_jobs job
+    on job.notification_id = notification.id
+  where notification.type = 'content_report'
+    and job.id is null
+
+  union all
+
+  select
+    '13_no_participant_admin_notifications',
+    count(*)::bigint
+  from public.notifications notification
+  join public.content_reports report
+    on report.id = notification.content_report_id
+  where notification.type = 'content_report'
+    and notification.recipient_id in (
+      report.reporter_original_id,
+      case
+        when report.target_type = 'profile' then report.target_original_id
+        else (report.snapshot ->> 'author_id')::uuid
+      end
+    )
+
+  union all
+
+  select
+    '14_snapshot_string_limits',
+    count(*)::bigint
+  from public.content_reports report
+  where char_length(coalesce(report.snapshot ->> 'body', '')) > 500
+    or char_length(coalesce(report.snapshot ->> 'type', '')) > 32
+    or char_length(coalesce(report.snapshot ->> 'visibility', '')) > 32
+    or char_length(coalesce(report.snapshot ->> 'youtube_video_id', '')) > 128
+    or char_length(coalesce(report.snapshot ->> 'display_name', '')) > 120
+    or char_length(coalesce(report.snapshot ->> 'username', '')) > 32
+    or char_length(coalesce(report.snapshot ->> 'bio', '')) > 2000
+    or char_length(coalesce(report.snapshot ->> 'avatar_url', '')) > 2048
+    or exists (
+      select 1
+      from jsonb_array_elements(coalesce(report.snapshot -> 'media', '[]'::jsonb)) media
+      where char_length(coalesce(media ->> 'media_type', '')) > 32
+        or char_length(coalesce(media ->> 'storage_path', '')) > 1024
+        or char_length(coalesce(media ->> 'thumbnail_storage_path', '')) > 1024
+        or char_length(coalesce(media ->> 'mime_type', '')) > 128
+    )
+
+  union all
+
+  select
+    '15_notification_report_reference',
+    case
+      when exists (
+        select 1
+        from information_schema.columns column_row
+        where column_row.table_schema = 'public'
+          and column_row.table_name = 'notifications'
+          and column_row.column_name = 'content_report_id'
+      )
+      and exists (
+        select 1
+        from pg_catalog.pg_indexes index_row
+        where index_row.schemaname = 'public'
+          and index_row.indexname = 'notifications_content_report_id_idx'
+      )
+      then 0
+      else 1
+    end::bigint
 )
 select check_name, anomaly_count
 from checks
 order by check_name;
 
--- 主要な管理一覧クエリが複合indexを利用できることを確認するための計画。
+-- get_content_reportsのtarget_countsを含む実クエリ形状を確認する計画。
 -- 実データ量が少ない環境ではSeq Scanが選択されても異常ではない。
 explain (costs true, verbose false)
-select report.id, report.created_at
+with target_counts as (
+  select
+    counted.target_type,
+    counted.target_original_id,
+    count(*)::bigint as report_count
+  from public.content_reports counted
+  group by counted.target_type, counted.target_original_id
+)
+select
+  report.id,
+  report.created_at,
+  target_counts.report_count
 from public.content_reports report
+join target_counts
+  on target_counts.target_type = report.target_type
+  and target_counts.target_original_id = report.target_original_id
 where report.status = 'open'
 order by report.created_at desc, report.id desc
 limit 100;

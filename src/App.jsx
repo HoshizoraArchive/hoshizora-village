@@ -1555,6 +1555,10 @@ function getNotificationActorName(notification) {
 }
 
 function formatNotificationMessage(notification) {
+  if (notification.type === "content_report") {
+    return "観測局に新しい異常が届きました";
+  }
+
   const actorName = getNotificationActorName(notification);
 
   if (notification.type === "resonance") {
@@ -1729,6 +1733,7 @@ function App() {
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
+  const [observationStationInitialReportId, setObservationStationInitialReportId] = useState(null);
   const [blockedProfileIds, setBlockedProfileIds] = useState(() => new Set());
   const blockedProfileIdsRef = useRef(new Set());
   const [profileBlockingAvailable, setProfileBlockingAvailable] = useState(true);
@@ -3700,11 +3705,25 @@ function App() {
       setNotificationsError("");
       setNotificationsMessage("");
 
-      const { data, error } = await supabase
+      let notificationResult = await supabase
         .from("notifications")
-        .select("id, recipient_id, actor_id, post_id, star_letter_id, type, message, is_read, created_at")
+        .select("id, recipient_id, actor_id, post_id, star_letter_id, content_report_id, type, message, is_read, created_at")
         .eq("recipient_id", userId)
         .order("created_at", { ascending: false });
+
+      if (
+        notificationResult.error &&
+        ["42703", "PGRST204"].includes(String(notificationResult.error.code ?? "")) &&
+        String(notificationResult.error.message ?? "").includes("content_report_id")
+      ) {
+        notificationResult = await supabase
+          .from("notifications")
+          .select("id, recipient_id, actor_id, post_id, star_letter_id, type, message, is_read, created_at")
+          .eq("recipient_id", userId)
+          .order("created_at", { ascending: false });
+      }
+
+      const { data, error } = notificationResult;
 
       if (!isMounted) {
         return;
@@ -4530,6 +4549,7 @@ function App() {
   }
 
   function handleOpenProfileSettings() {
+    setObservationStationInitialReportId(null);
     setProfileMessage("");
     setProfileError("");
     setProfileScreenMode("settings");
@@ -4808,17 +4828,20 @@ function App() {
     setProfileScreenMode("guide-admin");
   }
 
-  function handleOpenObservationStation() {
+  function handleOpenObservationStation(reportId = null) {
     if (!guideIsAdmin) {
       return;
     }
 
+    setObservationStationInitialReportId(typeof reportId === "string" ? reportId : null);
     setProfileMessage("");
     setProfileError("");
+    handleTabChange("profile");
     setProfileScreenMode("observation-station");
   }
 
   function handleBackToProfile() {
+    setObservationStationInitialReportId(null);
     setProfileMessage("");
     setProfileError("");
     setProfileScreenMode("view");
@@ -7479,7 +7502,7 @@ function App() {
     onOpenGuide: handleOpenGuide,
     onOpenGuideAdmin: handleOpenGuideAdmin,
     onOpenBlackHoleManagement: handleOpenBlackHoleManagement,
-    onOpenObservationStation: handleOpenObservationStation,
+    onOpenObservationStation: () => handleOpenObservationStation(),
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
     onShareProfile: handleShareStarProfile,
@@ -7493,6 +7516,7 @@ function App() {
     guideAdminLoading,
     guideIsAdmin,
     contentReportsAvailable,
+    observationStationInitialReportId,
     selectedFrame: selectedProfileFrame,
     saving: profileSaving,
     shareError: profileShareError,
@@ -7623,6 +7647,7 @@ function App() {
     message: notificationsMessage,
     onMarkRead: handleMarkNotificationRead,
     onOpenMeteorDetail: handleOpenMeteorDetail,
+    onOpenObservationStation: handleOpenObservationStation,
     onOpenStarLetterThread: handleOpenStarLetterThread,
     onOpenStarProfile: handleOpenStarProfile,
     session,
@@ -9737,6 +9762,7 @@ function RConnectScreen({ notifications }) {
                     notification={notification}
                     onMarkRead={notifications.onMarkRead}
                     onOpenMeteorDetail={notifications.onOpenMeteorDetail}
+                    onOpenObservationStation={notifications.onOpenObservationStation}
                     onOpenStarLetterThread={notifications.onOpenStarLetterThread}
                     onOpenStarProfile={notifications.onOpenStarProfile}
                     updating={notifications.updatingId === notification.id}
@@ -9751,8 +9777,9 @@ function RConnectScreen({ notifications }) {
   );
 }
 
-function NotificationCard({ notification, onMarkRead, onOpenMeteorDetail, onOpenStarLetterThread, onOpenStarProfile, updating }) {
+function NotificationCard({ notification, onMarkRead, onOpenMeteorDetail, onOpenObservationStation, onOpenStarLetterThread, onOpenStarProfile, updating }) {
   const isUnread = !notification.is_read;
+  const isContentReport = notification.type === "content_report";
   const actorName = getNotificationActorName(notification);
   const actorProfile = notification.actorProfile;
   const actorUsername = actorProfile?.username;
@@ -9776,7 +9803,7 @@ function NotificationCard({ notification, onMarkRead, onOpenMeteorDetail, onOpen
         <span className="text-xs text-slate-500">{formatNotificationTime(notification.created_at)}</span>
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      {!isContentReport ? <div className="mt-3 flex items-center gap-3">
         {canOpenActorProfile ? (
           <button
             className="flex min-w-0 items-center gap-3 rounded-2xl p-1 text-left transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-comet/40"
@@ -9798,13 +9825,21 @@ function NotificationCard({ notification, onMarkRead, onOpenMeteorDetail, onOpen
             </span>
           </div>
         )}
-      </div>
+      </div> : null}
 
       <p className="mt-3 text-sm leading-7 text-slate-100">{formatNotificationMessage(notification)}</p>
       <p className="mt-2 text-[11px] font-bold text-slate-500">type: {notification.type}</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {notification.post_id ? (
+        {isContentReport ? (
+          <button
+            className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+            onClick={() => onOpenObservationStation?.(notification.content_report_id)}
+            type="button"
+          >
+            観測局を開く
+          </button>
+        ) : notification.post_id ? (
           <button
             className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
             onClick={() =>
@@ -9891,6 +9926,7 @@ function ProfileScreen({
   if (profile.profileScreenMode === "observation-station") {
     return (
       <ObservationStationAdminScreen
+        initialReportId={profile.observationStationInitialReportId}
         isAdmin={profile.guideIsAdmin}
         onBack={profile.onBackToSettings}
       />
