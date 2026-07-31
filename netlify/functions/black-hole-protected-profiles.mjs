@@ -1,3 +1,4 @@
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { requireAuthenticatedUser } from "./_shared/aiAuth.mjs";
 import { AiHttpError } from "./_shared/aiErrors.mjs";
 import {
@@ -7,6 +8,104 @@ import {
   readPushSupabaseConfig,
 } from "./_shared/pushNotifications.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
+
+const PROTECTED_PROFILE_HASH_BUCKET_SIZE = 32;
+
+export function hashProtectedProfileId(profileId) {
+  const normalizedProfileId = String(profileId ?? "").trim().toLowerCase();
+
+  if (!normalizedProfileId) {
+    return "";
+  }
+
+  return createHash("sha256").update(normalizedProfileId, "utf8").digest("hex");
+}
+
+function shuffle(items, randomIndex = randomInt) {
+  const shuffled = [...items];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomIndex(index + 1);
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+
+  return shuffled;
+}
+
+export function createProtectedProfileHashPayload(
+  profileIds,
+  {
+    randomHash = () => randomBytes(32).toString("hex"),
+    randomIndex = randomInt,
+  } = {},
+) {
+  const profileHashes = new Set(
+    (profileIds ?? []).map(hashProtectedProfileId).filter(Boolean),
+  );
+  const paddedSize = Math.max(
+    PROTECTED_PROFILE_HASH_BUCKET_SIZE,
+    Math.ceil(profileHashes.size / PROTECTED_PROFILE_HASH_BUCKET_SIZE) *
+      PROTECTED_PROFILE_HASH_BUCKET_SIZE,
+  );
+
+  while (profileHashes.size < paddedSize) {
+    const decoyHash = String(randomHash() ?? "").trim().toLowerCase();
+
+    if (/^[a-f0-9]{64}$/.test(decoyHash)) {
+      profileHashes.add(decoyHash);
+    }
+  }
+
+  return {
+    profileHashes: shuffle(profileHashes, randomIndex),
+  };
+}
+
+export async function readProtectedProfileIdsFromDatabase(supabase) {
+  const [{ data: adminRows, error: adminError }, { data: guideTitle, error: titleError }] =
+    await Promise.all([
+      supabase.from("app_admins").select("user_id"),
+      supabase
+        .from("titles")
+        .select("id")
+        .eq("key", "celestial_guide")
+        .eq("is_active", true)
+        .maybeSingle(),
+    ]);
+
+  if (adminError || titleError) {
+    throw pushHttpError(
+      503,
+      "BLACK_HOLE_PROTECTED_PROFILES_FAILED",
+      "ブラックホールの保護対象を確認できませんでした。",
+    );
+  }
+
+  let guideRows = [];
+
+  if (guideTitle?.id) {
+    const { data, error } = await supabase
+      .from("profile_titles")
+      .select("profile_id")
+      .eq("title_id", guideTitle.id)
+      .eq("is_primary", true);
+
+    if (error) {
+      throw pushHttpError(
+        503,
+        "BLACK_HOLE_PROTECTED_PROFILES_FAILED",
+        "ブラックホールの保護対象を確認できませんでした。",
+      );
+    }
+
+    guideRows = data ?? [];
+  }
+
+  return [
+    ...(adminRows ?? []).map((row) => row.user_id),
+    ...guideRows.map((row) => row.profile_id),
+  ].filter(Boolean);
+}
 
 function toSafeError(error) {
   if (error instanceof PushHttpError) {
@@ -38,53 +137,9 @@ export default async function handler(request) {
     const supabase = createSupabaseAdminClient(config);
     await requireAuthenticatedUser({ request, supabase });
 
-    const [{ data: adminRows, error: adminError }, { data: guideTitle, error: titleError }] =
-      await Promise.all([
-        supabase.from("app_admins").select("user_id"),
-        supabase
-          .from("titles")
-          .select("id")
-          .eq("key", "celestial_guide")
-          .eq("is_active", true)
-          .maybeSingle(),
-      ]);
+    const profileIds = await readProtectedProfileIdsFromDatabase(supabase);
 
-    if (adminError || titleError) {
-      throw pushHttpError(
-        503,
-        "BLACK_HOLE_PROTECTED_PROFILES_FAILED",
-        "ブラックホールの保護対象を確認できませんでした。",
-      );
-    }
-
-    let guideRows = [];
-
-    if (guideTitle?.id) {
-      const { data, error } = await supabase
-        .from("profile_titles")
-        .select("profile_id")
-        .eq("title_id", guideTitle.id)
-        .eq("is_primary", true);
-
-      if (error) {
-        throw pushHttpError(
-          503,
-          "BLACK_HOLE_PROTECTED_PROFILES_FAILED",
-          "ブラックホールの保護対象を確認できませんでした。",
-        );
-      }
-
-      guideRows = data ?? [];
-    }
-
-    const profileIds = [
-      ...(adminRows ?? []).map((row) => row.user_id),
-      ...guideRows.map((row) => row.profile_id),
-    ].filter(Boolean);
-
-    return pushJsonResponse(200, {
-      profileIds: [...new Set(profileIds)],
-    });
+    return pushJsonResponse(200, createProtectedProfileHashPayload(profileIds));
   } catch (error) {
     const safeError = toSafeError(error);
 
