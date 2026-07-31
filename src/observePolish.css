@@ -188,6 +188,11 @@
   height: 100%;
 }
 
+/* Keep the author menu beside, not on top of, an official corner emblem. */
+.post-card-panel:has(.profile-title-emblem-post-card-slot) [data-card-action="true"] {
+  right: 5.2rem;
+}
+
 .post-card-panel.is-clickable:hover {
   border-top-color: rgb(138 217 255 / 0.1);
   border-bottom-color: rgb(138 217 255 / 0.075);
