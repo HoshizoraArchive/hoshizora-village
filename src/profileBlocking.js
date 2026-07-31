@@ -159,7 +159,7 @@ export function isTrustedProtectedProfile(profile) {
   const profileId = profile?.id ?? profile?.authorId ?? null;
 
   if (!profileId) {
-    return false;
+    return Object.prototype.hasOwnProperty.call(profile ?? {}, "primaryTitle");
   }
 
   if (protectedProfileLookupState !== "ready") {
