@@ -64,11 +64,11 @@ test("observe realtime and lightweight checks only surface unseen public posts",
 test("observe background checks fetch only lightweight post freshness fields", () => {
   assert.match(
     appSource,
-    /const PUBLIC_POST_FRESHNESS_SELECT_COLUMNS = "id, created_at, visibility, type"/,
+    /const PUBLIC_POST_FRESHNESS_SELECT_COLUMNS = "id, author_id, created_at, visibility, type"/,
   );
   assert.doesNotMatch(
     appSource.match(/async function readLatestPublicPost\(\)[\s\S]*?\n\}/)?.[0] ?? "",
-    /body|author_id/,
+    /body/,
   );
 });
 

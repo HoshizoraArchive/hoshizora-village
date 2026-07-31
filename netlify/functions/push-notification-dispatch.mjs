@@ -74,6 +74,27 @@ async function fetchRecipientSubscriptions(supabase, recipientId) {
   return Array.isArray(data) ? data : [];
 }
 
+async function isNotificationBlackHoled(supabase, notification) {
+  if (!notification.actor_id) {
+    return false;
+  }
+
+  const { data, error } = await supabase.rpc("is_notification_black_holed", {
+    p_actor_id: notification.actor_id,
+    p_recipient_id: notification.recipient_id,
+  });
+
+  if (error) {
+    throw pushHttpError(
+      503,
+      "PUSH_BLACK_HOLE_CHECK_FAILED",
+      "スマホ通知配信に失敗しました。",
+    );
+  }
+
+  return data === true;
+}
+
 async function disableSubscription(supabase, subscriptionId, nowIso) {
   await supabase
     .from("push_subscriptions")
@@ -115,6 +136,11 @@ export async function processPushNotificationJob({ supabase, webPushClient, job 
 
   if (!notification || notification.recipient_id !== job.recipient_id) {
     await markCompleted(supabase, job.id, "skipped", "PUSH_NOTIFICATION_NOT_FOUND");
+    return { status: "skipped", sent: 0, disabled: 0 };
+  }
+
+  if (await isNotificationBlackHoled(supabase, notification)) {
+    await markCompleted(supabase, job.id, "skipped", "BLACK_HOLE");
     return { status: "skipped", sent: 0, disabled: 0 };
   }
 

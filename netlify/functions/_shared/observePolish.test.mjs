@@ -53,7 +53,7 @@ test("Observe keeps official emblems separate from the author identity line", ()
   assert.match(appSource, /function Timeline[\s\S]*emblemPlacement="corner"/);
   assert.match(appSource, /function PostCard[\s\S]*emblemPlacement = "inline"/);
   assert.match(appSource, /hasCornerEmblem[\s\S]*placement="post-card"/);
-  assert.match(appSource, /hasCornerEmblem \? " pr-20" : ""/);
+  assert.match(appSource, /hasCornerEmblem \|\| canUseBlackHole \? " pr-20" : ""/);
   assert.match(
     cssSource,
     /\.observe-screen \.profile-title-emblem-post-card-slot[\s\S]*position: absolute[\s\S]*top: 0\.8rem[\s\S]*right: 0\.8rem[\s\S]*width: 4rem[\s\S]*height: 4rem[\s\S]*pointer-events: none/,

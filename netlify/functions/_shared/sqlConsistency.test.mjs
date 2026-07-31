@@ -539,8 +539,8 @@ test("post_media Storage path checks do not depend on app_private helper functio
 
   assert.deepEqual(
     authenticatedPrivateFunctions,
-    ["guide_section_is_public"],
-    "only the RLS-only guide visibility helper may be executable by authenticated",
+    ["guide_section_is_public", "is_black_hole_between", "is_black_hole_protected"],
+    "only RLS-only visibility and protection helpers may be executable by authenticated",
   );
 });
 
