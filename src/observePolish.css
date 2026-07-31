@@ -188,9 +188,17 @@
   height: 100%;
 }
 
-/* Keep the author menu beside, not on top of, an official corner emblem. */
-.post-card-panel:has(.profile-title-emblem-post-card-slot) [data-card-action="true"] {
+/* Keep the menu beside the official corner emblem and reserve the complete
+ * heading width on compact iPhone layouts. Direct-child selectors avoid
+ * moving avatar/profile controls that also use data-card-action. */
+.post-card-panel:has(> .profile-title-emblem-post-card-slot):has(> [data-card-action="true"].absolute)
+  > [data-card-action="true"].absolute {
   right: 5.2rem;
+}
+
+.post-card-panel:has(> .profile-title-emblem-post-card-slot):has(> [data-card-action="true"].absolute)
+  .post-card-content > div:first-child > div:last-child {
+  padding-right: 8.5rem;
 }
 
 .post-card-panel.is-clickable:hover {
