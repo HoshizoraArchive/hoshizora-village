@@ -290,6 +290,7 @@ test("profile title migration and schema block stay synchronized", () => {
     .trim();
   const schemaBlock = schemaSql
     .split("-- 20260729120000_add_profile_titles.sql\n")[1]
+    ?.split("-- 20260731030315_add_profile_blocks.sql\n")[0]
     ?.trim();
 
   assert.equal(schemaBlock, migrationBody);

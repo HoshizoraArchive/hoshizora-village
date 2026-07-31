@@ -83,6 +83,18 @@ import {
   runObserveTimelineSingleFlight,
   shouldTriggerObservePullRefresh,
 } from "./observeTimelineRefresh";
+import {
+  BLACK_HOLE_ERROR_MESSAGE,
+  BLACK_HOLE_RESTORE_ERROR_MESSAGE,
+  BLACK_HOLE_SUCCESS_MESSAGE,
+  blockProfile,
+  isMissingProfileBlocksSchemaError,
+  isProfileBlocked,
+  isTrustedProtectedProfile,
+  readBlockedProfileIds,
+  readMyProfileBlocks,
+  unblockProfile,
+} from "./profileBlocking";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -100,7 +112,7 @@ const METEOR_TAG_MAX_LENGTH = 30;
 const FEEDBACK_TYPES = ["不具合", "分かりにくい", "改善案", "ほしい機能", "感想", "その他"];
 const POST_SELECT_COLUMNS = "id, author_id, type, body, visibility, created_at";
 const POST_SELECT_COLUMNS_WITH_DELETED_AT = `${POST_SELECT_COLUMNS}, deleted_at`;
-const PUBLIC_POST_FRESHNESS_SELECT_COLUMNS = "id, created_at, visibility, type";
+const PUBLIC_POST_FRESHNESS_SELECT_COLUMNS = "id, author_id, created_at, visibility, type";
 const PUBLIC_POST_FRESHNESS_SELECT_COLUMNS_WITH_DELETED_AT = `${PUBLIC_POST_FRESHNESS_SELECT_COLUMNS}, deleted_at`;
 const METEOR_TAG_SELECT_COLUMNS = "id, name, normalized_name, created_by, created_at";
 const POST_METEOR_TAG_SELECT_COLUMNS = "post_id, tag_id, sort_order, meteor_tags(id, name, normalized_name)";
@@ -1705,6 +1717,15 @@ function App() {
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
+  const [blockedProfileIds, setBlockedProfileIds] = useState(() => new Set());
+  const blockedProfileIdsRef = useRef(new Set());
+  const [profileBlockingAvailable, setProfileBlockingAvailable] = useState(true);
+  const [blackHoleDialog, setBlackHoleDialog] = useState(null);
+  const [blackHoleSaving, setBlackHoleSaving] = useState(false);
+  const [blackHoleMessage, setBlackHoleMessage] = useState("");
+  const [blackHoleError, setBlackHoleError] = useState("");
+  const [blackHoleItems, setBlackHoleItems] = useState([]);
+  const [blackHoleItemsLoading, setBlackHoleItemsLoading] = useState(false);
   const [guideIsAdmin, setGuideIsAdmin] = useState(false);
   const [guideAdminLoading, setGuideAdminLoading] = useState(false);
   const [profileFrames, setProfileFrames] = useState([]);
@@ -1956,6 +1977,62 @@ function App() {
     setStarLetterReplyComposer(null);
     setStarLetterResonatingIds(new Set());
     setStarLetterArchivingIds(new Set());
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const userId = session?.user?.id;
+    const emptyIds = new Set();
+
+    blockedProfileIdsRef.current = emptyIds;
+    setBlockedProfileIds(emptyIds);
+    setProfileBlockingAvailable(true);
+    setBlackHoleDialog(null);
+    setBlackHoleSaving(false);
+    setBlackHoleMessage("");
+    setBlackHoleError("");
+    setBlackHoleItems([]);
+    setBlackHoleItemsLoading(false);
+
+    if (!userId) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    async function loadBlockedProfileIds() {
+      try {
+        const nextIds = await readBlockedProfileIds(supabase);
+
+        if (!isMounted || activeSessionUserIdRef.current !== userId) {
+          return;
+        }
+
+        blockedProfileIdsRef.current = nextIds;
+        setBlockedProfileIds(nextIds);
+        for (const targetProfileId of nextIds) {
+          removeBlockedProfileFromVisibleState(targetProfileId);
+        }
+      } catch (error) {
+        if (!isMounted || activeSessionUserIdRef.current !== userId) {
+          return;
+        }
+
+        if (isMissingProfileBlocksSchemaError(error)) {
+          setProfileBlockingAvailable(false);
+          return;
+        }
+
+        logSafeError("black_hole_load", error);
+        setBlackHoleError("ブラックホールの状態を確認できませんでした。");
+      }
+    }
+
+    void loadBlockedProfileIds();
+
+    return () => {
+      isMounted = false;
+    };
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -3734,7 +3811,11 @@ function App() {
           logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
         }
 
-        setSavedPosts(hydratedPosts);
+        setSavedPosts(
+          hydratedPosts.filter(
+            (post) => !isProfileBlocked(blockedProfileIdsRef.current, post.authorId),
+          ),
+        );
         return true;
       } catch (error) {
         if (appMountedRef.current) {
@@ -3805,6 +3886,7 @@ function App() {
 
       if (
         isUnseenPublicTimelinePost(latestPost, publicTimelineKnownPostIdsRef.current) &&
+        !isProfileBlocked(blockedProfileIdsRef.current, latestPost.author_id) &&
         isPublicPostNewer(latestPost, publicTimelineTopPostRef.current)
       ) {
         setTimelineHasNewPosts(true);
@@ -3832,6 +3914,7 @@ function App() {
           if (
             !disposed &&
             isObserveTimelineActiveRef.current &&
+            !isProfileBlocked(blockedProfileIdsRef.current, post.author_id) &&
             isUnseenPublicTimelinePost(post, publicTimelineKnownPostIdsRef.current)
           ) {
             setTimelineHasNewPosts(true);
@@ -4430,6 +4513,154 @@ function App() {
     setProfileMessage("");
     setProfileError("");
     setProfileScreenMode("settings");
+  }
+
+  function removeBlockedProfileFromVisibleState(targetProfileId) {
+    const keepPost = (post) => post?.authorId !== targetProfileId;
+    const keepLetter = (letter) =>
+      letter?.authorId !== targetProfileId && letter?.sourcePost?.authorId !== targetProfileId;
+
+    setSavedPosts((items) => items.filter(keepPost));
+    setOwnPosts((items) => items.filter(keepPost));
+    setResonatedPosts((items) => items.filter(keepPost));
+    setArchivedPosts((items) => items.filter(keepPost));
+    setPublicProfilePosts((items) => items.filter(keepPost));
+    setMeteorTagPosts((items) => items.filter(keepPost));
+    setSentStarLetters((items) => items.filter(keepLetter));
+    setArchivedStarLetters((items) => items.filter(keepLetter));
+    setNotifications((items) => items.filter((item) => item.actor_id !== targetProfileId));
+    setStarLettersByPostId((itemsByPostId) =>
+      Object.fromEntries(
+        Object.entries(itemsByPostId).map(([postId, letters]) => [
+          postId,
+          (letters ?? []).filter(keepLetter),
+        ]),
+      ),
+    );
+    setDetailPost((currentPost) => (keepPost(currentPost) ? currentPost : null));
+    setTimelineHasNewPosts(false);
+  }
+
+  function handleRequestBlackHole(targetProfile) {
+    if (
+      !profileBlockingAvailable ||
+      !session?.user?.id ||
+      !targetProfile?.id ||
+      targetProfile.id === session.user.id ||
+      isTrustedProtectedProfile(targetProfile)
+    ) {
+      return;
+    }
+
+    setBlackHoleMessage("");
+    setBlackHoleError("");
+    setBlackHoleDialog({
+      action: "block",
+      target: targetProfile,
+    });
+  }
+
+  function handleRequestBlackHoleRestore(targetProfile) {
+    if (!profileBlockingAvailable || !session?.user?.id || !targetProfile?.id) {
+      return;
+    }
+
+    setBlackHoleMessage("");
+    setBlackHoleError("");
+    setBlackHoleDialog({
+      action: "restore",
+      target: targetProfile,
+    });
+  }
+
+  function handleCloseBlackHoleDialog() {
+    if (!blackHoleSaving) {
+      setBlackHoleDialog(null);
+    }
+  }
+
+  async function refreshBlackHoleItems() {
+    if (!session?.user?.id || !profileBlockingAvailable) {
+      setBlackHoleItems([]);
+      return;
+    }
+
+    setBlackHoleItemsLoading(true);
+    setBlackHoleError("");
+
+    try {
+      setBlackHoleItems(await readMyProfileBlocks(supabase));
+    } catch (error) {
+      if (isMissingProfileBlocksSchemaError(error)) {
+        setProfileBlockingAvailable(false);
+        setBlackHoleItems([]);
+      } else {
+        logSafeError("black_hole_load", error);
+        setBlackHoleError("ブラックホール管理を読み込めませんでした。");
+      }
+    } finally {
+      setBlackHoleItemsLoading(false);
+    }
+  }
+
+  function handleOpenBlackHoleManagement() {
+    if (!profileBlockingAvailable) {
+      return;
+    }
+
+    setBlackHoleMessage("");
+    setBlackHoleError("");
+    setProfileScreenMode("black-hole");
+    void refreshBlackHoleItems();
+  }
+
+  async function handleConfirmBlackHole() {
+    const action = blackHoleDialog?.action;
+    const target = blackHoleDialog?.target;
+
+    if (blackHoleSaving || !target?.id || !session?.user?.id) {
+      return;
+    }
+
+    setBlackHoleSaving(true);
+    setBlackHoleMessage("");
+    setBlackHoleError("");
+
+    try {
+      if (action === "restore") {
+        await unblockProfile(supabase, target.id);
+        const nextIds = new Set(blockedProfileIdsRef.current);
+        nextIds.delete(target.id);
+        blockedProfileIdsRef.current = nextIds;
+        setBlockedProfileIds(nextIds);
+        setBlackHoleItems((items) => items.filter((item) => item.blockedId !== target.id));
+        setBlackHoleMessage("ブラックホールから戻しました。");
+      } else {
+        await blockProfile(supabase, target.id);
+        const nextIds = new Set(blockedProfileIdsRef.current);
+        nextIds.add(target.id);
+        blockedProfileIdsRef.current = nextIds;
+        setBlockedProfileIds(nextIds);
+        removeBlockedProfileFromVisibleState(target.id);
+        setBlackHoleMessage(BLACK_HOLE_SUCCESS_MESSAGE);
+
+        if (
+          detailPostForScreen?.authorId === target.id ||
+          publicProfile?.id === target.id
+        ) {
+          handleTabChange("observe");
+        }
+      }
+
+      setBlackHoleDialog(null);
+    } catch (error) {
+      logSafeError(action === "restore" ? "black_hole_restore" : "black_hole_save", error);
+      setBlackHoleError(
+        action === "restore" ? BLACK_HOLE_RESTORE_ERROR_MESSAGE : BLACK_HOLE_ERROR_MESSAGE,
+      );
+    } finally {
+      setBlackHoleSaving(false);
+    }
   }
 
   function handleOpenFeedback() {
@@ -7110,11 +7341,13 @@ function App() {
     onAvatarFileChange: handleProfileAvatarFileChange,
     onChange: handleProfileFieldChange,
     onBackToProfile: handleBackToProfile,
+    onBackToSettings: handleOpenProfileSettings,
     onCancelEdit: handleCancelProfileEdit,
     onOpenFeedback: handleOpenFeedback,
     onOpenAvatar: handleOpenAvatarModal,
     onOpenGuide: handleOpenGuide,
     onOpenGuideAdmin: handleOpenGuideAdmin,
+    onOpenBlackHoleManagement: handleOpenBlackHoleManagement,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
     onShareProfile: handleShareStarProfile,
@@ -7133,6 +7366,15 @@ function App() {
     shareMessage: profileShareMessage,
     profileScreenMode,
     onboardingTarget,
+    blackHole: {
+      available: profileBlockingAvailable,
+      error: blackHoleError,
+      items: blackHoleItems,
+      loading: blackHoleItemsLoading,
+      message: blackHoleMessage,
+      onRestore: handleRequestBlackHoleRestore,
+      saving: blackHoleSaving,
+    },
   };
   const feedback = {
     body: feedbackBody,
@@ -7226,6 +7468,11 @@ function App() {
     onOpenMeteorTag: handleOpenMeteorTag,
     onStartEdit: handleStartPostEdit,
     onUpdate: handlePostUpdate,
+    blackHole: {
+      available: profileBlockingAvailable,
+      blockedProfileIds,
+      onRequest: handleRequestBlackHole,
+    },
     session,
     updatingId: postUpdatingId,
   };
@@ -7487,6 +7734,21 @@ function App() {
         onClose={handleCloseMediaViewer}
         onStep={handleMediaViewerStep}
       />
+      <BlackHoleConfirmationDialog
+        dialog={blackHoleDialog}
+        error={blackHoleError}
+        onCancel={handleCloseBlackHoleDialog}
+        onConfirm={handleConfirmBlackHole}
+        saving={blackHoleSaving}
+      />
+      {blackHoleMessage && profileScreenMode !== "black-hole" ? (
+        <p
+          className="fixed inset-x-4 bottom-24 z-[85] mx-auto max-w-sm rounded-2xl border border-comet/25 bg-night-950/95 px-4 py-3 text-center text-xs font-black text-comet shadow-2xl"
+          role="status"
+        >
+          {blackHoleMessage}
+        </p>
+      ) : null}
       <StarMovieObservationMode
         media={starMovieObservation?.media ?? null}
         onClose={handleCloseStarMovieObservation}
@@ -7505,6 +7767,96 @@ function App() {
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+function BlackHoleConfirmationDialog({ dialog, error, onCancel, onConfirm, saving }) {
+  const cancelButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!dialog) {
+      return undefined;
+    }
+
+    cancelButtonRef.current?.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape" && !saving) {
+        onCancel();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dialog, onCancel, saving]);
+
+  if (!dialog) {
+    return null;
+  }
+
+  const isRestore = dialog.action === "restore";
+  const title = isRestore
+    ? "この村人をブラックホールから戻しますか？"
+    : "この村人をブラックホールに送りますか？";
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-night-950/80 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onCancel();
+        }
+      }}
+    >
+      <section
+        aria-labelledby="black-hole-dialog-title"
+        aria-modal="true"
+        className="w-full max-w-md rounded-3xl border border-white/10 bg-night-950/95 p-5 shadow-2xl"
+        role="dialog"
+      >
+        <p className="text-xs font-black text-comet">ブラックホール</p>
+        <h2 className="mt-2 text-lg font-black leading-8 text-white" id="black-hole-dialog-title">
+          {title}
+        </h2>
+        {!isRestore ? (
+          <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-300">
+            {"お互いの投稿・プロフィール・星文・通知が見えなくなります。\n相手には通知されません。"}
+          </p>
+        ) : (
+          <p className="mt-4 text-sm leading-7 text-slate-300">
+            次回取得時から、削除されていない投稿や星文が再び表示されます。
+          </p>
+        )}
+        {error ? (
+          <p className="mt-4 rounded-2xl border border-sakura/30 bg-sakura/10 px-3 py-2 text-xs leading-6 text-sakura" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-6 grid gap-2 sm:grid-cols-2">
+          <button
+            className="min-h-11 rounded-2xl border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={saving}
+            onClick={onCancel}
+            ref={cancelButtonRef}
+            type="button"
+          >
+            キャンセル
+          </button>
+          <button
+            className="min-h-11 rounded-2xl border border-indigo-300/30 bg-indigo-300/15 px-4 text-xs font-black text-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={saving}
+            onClick={() => void onConfirm()}
+            type="button"
+          >
+            {saving
+              ? "処理中..."
+              : isRestore
+                ? "ブラックホールから戻す"
+                : "ブラックホールに送る"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -8047,9 +8399,17 @@ function PublicStarProfileScreen({
   resonance,
   starLetters,
 }) {
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const profile = profileRoute.profile;
   const isNotFound = profileRoute.error === "not-found";
   const displayName = profile?.display_name || defaultProfileView.display_name;
+  const primaryTitle = getPrimaryProfileTitle(profile);
+  const canUseBlackHole =
+    postActions?.blackHole?.available &&
+    Boolean(postActions?.session?.user?.id) &&
+    Boolean(profile?.id) &&
+    profile.id !== postActions.session.user.id &&
+    !isTrustedProtectedProfile({ primaryTitle });
 
   return (
     <main className="content-page public-profile-page mx-auto max-w-3xl">
@@ -8061,14 +8421,53 @@ function PublicStarProfileScreen({
         >
           観測へ戻る
         </button>
-        <button
-          className="min-h-10 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={!profile?.username}
-          onClick={() => profileRoute.onShareProfile(profile?.username)}
-          type="button"
-        >
-          共有
-        </button>
+        <div className="relative flex items-center gap-2">
+          <button
+            className="min-h-10 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!profile?.username}
+            onClick={() => profileRoute.onShareProfile(profile?.username)}
+            type="button"
+          >
+            共有
+          </button>
+          {canUseBlackHole ? (
+            <>
+              <button
+                aria-expanded={isProfileMenuOpen}
+                aria-haspopup="menu"
+                aria-label={`${displayName}のメニュー`}
+                className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/5 text-lg font-black text-slate-300"
+                onClick={() => setIsProfileMenuOpen((isOpen) => !isOpen)}
+                type="button"
+              >
+                …
+              </button>
+              {isProfileMenuOpen ? (
+                <div
+                  className="absolute right-0 top-12 z-30 w-52 rounded-2xl border border-white/10 bg-night-950/95 p-1.5 shadow-2xl backdrop-blur-xl"
+                  role="menu"
+                >
+                  <button
+                    className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
+                    onClick={() => {
+                      setIsProfileMenuOpen(false);
+                      postActions.blackHole.onRequest?.({
+                        id: profile.id,
+                        displayName,
+                        primaryTitle,
+                        username: profile.username,
+                      });
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    ブラックホールに送る
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
       </section>
 
       <section className="content-flow">
@@ -8081,15 +8480,15 @@ function PublicStarProfileScreen({
             }`}
           >
             {isNotFound
-              ? "この星座はまだ見つかりませんでした。"
+              ? "この村人は見つかりませんでした。"
               : profileRoute.error || profileRoute.shareError || profileRoute.shareMessage || "星座を探しています…"}
           </p>
         )}
 
         {isNotFound ? (
           <section className="empty-state px-4 py-8 text-center text-sm leading-7 text-slate-400">
-            <h2 className="text-xl font-black text-white">この星座はまだ見つかりませんでした。</h2>
-            <p className="mt-3">URLが間違っているか、まだ作成されていない星座かもしれません。</p>
+            <h2 className="text-xl font-black text-white">この村人は見つかりませんでした。</h2>
+            <p className="mt-3">URLが間違っているか、現在は表示できないプロフィールです。</p>
             <button
               className="mt-5 min-h-10 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15"
               onClick={profileRoute.onBack}
@@ -9311,6 +9710,17 @@ function ProfileScreen({
     );
   }
 
+  if (profile.profileScreenMode === "black-hole") {
+    return (
+      <main className="mx-auto max-w-2xl">
+        <BlackHoleManagementScreen
+          blackHole={profile.blackHole}
+          onBack={profile.onBackToSettings}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="content-page my-universe-page mx-auto max-w-2xl">
       <PageIntro subtitle="わたしだけの宇宙" title="My Universe" />
@@ -9328,6 +9738,77 @@ function ProfileScreen({
         starLetters={starLetters}
       />
     </main>
+  );
+}
+
+function BlackHoleManagementScreen({ blackHole, onBack }) {
+  return (
+    <Panel eyebrow="settings" title="ブラックホール管理">
+      <button
+        className="min-h-10 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-black text-slate-300 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+        onClick={onBack}
+        type="button"
+      >
+        設定へ戻る
+      </button>
+      <p className="mt-4 text-sm leading-7 text-slate-400">
+        あなたがブラックホールへ送った村人だけを表示しています。
+      </p>
+      {blackHole?.message || blackHole?.error ? (
+        <p
+          className={`mt-4 rounded-2xl border px-4 py-3 text-xs leading-6 ${
+            blackHole.error
+              ? "border-sakura/30 bg-sakura/10 text-sakura"
+              : "border-comet/20 bg-comet/10 text-comet"
+          }`}
+          role={blackHole.error ? "alert" : "status"}
+        >
+          {blackHole.error || blackHole.message}
+        </p>
+      ) : null}
+      {blackHole?.loading ? (
+        <p className="mt-5 text-sm text-slate-400">ブラックホールを確認中...</p>
+      ) : blackHole?.items?.length ? (
+        <div className="mt-5 divide-y divide-white/10">
+          {blackHole.items.map((item) => (
+            <article className="flex flex-wrap items-center gap-3 py-4" key={item.blockId}>
+              <AvatarFrame
+                avatar={getAvatarText(item.displayName)}
+                avatarUrl={item.avatarUrl}
+                className="h-11 w-11 rounded-2xl text-sm"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-black text-white">{item.displayName}</p>
+                <p className="truncate text-xs text-slate-500">
+                  {item.username ? `@${item.username}` : "ユーザー名未設定"}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-600">
+                  {formatNotificationTime(item.createdAt)}
+                </p>
+              </div>
+              <button
+                className="min-h-10 rounded-2xl border border-white/10 bg-white/5 px-3 text-xs font-black text-slate-200 transition hover:border-comet/30 hover:bg-comet/10 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={blackHole.saving}
+                onClick={() =>
+                  blackHole.onRestore?.({
+                    id: item.blockedId,
+                    displayName: item.displayName,
+                    username: item.username,
+                  })
+                }
+                type="button"
+              >
+                ブラックホールから戻す
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-5 text-sm leading-7 text-slate-500">
+          ブラックホールへ送った村人はいません。
+        </p>
+      )}
+    </Panel>
   );
 }
 
@@ -9763,6 +10244,18 @@ function SettingsPanel({ auth, onBack, profile }) {
           </button>
         ) : null}
         {profile.guideAdminLoading ? <p className="text-xs text-slate-500">管理設定を確認中...</p> : null}
+        {auth.session && profile.blackHole?.available ? (
+          <button
+            className="w-full rounded-2xl border border-indigo-300/20 bg-indigo-300/10 px-4 py-4 text-left transition hover:border-indigo-200/35 hover:bg-indigo-300/15"
+            onClick={profile.onOpenBlackHoleManagement}
+            type="button"
+          >
+            <span className="block text-sm font-black text-white">ブラックホール管理</span>
+            <span className="mt-1 block text-xs leading-6 text-slate-400">
+              ブラックホールへ送った村人を確認し、ここから戻せます。
+            </span>
+          </button>
+        ) : null}
         <button
           className="w-full rounded-2xl border border-comet/20 bg-comet/10 px-4 py-4 text-left transition hover:border-comet/35 hover:bg-comet/15"
           onClick={profile.onOpenFeedback}
@@ -12687,6 +13180,7 @@ function PostCard({
   showStarLetters = false,
   starLetters,
 }) {
+  const [isAuthorMenuOpen, setIsAuthorMenuOpen] = useState(false);
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
   const isArchiveSaving = archive?.savingPostId === post.id;
@@ -12718,6 +13212,11 @@ function PostCard({
   const isOnboardingTargetPost =
     onboarding?.active && onboarding.targetPostId === post.id;
   const hasCornerEmblem = emblemPlacement === "corner" && Boolean(post.primaryTitle?.emblemPath);
+  const canUseBlackHole =
+    postActions?.blackHole?.available &&
+    Boolean(postActions?.session?.user?.id) &&
+    !isOwnPost &&
+    !isTrustedProtectedProfile(post);
 
   function isCardActionTarget(target) {
     return Boolean(
@@ -12779,6 +13278,47 @@ function PostCard({
       tabIndex={canOpenDetail ? 0 : undefined}
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
+      {canUseBlackHole ? (
+        <div className="absolute right-3 top-3 z-20" data-card-action="true">
+          <button
+            aria-expanded={isAuthorMenuOpen}
+            aria-haspopup="menu"
+            aria-label={`${post.name}のメニュー`}
+            className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-night-950/55 text-lg font-black text-slate-300 transition hover:border-comet/30 hover:bg-night-950/80 hover:text-white"
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsAuthorMenuOpen((isOpen) => !isOpen);
+            }}
+            type="button"
+          >
+            …
+          </button>
+          {isAuthorMenuOpen ? (
+            <div
+              className="absolute right-0 top-11 w-52 rounded-2xl border border-white/10 bg-night-950/95 p-1.5 shadow-2xl backdrop-blur-xl"
+              role="menu"
+            >
+              <button
+                className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsAuthorMenuOpen(false);
+                  postActions.blackHole.onRequest?.({
+                    id: post.authorId,
+                    displayName: post.name,
+                    primaryTitle: post.primaryTitle,
+                    username: String(post.handle ?? "").replace(/^@/, ""),
+                  });
+                }}
+                role="menuitem"
+                type="button"
+              >
+                ブラックホールに送る
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {hasCornerEmblem ? (
         <ProfileTitleEmblem decorative placement="post-card" size="compact" title={post.primaryTitle} />
       ) : null}
@@ -12797,7 +13337,7 @@ function PostCard({
           ) : (
             <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} frame={post.avatarFrame} />
           )}
-          <div className={`min-w-0 flex-1 pt-0.5${hasCornerEmblem ? " pr-20" : ""}`}>
+          <div className={`min-w-0 flex-1 pt-0.5${hasCornerEmblem || canUseBlackHole ? " pr-20" : ""}`}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
