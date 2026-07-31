@@ -363,6 +363,9 @@ test("the UI exposes only explicit confirmation and management actions", () => {
 });
 
 test("migration and schema.sql stay byte-for-byte synchronized", () => {
-  const schemaBlock = schemaSql.split(marker)[1]?.trim();
+  const schemaBlock = schemaSql
+    .split(marker)[1]
+    ?.split("-- 20260731164819_add_content_reports.sql")[0]
+    ?.trim();
   assert.equal(schemaBlock, migrationSql);
 });

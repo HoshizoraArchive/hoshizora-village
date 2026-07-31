@@ -10,6 +10,8 @@ import { supabase } from "./lib/supabaseClient";
 import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw";
 import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import VillageGuideAdminScreen from "./VillageGuideAdmin";
+import ContentReportDialog from "./ContentReportDialog";
+import ObservationStationAdminScreen from "./ObservationStationAdmin";
 import StarMovieObservationMode from "./StarMovieObservationMode";
 import ObserveBrandHeader from "./ObserveBrandHeader";
 import InteractiveOnboarding from "./InteractiveOnboarding";
@@ -95,6 +97,16 @@ import {
   readMyProfileBlocks,
   unblockProfile,
 } from "./profileBlocking";
+import {
+  CONTENT_REPORT_DUPLICATE_MESSAGE,
+  CONTENT_REPORT_ERROR_MESSAGE,
+  CONTENT_REPORT_SUCCESS_MESSAGE,
+  canReportContent,
+  createContentReport,
+  createContentReportSingleFlight,
+  isMissingContentReportsSchemaError,
+  validateContentReportInput,
+} from "./contentReports";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -1726,6 +1738,10 @@ function App() {
   const [blackHoleError, setBlackHoleError] = useState("");
   const [blackHoleItems, setBlackHoleItems] = useState([]);
   const [blackHoleItemsLoading, setBlackHoleItemsLoading] = useState(false);
+  const [contentReportsAvailable, setContentReportsAvailable] = useState(true);
+  const [contentReportDialog, setContentReportDialog] = useState(null);
+  const [contentReportSaving, setContentReportSaving] = useState(false);
+  const contentReportSingleFlightRef = useRef(createContentReportSingleFlight());
   const [guideIsAdmin, setGuideIsAdmin] = useState(false);
   const [guideAdminLoading, setGuideAdminLoading] = useState(false);
   const [profileFrames, setProfileFrames] = useState([]);
@@ -1993,6 +2009,10 @@ function App() {
     setBlackHoleError("");
     setBlackHoleItems([]);
     setBlackHoleItemsLoading(false);
+    setContentReportsAvailable(true);
+    setContentReportDialog(null);
+    setContentReportSaving(false);
+    contentReportSingleFlightRef.current = createContentReportSingleFlight();
 
     if (!userId) {
       return () => {
@@ -4663,6 +4683,107 @@ function App() {
     }
   }
 
+  function handleRequestContentReport(target) {
+    if (
+      !contentReportsAvailable ||
+      !canReportContent({
+        currentUserId: session?.user?.id,
+        targetId: target?.targetId,
+        targetOwnerId: target?.targetOwnerId,
+      }) ||
+      !["post", "profile"].includes(target?.targetType)
+    ) {
+      return;
+    }
+
+    setContentReportDialog({
+      details: "",
+      error: "",
+      reason: "",
+      result: "",
+      targetId: target.targetId,
+      targetLabel: target.targetLabel || "この内容",
+      targetOwnerId: target.targetOwnerId,
+      targetType: target.targetType,
+      triggerElement: target.triggerElement ?? null,
+    });
+  }
+
+  function handleCloseContentReportDialog() {
+    if (!contentReportSaving) {
+      setContentReportDialog(null);
+    }
+  }
+
+  function handleContentReportChange(field, value) {
+    if (!["reason", "details"].includes(field)) {
+      return;
+    }
+
+    setContentReportDialog((current) =>
+      current
+        ? {
+            ...current,
+            [field]: value,
+            error: "",
+          }
+        : current,
+    );
+  }
+
+  async function handleSubmitContentReport(event) {
+    event.preventDefault();
+
+    if (!contentReportDialog || contentReportSaving) {
+      return;
+    }
+
+    const validation = validateContentReportInput(contentReportDialog);
+
+    if (!validation.valid) {
+      setContentReportDialog((current) =>
+        current ? { ...current, error: validation.error } : current,
+      );
+      return;
+    }
+
+    setContentReportSaving(true);
+
+    try {
+      const result = await contentReportSingleFlightRef.current.run(() =>
+        createContentReport(supabase, contentReportDialog),
+      );
+      setContentReportDialog((current) =>
+        current
+          ? {
+              ...current,
+              error: "",
+              result:
+                result.outcome === "already_reported"
+                  ? CONTENT_REPORT_DUPLICATE_MESSAGE
+                  : CONTENT_REPORT_SUCCESS_MESSAGE,
+            }
+          : current,
+      );
+    } catch (error) {
+      if (isMissingContentReportsSchemaError(error)) {
+        setContentReportsAvailable(false);
+      }
+
+      logSafeError(ERROR_OPERATION.REPORT_SAVE, error);
+      setContentReportDialog((current) =>
+        current
+          ? {
+              ...current,
+              error: error?.safeMessage || CONTENT_REPORT_ERROR_MESSAGE,
+            }
+          : current,
+      );
+    } finally {
+      setContentReportSaving(false);
+    }
+  }
+
   function handleOpenFeedback() {
     setFeedbackMessage("");
     setFeedbackError("");
@@ -4685,6 +4806,16 @@ function App() {
     setProfileMessage("");
     setProfileError("");
     setProfileScreenMode("guide-admin");
+  }
+
+  function handleOpenObservationStation() {
+    if (!guideIsAdmin) {
+      return;
+    }
+
+    setProfileMessage("");
+    setProfileError("");
+    setProfileScreenMode("observation-station");
   }
 
   function handleBackToProfile() {
@@ -7348,6 +7479,7 @@ function App() {
     onOpenGuide: handleOpenGuide,
     onOpenGuideAdmin: handleOpenGuideAdmin,
     onOpenBlackHoleManagement: handleOpenBlackHoleManagement,
+    onOpenObservationStation: handleOpenObservationStation,
     onOpenSettings: handleOpenProfileSettings,
     onResonanceNotificationSettingSubmit: handleResonanceNotificationSettingSubmit,
     onShareProfile: handleShareStarProfile,
@@ -7360,6 +7492,7 @@ function App() {
     profileFramesLoading,
     guideAdminLoading,
     guideIsAdmin,
+    contentReportsAvailable,
     selectedFrame: selectedProfileFrame,
     saving: profileSaving,
     shareError: profileShareError,
@@ -7374,6 +7507,9 @@ function App() {
       message: blackHoleMessage,
       onRestore: handleRequestBlackHoleRestore,
       saving: blackHoleSaving,
+    },
+    observationStation: {
+      available: contentReportsAvailable,
     },
   };
   const feedback = {
@@ -7472,6 +7608,10 @@ function App() {
       available: profileBlockingAvailable,
       blockedProfileIds,
       onRequest: handleRequestBlackHole,
+    },
+    report: {
+      available: contentReportsAvailable,
+      onRequest: handleRequestContentReport,
     },
     session,
     updatingId: postUpdatingId,
@@ -7740,6 +7880,13 @@ function App() {
         onCancel={handleCloseBlackHoleDialog}
         onConfirm={handleConfirmBlackHole}
         saving={blackHoleSaving}
+      />
+      <ContentReportDialog
+        dialog={contentReportDialog}
+        onCancel={handleCloseContentReportDialog}
+        onChange={handleContentReportChange}
+        onSubmit={handleSubmitContentReport}
+        saving={contentReportSaving}
       />
       {blackHoleMessage && profileScreenMode !== "black-hole" ? (
         <p
@@ -8400,6 +8547,7 @@ function PublicStarProfileScreen({
   starLetters,
 }) {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const profileMenuButtonRef = useRef(null);
   const profile = profileRoute.profile;
   const isNotFound = profileRoute.error === "not-found";
   const displayName = profile?.display_name || defaultProfileView.display_name;
@@ -8410,6 +8558,14 @@ function PublicStarProfileScreen({
     Boolean(profile?.id) &&
     profile.id !== postActions.session.user.id &&
     !isTrustedProtectedProfile({ primaryTitle });
+  const canReportProfile =
+    postActions?.report?.available &&
+    canReportContent({
+      currentUserId: postActions?.session?.user?.id,
+      targetId: profile?.id,
+      targetOwnerId: profile?.id,
+    });
+  const canShowProfileMenu = canUseBlackHole || canReportProfile;
 
   return (
     <main className="content-page public-profile-page mx-auto max-w-3xl">
@@ -8430,7 +8586,7 @@ function PublicStarProfileScreen({
           >
             共有
           </button>
-          {canUseBlackHole ? (
+          {canShowProfileMenu ? (
             <>
               <button
                 aria-expanded={isProfileMenuOpen}
@@ -8438,6 +8594,7 @@ function PublicStarProfileScreen({
                 aria-label={`${displayName}のメニュー`}
                 className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/5 text-lg font-black text-slate-300"
                 onClick={() => setIsProfileMenuOpen((isOpen) => !isOpen)}
+                ref={profileMenuButtonRef}
                 type="button"
               >
                 …
@@ -8447,22 +8604,43 @@ function PublicStarProfileScreen({
                   className="absolute right-0 top-12 z-30 w-52 rounded-2xl border border-white/10 bg-night-950/95 p-1.5 shadow-2xl backdrop-blur-xl"
                   role="menu"
                 >
-                  <button
-                    className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
-                    onClick={() => {
-                      setIsProfileMenuOpen(false);
-                      postActions.blackHole.onRequest?.({
-                        id: profile.id,
-                        displayName,
-                        primaryTitle,
-                        username: profile.username,
-                      });
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    ブラックホールに送る
-                  </button>
+                  {canUseBlackHole ? (
+                    <button
+                      className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        postActions.blackHole.onRequest?.({
+                          id: profile.id,
+                          displayName,
+                          primaryTitle,
+                          username: profile.username,
+                        });
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      ブラックホールに送る
+                    </button>
+                  ) : null}
+                  {canReportProfile ? (
+                    <button
+                      className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        postActions.report.onRequest?.({
+                          targetId: profile.id,
+                          targetLabel: displayName,
+                          targetOwnerId: profile.id,
+                          targetType: "profile",
+                          triggerElement: profileMenuButtonRef.current,
+                        });
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      観測局へ異常を伝える
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </>
@@ -9710,6 +9888,15 @@ function ProfileScreen({
     );
   }
 
+  if (profile.profileScreenMode === "observation-station") {
+    return (
+      <ObservationStationAdminScreen
+        isAdmin={profile.guideIsAdmin}
+        onBack={profile.onBackToSettings}
+      />
+    );
+  }
+
   if (profile.profileScreenMode === "black-hole") {
     return (
       <main className="mx-auto max-w-2xl">
@@ -10244,6 +10431,18 @@ function SettingsPanel({ auth, onBack, profile }) {
           </button>
         ) : null}
         {profile.guideAdminLoading ? <p className="text-xs text-slate-500">管理設定を確認中...</p> : null}
+        {profile.guideIsAdmin && profile.observationStation?.available ? (
+          <button
+            className="w-full rounded-2xl border border-comet/25 bg-comet/10 px-4 py-4 text-left transition hover:border-comet/40 hover:bg-comet/15"
+            onClick={profile.onOpenObservationStation}
+            type="button"
+          >
+            <span className="block text-sm font-black text-white">観測局</span>
+            <span className="mt-1 block text-xs leading-6 text-slate-400">
+              村人から届いた異常を確認し、対応状態を記録します。
+            </span>
+          </button>
+        ) : null}
         {auth.session && profile.blackHole?.available ? (
           <button
             className="w-full rounded-2xl border border-indigo-300/20 bg-indigo-300/10 px-4 py-4 text-left transition hover:border-indigo-200/35 hover:bg-indigo-300/15"
@@ -13181,6 +13380,7 @@ function PostCard({
   starLetters,
 }) {
   const [isAuthorMenuOpen, setIsAuthorMenuOpen] = useState(false);
+  const authorMenuButtonRef = useRef(null);
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
   const isArchiveSaving = archive?.savingPostId === post.id;
@@ -13217,6 +13417,14 @@ function PostCard({
     Boolean(postActions?.session?.user?.id) &&
     !isOwnPost &&
     !isTrustedProtectedProfile(post);
+  const canReportPost =
+    postActions?.report?.available &&
+    canReportContent({
+      currentUserId: postActions?.session?.user?.id,
+      targetId: post.id,
+      targetOwnerId: post.authorId,
+    });
+  const canShowAuthorMenu = canUseBlackHole || canReportPost;
 
   function isCardActionTarget(target) {
     return Boolean(
@@ -13278,7 +13486,7 @@ function PostCard({
       tabIndex={canOpenDetail ? 0 : undefined}
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
-      {canUseBlackHole ? (
+      {canShowAuthorMenu ? (
         <div className="absolute right-3 top-3 z-20" data-card-action="true">
           <button
             aria-expanded={isAuthorMenuOpen}
@@ -13289,6 +13497,7 @@ function PostCard({
               event.stopPropagation();
               setIsAuthorMenuOpen((isOpen) => !isOpen);
             }}
+            ref={authorMenuButtonRef}
             type="button"
           >
             …
@@ -13298,23 +13507,45 @@ function PostCard({
               className="absolute right-0 top-11 w-52 rounded-2xl border border-white/10 bg-night-950/95 p-1.5 shadow-2xl backdrop-blur-xl"
               role="menu"
             >
-              <button
-                className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setIsAuthorMenuOpen(false);
-                  postActions.blackHole.onRequest?.({
-                    id: post.authorId,
-                    displayName: post.name,
-                    primaryTitle: post.primaryTitle,
-                    username: String(post.handle ?? "").replace(/^@/, ""),
-                  });
-                }}
-                role="menuitem"
-                type="button"
-              >
-                ブラックホールに送る
-              </button>
+              {canUseBlackHole ? (
+                <button
+                  className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsAuthorMenuOpen(false);
+                    postActions.blackHole.onRequest?.({
+                      id: post.authorId,
+                      displayName: post.name,
+                      primaryTitle: post.primaryTitle,
+                      username: String(post.handle ?? "").replace(/^@/, ""),
+                    });
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  ブラックホールに送る
+                </button>
+              ) : null}
+              {canReportPost ? (
+                <button
+                  className="min-h-10 w-full rounded-xl px-3 text-left text-xs font-black text-slate-200 transition hover:bg-white/10"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsAuthorMenuOpen(false);
+                    postActions.report.onRequest?.({
+                      targetId: post.id,
+                      targetLabel: post.text || "流星便",
+                      targetOwnerId: post.authorId,
+                      targetType: "post",
+                      triggerElement: authorMenuButtonRef.current,
+                    });
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  観測局へ異常を伝える
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -13337,7 +13568,7 @@ function PostCard({
           ) : (
             <AvatarFrame avatar={post.avatar} avatarUrl={post.avatarUrl} frame={post.avatarFrame} />
           )}
-          <div className={`min-w-0 flex-1 pt-0.5${hasCornerEmblem || canUseBlackHole ? " pr-20" : ""}`}>
+          <div className={`min-w-0 flex-1 pt-0.5${hasCornerEmblem || canShowAuthorMenu ? " pr-20" : ""}`}>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {canOpenAuthorProfile ? (
                 <button
