@@ -7,6 +7,8 @@ export const CONTENT_REPORT_DUPLICATE_MESSAGE =
 export const CONTENT_REPORT_ERROR_MESSAGE =
   "観測局へ送れませんでした。時間をおいてもう一度お試しください。";
 
+export const HOSHIZORA_CHIA_PROFILE_ID = "b61ffc25-f028-4538-823c-458dacca1242";
+
 export const CONTENT_REPORT_REASONS = Object.freeze([
   { key: "harassment", label: "嫌がらせ・いじめ" },
   { key: "hate_or_abuse", label: "差別・攻撃的な内容" },
@@ -39,12 +41,19 @@ function normalizeOptionalText(value) {
   return normalized || null;
 }
 
+function normalizeProfileId(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 export function canReportContent({ currentUserId, targetId, targetOwnerId }) {
+  const normalizedTargetOwnerId = normalizeProfileId(targetOwnerId);
+
   return Boolean(
     currentUserId &&
       targetId &&
-      targetOwnerId &&
-      currentUserId !== targetOwnerId,
+      normalizedTargetOwnerId &&
+      currentUserId !== targetOwnerId &&
+      normalizedTargetOwnerId !== HOSHIZORA_CHIA_PROFILE_ID,
   );
 }
 
