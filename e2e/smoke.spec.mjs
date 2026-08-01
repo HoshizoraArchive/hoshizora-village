@@ -57,11 +57,21 @@ test.describe("星空Village browser smoke", () => {
       name: "星空Village bottom navigation",
     });
 
-    for (const label of ["R.Connect", "流星便", "Archive", "My Universe", "観測"]) {
+    for (const label of ["R.Connect", "Archive", "My Universe", "観測"]) {
       const button = navigation.getByRole("button", { name: label, exact: true });
       await button.click();
       await expect(button).toHaveAttribute("aria-current", "page");
     }
+
+    await navigation.getByRole("button", { name: "流星便", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "流星便を作成" })).toBeVisible();
+    await expect(page.getByText("ログインすると流星便を放流できます。", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "← 戻る", exact: true }).click();
+    await expect(navigation).toBeVisible();
+    await expect(
+      navigation.getByRole("button", { name: "観測", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
 
     const hasHorizontalOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 1,
