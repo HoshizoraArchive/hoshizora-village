@@ -114,9 +114,27 @@ npm run preview
 
 ## テスト
 
-現在はDB/RPC、Netlify Functions、主要ロジックを中心に自動テストを整備しています。
+DB/RPC、Netlify Functions、主要ロジックの自動テストに加えて、**PlaywrightによるブラウザE2E smoke testを導入済み**です。
 
-一方で、実ブラウザを操作するPlaywright等のE2Eテストはまだ主要テスト基盤として導入していません。そのため、βではiPhone / Android / PCの実機確認も重視します。
+現在のブラウザE2Eは、390×844のスマートフォン相当の画面で次を確認します。
+
+- ゲスト状態で星空Villageが正常に起動すること
+- ログインフォームが表示されること
+- 「観測 / R.Connect / 流星便 / Archive / My Universe」の5つの主要ナビが表示されること
+- 主要5タブを実際のブラウザ操作で移動できること
+- 基本画面で横スクロール崩れが発生していないこと
+
+E2EではSupabase通信をローカルの空データへ置き換えるため、**本番の投稿・共鳴・星文・Archive・通報などを変更しません。** Pull RequestではGitHub ActionsからChromiumで自動実行します。
+
+ローカルでブラウザE2Eを実行する場合は、Playwrightを一時インストールして実行します。
+
+```bash
+npm install --no-save --package-lock=false @playwright/test@1.61.1
+npx playwright install chromium
+npx playwright test
+```
+
+認証済みユーザーによる「投稿 → 共鳴 → 星文 → Archive」などのE2Eは、β用テストアカウントとテストデータの運用を決めたあと段階的に追加します。βでは引き続きiPhone / Android / PCの実機確認も重視します。
 
 ## デプロイ
 
@@ -149,7 +167,7 @@ Pull RequestではDeploy Previewを使って未マージ差分を確認します
 
 - βテスターによる実利用検証
 - バグ・UX改善
-- 主要導線のブラウザE2Eテスト追加
+- 認証済み主要導線のブラウザE2Eを段階的に拡張
 - 大きくなった画面・ロジックの段階的なコンポーネント分割
 - β後の仕様を反映したネイティブシェル化（iOS / Android）
 - App Store / Google Play公開に向けた実機・ストア対応
