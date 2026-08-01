@@ -908,7 +908,7 @@ test("R.Connect Push delivery Function sends all notification types without expo
   assert.equal(pushDispatchFunction.includes("PUSH_VAPID_PRIVATE_KEY"), false);
   assert.equal(pushDispatchFunction.includes("logPushDeliveryFailure"), true);
 
-  for (const token of ["resonance", "archive", "star_letter", "star_letter_reply", "star_letter_resonance"]) {
+  for (const token of ["resonance", "archive", "star_letter", "star_letter_reply", "star_letter_resonance", "content_report"]) {
     assert.equal(pushDeliverySharedFunction.includes(token), true, `push delivery fallback missing ${token}`);
   }
 

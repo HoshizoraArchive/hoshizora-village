@@ -174,7 +174,7 @@
 .observe-screen .profile-title-emblem-post-card-slot {
   position: absolute;
   z-index: 1;
-  top: 0.8rem;
+  top: 0;
   right: 0.8rem;
   display: grid;
   width: 4rem;
