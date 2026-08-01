@@ -8582,7 +8582,7 @@ function PublicStarProfileScreen({
     Boolean(postActions?.session?.user?.id) &&
     Boolean(profile?.id) &&
     profile.id !== postActions.session.user.id &&
-    !isTrustedProtectedProfile({ primaryTitle });
+    !isTrustedProtectedProfile({ id: profile?.id, primaryTitle });
   const canReportProfile =
     postActions?.report?.available &&
     canReportContent({
