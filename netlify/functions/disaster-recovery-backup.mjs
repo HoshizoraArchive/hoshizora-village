@@ -17,11 +17,25 @@ import {
 
 const LATEST_BACKUP_KEY = "_control/latest.json";
 
-function readBackupConfig() {
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+function readRuntimeEnv(name) {
+  const env = globalThis.Netlify?.env ?? process.env;
 
-  if (process.env.CONTEXT !== "production") {
+  if (env && typeof env.get === "function") {
+    return env.get(name) ?? "";
+  }
+
+  return env?.[name] ?? "";
+}
+
+function readDeployContext() {
+  return globalThis.Netlify?.context?.deploy?.context ?? process.env.CONTEXT ?? "";
+}
+
+function readBackupConfig() {
+  const supabaseUrl = readRuntimeEnv("SUPABASE_URL") || readRuntimeEnv("VITE_SUPABASE_URL");
+  const supabaseServiceRoleKey = readRuntimeEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (readDeployContext() !== "production") {
     throw new Error("disaster_recovery_production_only");
   }
 
@@ -121,7 +135,7 @@ async function initializeBackupRun({ store, supabase, now }) {
     runId,
     startedAt: now.toISOString(),
     completedAt: null,
-    commitRef: process.env.COMMIT_REF ?? null,
+    commitRef: readRuntimeEnv("COMMIT_REF") || null,
     database: {
       blobKey: databaseBlobKey,
       restoreVerified: false,
