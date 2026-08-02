@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   createDatabaseBackupKey,
@@ -11,6 +12,12 @@ import {
   sha256Hex,
   shouldStartDisasterRecoveryBackup,
 } from "./disasterRecovery.mjs";
+
+const migrationPath = "supabase/migrations/20260801133000_add_disaster_recovery_snapshot_rpcs.sql";
+const migrationSql = readFileSync(migrationPath, "utf8").trim();
+const schemaSql = readFileSync("supabase/schema.sql", "utf8");
+const schemaMarker = "-- Disaster-recovery snapshot helpers for trusted server-side backup jobs.\n";
+const schemaEnd = "grant execute on function public.verify_disaster_recovery_snapshot(jsonb) to service_role;";
 
 test("disaster recovery run ids are path-safe and stable", () => {
   assert.equal(
@@ -85,4 +92,14 @@ test("sha256 helper is deterministic", () => {
     sha256Hex(Buffer.from("星空Village", "utf8")),
   );
   assert.notEqual(sha256Hex(Buffer.from("a")), sha256Hex(Buffer.from("b")));
+});
+
+test("disaster recovery migration and schema.sql stay byte-for-byte synchronized", () => {
+  const schemaSuffix = schemaSql.split(schemaMarker)[1] ?? "";
+  const schemaEndIndex = schemaSuffix.indexOf(schemaEnd);
+
+  assert.notEqual(schemaEndIndex, -1, "disaster recovery schema block must include its final service_role grant");
+
+  const schemaBlock = `${schemaMarker}${schemaSuffix.slice(0, schemaEndIndex + schemaEnd.length)}`.trim();
+  assert.equal(schemaBlock, migrationSql);
 });
