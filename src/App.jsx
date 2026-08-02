@@ -15,6 +15,7 @@ import ObservationStationAdminScreen from "./ObservationStationAdmin";
 import StarMovieObservationMode from "./StarMovieObservationMode";
 import ObserveBrandHeader from "./ObserveBrandHeader";
 import InteractiveOnboarding from "./InteractiveOnboarding";
+import AuthConfirmationPanel from "./AuthConfirmationPanel";
 import ProfileTitleBadge from "./ProfileTitleBadge";
 import ProfileTitleEmblem from "./ProfileTitleEmblem";
 import {
@@ -107,6 +108,17 @@ import {
   isMissingContentReportsSchemaError,
   validateContentReportInput,
 } from "./contentReports";
+import {
+  AUTH_CONFIRMATION_KIND,
+  AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
+  getAuthCallbackIntent,
+  getAuthConfirmationCooldownSeconds,
+  getSanitizedAuthCallbackPath,
+  finishAuthAction,
+  isAuthEmailRateLimitError,
+  isEmailNotConfirmedError,
+  tryStartAuthAction,
+} from "./authConfirmation";
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
@@ -1713,6 +1725,7 @@ function App() {
   const [shareError, setShareError] = useState("");
   const [profileShareMessage, setProfileShareMessage] = useState("");
   const [profileShareError, setProfileShareError] = useState("");
+  const [initialAuthCallback] = useState(() => getAuthCallbackIntent(window.location));
   const [session, setSession] = useState(null);
   const activeSessionUserIdRef = useRef(null);
   const [onboardingProgress, setOnboardingProgress] = useState(null);
@@ -1726,6 +1739,18 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
+  const [authConfirmation, setAuthConfirmation] = useState(() =>
+    initialAuthCallback.kind === AUTH_CONFIRMATION_KIND.INVALID_LINK
+      ? {
+          email: "",
+          kind: AUTH_CONFIRMATION_KIND.INVALID_LINK,
+          resendAvailableAt: 0,
+        }
+      : null,
+  );
+  const authActionInFlightRef = useRef(false);
+  const authCallbackCleanedRef = useRef(false);
+  const authCallbackResolvedRef = useRef(false);
   const [profile, setProfile] = useState(null);
   const [profileForm, setProfileForm] = useState(emptyProfileForm);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -2105,6 +2130,63 @@ function App() {
   useEffect(() => {
     let isMounted = true;
 
+    function cleanAuthCallbackUrl() {
+      if (!initialAuthCallback.shouldCleanUrl || authCallbackCleanedRef.current) {
+        return;
+      }
+
+      authCallbackCleanedRef.current = true;
+      window.history.replaceState(
+        window.history.state,
+        "",
+        getSanitizedAuthCallbackPath(window.location),
+      );
+    }
+
+    function applyInitialAuthCallback(currentSession) {
+      if (authCallbackResolvedRef.current) {
+        return;
+      }
+
+      if (initialAuthCallback.kind === AUTH_CONFIRMATION_KIND.INVALID_LINK) {
+        authCallbackResolvedRef.current = true;
+        setAuthConfirmation({
+          email: "",
+          kind: AUTH_CONFIRMATION_KIND.INVALID_LINK,
+          resendAvailableAt: 0,
+        });
+        setAuthStatus("メール確認エラー");
+        cleanAuthCallbackUrl();
+        return;
+      }
+
+      if (initialAuthCallback.kind !== "signup_callback") {
+        return;
+      }
+
+      authCallbackResolvedRef.current = true;
+
+      if (currentSession) {
+        setAuthConfirmation({
+          email: currentSession.user?.email ?? "",
+          kind: AUTH_CONFIRMATION_KIND.CONFIRMED,
+          resendAvailableAt: 0,
+        });
+        setAuthError("");
+        setAuthMessage("");
+        setAuthStatus("メール確認完了");
+      } else {
+        setAuthConfirmation({
+          email: "",
+          kind: AUTH_CONFIRMATION_KIND.INVALID_LINK,
+          resendAvailableAt: 0,
+        });
+        setAuthStatus("メール確認エラー");
+      }
+
+      cleanAuthCallbackUrl();
+    }
+
     async function readSession() {
       const { data, error } = await supabase.auth.getSession();
 
@@ -2120,24 +2202,45 @@ function App() {
 
       activeSessionUserIdRef.current = data.session?.user?.id ?? null;
       setSession(data.session);
-      setAuthStatus(data.session ? "ログイン中" : "未ログイン");
+      setAuthStatus(
+        data.session
+          ? "ログイン中"
+          : initialAuthCallback.kind === AUTH_CONFIRMATION_KIND.INVALID_LINK
+            ? "メール確認エラー"
+            : "未ログイン",
+      );
+      applyInitialAuthCallback(data.session);
     }
 
     readSession();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);
-      setAuthStatus(session ? "ログイン中" : "未ログイン");
+      setAuthStatus(
+        session
+          ? "ログイン中"
+          : initialAuthCallback.kind === AUTH_CONFIRMATION_KIND.INVALID_LINK
+            ? "メール確認エラー"
+            : "未ログイン",
+      );
+
+      if (
+        event === "SIGNED_IN" &&
+        initialAuthCallback.kind === "signup_callback" &&
+        !authCallbackResolvedRef.current
+      ) {
+        applyInitialAuthCallback(session);
+      }
     });
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [initialAuthCallback.kind, initialAuthCallback.shouldCleanUrl]);
 
   useEffect(() => {
     activeSessionUserIdRef.current = session?.user?.id ?? null;
@@ -4288,82 +4391,194 @@ function App() {
       return;
     }
 
-    setAuthLoading(true);
-    setAuthMessage("");
-    setAuthError("");
-
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: {
-          legal_age_confirmed: true,
-          legal_privacy_version: LEGAL_PRIVACY_VERSION,
-          legal_terms_version: LEGAL_TERMS_VERSION,
-        },
-      },
-    });
-
-    if (error) {
-      setAuthLoading(false);
-      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_UP));
+    if (!tryStartAuthAction(authActionInFlightRef)) {
       return;
     }
 
-    if (data.session?.user?.id) {
+    setAuthLoading(true);
+    setAuthMessage("");
+    setAuthError("");
+    setAuthConfirmation(null);
+    const normalizedEmail = email.trim();
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: {
+            legal_age_confirmed: true,
+            legal_privacy_version: LEGAL_PRIVACY_VERSION,
+            legal_terms_version: LEGAL_TERMS_VERSION,
+          },
+        },
+      });
+
+      if (error) {
+        if (isAuthEmailRateLimitError(error)) {
+          setAuthConfirmation({
+            email: normalizedEmail,
+            kind: AUTH_CONFIRMATION_KIND.EMAIL_NOT_CONFIRMED,
+            resendAvailableAt: Date.now() + AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
+          });
+          setAuthStatus("メール確認待ち");
+          setAuthError("確認メールの送信回数が上限に達しました。少し待ってから再送してください。");
+          return;
+        }
+
+        setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_UP));
+        return;
+      }
+
+      if (data.session?.user?.id) {
+        const consentError = await recordLegalConsentForSession(data.session);
+
+        if (consentError) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setAuthStatus("未ログイン");
+          setAuthError("会員登録は完了しましたが、同意記録の保存に失敗しました。利用開始前にもう一度ログインして同意を記録してください。");
+          return;
+        }
+      }
+
+      setSession(data.session);
+      setAuthStatus(data.session ? "ログイン中" : "メール確認待ち");
+
+      if (data.session) {
+        setAuthMessage("会員登録してログインしました。");
+        return;
+      }
+
+      setAuthConfirmation({
+        email: normalizedEmail,
+        kind: AUTH_CONFIRMATION_KIND.PENDING,
+        resendAvailableAt: Date.now() + AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
+      });
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.AUTH_SIGN_UP, error);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_UP));
+    } finally {
+      finishAuthAction(authActionInFlightRef);
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleLogin(email, password) {
+    if (!tryStartAuthAction(authActionInFlightRef)) {
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthMessage("");
+    setAuthError("");
+    setAuthConfirmation(null);
+    const normalizedEmail = email.trim();
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      if (error) {
+        if (isEmailNotConfirmedError(error)) {
+          setAuthConfirmation({
+            email: normalizedEmail,
+            kind: AUTH_CONFIRMATION_KIND.EMAIL_NOT_CONFIRMED,
+            resendAvailableAt: 0,
+          });
+          setAuthStatus("メール確認待ち");
+          return;
+        }
+
+        setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_IN));
+        return;
+      }
+
       const consentError = await recordLegalConsentForSession(data.session);
 
       if (consentError) {
         await supabase.auth.signOut();
-        setAuthLoading(false);
         setSession(null);
         setAuthStatus("未ログイン");
-        setAuthError("会員登録は完了しましたが、同意記録の保存に失敗しました。利用開始前にもう一度ログインして同意を記録してください。");
+        setAuthError("同意記録の保存に失敗しました。時間をおいてもう一度ログインしてください。");
         return;
       }
-    }
 
-    setAuthLoading(false);
-    setSession(data.session);
-    setAuthStatus(data.session ? "ログイン中" : "未ログイン");
-    setAuthMessage(
-      data.session
-        ? "会員登録してログインしました。"
-        : "確認メールを送信しました。メールを確認してからログインしてください。同意記録はサーバー側で保存されます。",
-    );
+      setSession(data.session);
+      setAuthStatus("ログイン中");
+      setAuthMessage("ログインしました。");
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.AUTH_SIGN_IN, error);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_IN));
+    } finally {
+      finishAuthAction(authActionInFlightRef);
+      setAuthLoading(false);
+    }
   }
 
-  async function handleLogin(email, password) {
+  async function handleResendConfirmation(email) {
+    const normalizedEmail = email.trim();
+
+    if (
+      !normalizedEmail ||
+      authActionInFlightRef.current ||
+      getAuthConfirmationCooldownSeconds(authConfirmation?.resendAvailableAt) > 0
+    ) {
+      return;
+    }
+
+    if (!tryStartAuthAction(authActionInFlightRef)) {
+      return;
+    }
+
     setAuthLoading(true);
     setAuthMessage("");
     setAuthError("");
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: normalizedEmail,
+      });
 
-    setAuthLoading(false);
+      if (error) {
+        if (isAuthEmailRateLimitError(error)) {
+          setAuthConfirmation((current) => ({
+            email: normalizedEmail,
+            kind: current?.kind ?? AUTH_CONFIRMATION_KIND.EMAIL_NOT_CONFIRMED,
+            resendAvailableAt: Date.now() + AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
+          }));
+          setAuthError("確認メールの再送回数が上限に達しました。少し待ってからもう一度お試しください。");
+          return;
+        }
 
-    if (error) {
-      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SIGN_IN));
-      return;
-    }
+        setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_CONFIRMATION_RESEND));
+        return;
+      }
 
-    const consentError = await recordLegalConsentForSession(data.session);
-
-    if (consentError) {
-      await supabase.auth.signOut();
+      setAuthConfirmation({
+        email: normalizedEmail,
+        kind: AUTH_CONFIRMATION_KIND.PENDING,
+        resendAvailableAt: Date.now() + AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
+      });
+      setAuthStatus("メール確認待ち");
+      setAuthMessage("確認メールを再送しました。");
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.AUTH_CONFIRMATION_RESEND, error);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_CONFIRMATION_RESEND));
+    } finally {
+      finishAuthAction(authActionInFlightRef);
       setAuthLoading(false);
-      setSession(null);
-      setAuthStatus("未ログイン");
-      setAuthError("同意記録の保存に失敗しました。時間をおいてもう一度ログインしてください。");
-      return;
     }
+  }
 
-    setSession(data.session);
-    setAuthStatus("ログイン中");
-    setAuthMessage("ログインしました。");
+  function handleCloseAuthConfirmation() {
+    setAuthConfirmation(null);
+    setAuthError("");
+    setAuthMessage("");
+    setAuthStatus(session ? "ログイン中" : "未ログイン");
   }
 
   async function handleLogout() {
@@ -7461,11 +7676,14 @@ function App() {
   }
 
   const auth = {
+    confirmation: authConfirmation,
     error: authError,
     loading: authLoading,
     message: authMessage,
+    onCloseConfirmation: handleCloseAuthConfirmation,
     onLogin: handleLogin,
     onLogout: handleLogout,
+    onResendConfirmation: handleResendConfirmation,
     onSignUp: handleSignUp,
     session,
     status: authStatus,
@@ -8058,7 +8276,7 @@ function StardustForeground() {
 }
 
 function AppHeader({ auth }) {
-  if (auth.session) {
+  if (auth.session && auth.confirmation?.kind !== AUTH_CONFIRMATION_KIND.CONFIRMED) {
     return null;
   }
 
@@ -11923,6 +12141,7 @@ function AuthPanel({ auth }) {
   const userEmail = auth.session?.user?.email;
   const signUpConsentReady = acceptedLegal && confirmedAge;
   const isLegalDialogOpen = Boolean(legalDocument);
+  const hasConfirmationState = Boolean(auth.confirmation);
 
   useEffect(() => {
     if (!isLegalDialogOpen) {
@@ -11979,7 +12198,17 @@ function AuthPanel({ auth }) {
         <span className={`h-2 w-2 rounded-full ${auth.session ? "bg-comet" : "bg-slate-500"}`} />
       </div>
 
-      {auth.session ? (
+      {hasConfirmationState ? (
+        <AuthConfirmationPanel
+          confirmation={auth.confirmation}
+          error={auth.error}
+          loading={auth.loading}
+          message={auth.message}
+          onBack={auth.onCloseConfirmation}
+          onContinue={auth.onCloseConfirmation}
+          onResend={auth.onResendConfirmation}
+        />
+      ) : auth.session ? (
         <div className="mt-3 space-y-3">
           <p className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-slate-300">
             {userEmail ? `${userEmail} でログイン中` : "ログイン中"}
@@ -12096,7 +12325,7 @@ function AuthPanel({ auth }) {
         </form>
       )}
 
-      {(auth.message || auth.error) && (
+      {!hasConfirmationState && (auth.message || auth.error) && (
         <p
           className={`mt-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
             auth.error ? "border-sakura/30 bg-sakura/10 text-sakura" : "border-comet/20 bg-comet/10 text-comet"
