@@ -103,3 +103,11 @@ test("disaster recovery migration and schema.sql stay byte-for-byte synchronized
   const schemaBlock = `${schemaMarker}${schemaSuffix.slice(0, schemaEndIndex + schemaEnd.length)}`.trim();
   assert.equal(schemaBlock, migrationSql);
 });
+
+
+test("DR function uses Netlify runtime context and environment APIs", () => {
+  const functionSource = readFileSync("netlify/functions/disaster-recovery-backup.mjs", "utf8");
+  assert.match(functionSource, /globalThis\.Netlify\?\.env/);
+  assert.match(functionSource, /globalThis\.Netlify\?\.context\?\.deploy\?\.context/);
+  assert.doesNotMatch(functionSource, /if \(process\.env\.CONTEXT !== "production"\)/);
+});
