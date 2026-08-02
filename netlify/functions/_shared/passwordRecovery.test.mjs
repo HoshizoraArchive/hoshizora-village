@@ -9,6 +9,7 @@ import {
   getPasswordRecoveryRedirectUrl,
   isPasswordRecoveryAccountLookupError,
   isPasswordRecoverySessionError,
+  isVerifiedPasswordRecoveryUser,
   validatePasswordRecoveryPasswords,
 } from "../../../src/authConfirmation.js";
 
@@ -97,7 +98,8 @@ test("password recovery request and update operations remain single-flight and r
 test("account lookup failures do not disclose whether an email is registered", () => {
   assert.equal(isPasswordRecoveryAccountLookupError({ code: "email_not_found" }), true);
   assert.equal(isPasswordRecoveryAccountLookupError({ code: "user_not_found" }), true);
-  assert.equal(isPasswordRecoveryAccountLookupError({ code: "unknown_lookup_error", status: 400 }), true);
+  assert.equal(isPasswordRecoveryAccountLookupError({ code: "validation_failed", status: 400 }), false);
+  assert.equal(isPasswordRecoveryAccountLookupError({ code: "unknown_lookup_error", status: 404 }), false);
   assert.equal(isPasswordRecoveryAccountLookupError({ code: "unexpected" }), false);
 
   const requestHandler = appSource.match(
@@ -136,4 +138,20 @@ test("recovery state is exclusive from onboarding and normal authenticated UI", 
   assert.match(appSource, /\{isPasswordRecoveryVisible \? \([\s\S]*?<PasswordRecoveryPanel/);
   assert.match(appSource, /kind: AUTH_PASSWORD_RECOVERY_KIND\.UPDATED/);
   assert.equal(AUTH_PASSWORD_RECOVERY_KIND.ACTIVE, "active");
+});
+
+test("only the PASSWORD_RECOVERY event can verify the session used for a password update", () => {
+  assert.equal(
+    isVerifiedPasswordRecoveryUser("recovery-user", "recovery-user", "recovery-user"),
+    true,
+  );
+  assert.equal(isVerifiedPasswordRecoveryUser(null, "normal-user", "normal-user"), false);
+  assert.equal(
+    isVerifiedPasswordRecoveryUser("recovery-user", "recovery-user", "different-user"),
+    false,
+  );
+  assert.match(appSource, /if \(event === "PASSWORD_RECOVERY"\) \{[\s\S]*?applyPasswordRecoveryEventSession\(session\)/);
+  assert.match(appSource, /function waitForPasswordRecoveryEvent\(\)/);
+  assert.match(appSource, /passwordRecoveryVerifiedUserIdRef\.current/);
+  assert.match(appSource, /isVerifiedPasswordRecoveryUser\(/);
 });

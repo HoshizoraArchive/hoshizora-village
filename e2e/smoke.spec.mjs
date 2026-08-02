@@ -43,6 +43,46 @@ function createUnsignedTestJwt(payload) {
   return `${encode({ alg: "none", typ: "JWT" })}.${encode(payload)}.test-signature`;
 }
 
+async function installStoredAuthSession(page, { email, onUserRequest, userId }) {
+  const accessToken = createUnsignedTestJwt({
+    aud: "authenticated",
+    exp: Math.floor(Date.now() / 1000) + 3_600,
+    sub: userId,
+  });
+  const user = {
+    id: userId,
+    aud: "authenticated",
+    role: "authenticated",
+    email,
+    app_metadata: { provider: "email", providers: ["email"] },
+    user_metadata: {},
+    created_at: "2026-08-02T00:00:00.000Z",
+    updated_at: "2026-08-02T00:00:00.000Z",
+  };
+
+  await page.route("**/__supabase/auth/v1/user", async (route) => {
+    onUserRequest?.(route.request());
+    await fulfillAuthJson(route, user);
+  });
+  await page.addInitScript(
+    ({ session }) => {
+      window.localStorage.setItem("sb-127-auth-token", JSON.stringify(session));
+    },
+    {
+      session: {
+        access_token: accessToken,
+        expires_at: Math.floor(Date.now() / 1000) + 3_600,
+        expires_in: 3_600,
+        refresh_token: "test-normal-refresh-token",
+        token_type: "bearer",
+        user,
+      },
+    },
+  );
+
+  return { accessToken, user };
+}
+
 test.describe("星空Village browser smoke", () => {
   test("ゲスト状態でアプリとログインUIが起動する", async ({ page }) => {
     await openVillageAsGuest(page);
@@ -370,23 +410,9 @@ test.describe("星空Village browser smoke", () => {
         updated_at: "2026-08-02T00:00:00.000Z",
       });
     });
-    await page.evaluate(
-      ({ session }) => {
-        window.localStorage.setItem("sb-127-auth-token", JSON.stringify(session));
-      },
-      {
-        session: {
-          access_token: accessToken,
-          expires_at: Math.floor(Date.now() / 1000) + 3_600,
-          expires_in: 3_600,
-          refresh_token: "test-recovery-refresh-token",
-          token_type: "bearer",
-          user,
-        },
-      },
+    await page.goto(
+      `/auth/recovery#access_token=${accessToken}&expires_in=3600&refresh_token=test-recovery-refresh-token&token_type=bearer&type=recovery`,
     );
-
-    await page.goto("/auth/recovery?type=recovery");
     await expect(page.getByRole("heading", { name: "新しいパスワードを設定" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "星空Village bottom navigation" })).toHaveCount(0);
@@ -407,6 +433,56 @@ test.describe("星空Village browser smoke", () => {
 
     await page.getByRole("button", { name: "星空Villageへ進む" }).click();
     await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toBeVisible();
+  });
+
+  test("通常sessionでRecovery pathを直接開いてもパスワードを変更できない", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    let passwordUpdates = 0;
+    await installStoredAuthSession(page, {
+      email: "normally-signed-in@example.com",
+      onUserRequest: (request) => {
+        if (request.method() === "PUT") {
+          passwordUpdates += 1;
+        }
+      },
+      userId: "55555555-5555-4555-8555-555555555555",
+    });
+
+    await page.goto("/auth/recovery");
+
+    await expect(
+      page.getByRole("heading", {
+        name: "このパスワード再設定リンクは古いか、期限切れになっています。",
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "新しいパスワードを設定" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "パスワードを変更する" })).toHaveCount(0);
+    expect(passwordUpdates).toBe(0);
+  });
+
+  test("別ユーザーの通常sessionをtypeだけでRecovery対象にしない", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    let passwordUpdates = 0;
+    await installStoredAuthSession(page, {
+      email: "different-session@example.com",
+      onUserRequest: (request) => {
+        if (request.method() === "PUT") {
+          passwordUpdates += 1;
+        }
+      },
+      userId: "66666666-6666-4666-8666-666666666666",
+    });
+
+    await page.goto("/auth/recovery?type=recovery");
+
+    await expect(
+      page.getByRole("heading", {
+        name: "このパスワード再設定リンクは古いか、期限切れになっています。",
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "新しいパスワードを設定" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "パスワードを変更する" })).toHaveCount(0);
+    expect(passwordUpdates).toBe(0);
   });
 
   test("再設定メールはsingle-flightで送信しrate limitを安全に表示する", async ({ page }) => {
@@ -467,6 +543,36 @@ test.describe("星空Village browser smoke", () => {
       page.getByRole("heading", { name: "パスワード再設定メールを送信しました。" }),
     ).toBeVisible();
     await expect(page.getByText(/登録されていません|ユーザーが存在しません/)).toHaveCount(0);
+  });
+
+  test("account lookup以外の400は送信済みにせずsafe errorを表示する", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+
+    await page.route("**/__supabase/auth/v1/recover*", async (route) => {
+      await fulfillAuthJson(
+        route,
+        {
+          error_code: "validation_failed",
+          msg: "Invalid recovery request",
+        },
+        400,
+      );
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "パスワードを忘れた方" }).click();
+    await page.getByLabel("メールアドレス", { exact: true }).fill("invalid-request@example.com");
+    await page.getByRole("button", { name: "再設定メールを送る" }).click();
+
+    await expect(
+      page.getByText(
+        "パスワード再設定メールを送信できませんでした。時間をおいてもう一度お試しください。",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "パスワード再設定メールを送信しました。" }),
+    ).toHaveCount(0);
   });
 
   test("期限切れRecoveryリンクはsignup確認と混同せず再送へ復旧する", async ({ page }) => {

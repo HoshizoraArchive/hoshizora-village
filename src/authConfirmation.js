@@ -81,13 +81,23 @@ export function isEmailNotConfirmedError(error) {
 }
 
 export function isPasswordRecoveryAccountLookupError(error) {
-  const status = Number(error?.status);
-
-  return ACCOUNT_LOOKUP_CODES.has(getAuthErrorCode(error)) || status === 400 || status === 404;
+  return ACCOUNT_LOOKUP_CODES.has(getAuthErrorCode(error));
 }
 
 export function isPasswordRecoverySessionError(error) {
   return RECOVERY_SESSION_ERROR_CODES.has(getAuthErrorCode(error));
+}
+
+export function isVerifiedPasswordRecoveryUser(
+  verifiedUserId,
+  recoveryStateUserId,
+  sessionUserId,
+) {
+  return Boolean(
+    verifiedUserId &&
+      verifiedUserId === recoveryStateUserId &&
+      verifiedUserId === sessionUserId,
+  );
 }
 
 export function getAuthConfirmationCooldownSeconds(availableAt, now = Date.now()) {
