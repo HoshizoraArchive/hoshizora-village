@@ -1,6 +1,39 @@
 export const ONBOARDING_WELCOME_VIDEO_SRC = "";
 export const ONBOARDING_MINI_CHIA_SRC = "/images/onboarding/mini-chia.png";
 
+export const VILLAGE_USERNAME_WORDS = ["ryuseibin", "hoshibumi", "kansoku", "kyomei"];
+const VILLAGE_USERNAME_SUFFIX_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789";
+const VILLAGE_USERNAME_SUFFIX_LENGTH = 4;
+
+function getRandomIndex(length, random) {
+  const sampled = Number(random());
+  const normalized = Number.isFinite(sampled) ? Math.min(0.999999999, Math.max(0, sampled)) : 0;
+  return Math.floor(normalized * length);
+}
+
+export function createVillageUsername(random = Math.random) {
+  const word = VILLAGE_USERNAME_WORDS[getRandomIndex(VILLAGE_USERNAME_WORDS.length, random)];
+  let suffix = "";
+
+  for (let index = 0; index < VILLAGE_USERNAME_SUFFIX_LENGTH; index += 1) {
+    suffix += VILLAGE_USERNAME_SUFFIX_CHARACTERS[
+      getRandomIndex(VILLAGE_USERNAME_SUFFIX_CHARACTERS.length, random)
+    ];
+  }
+
+  return `${word}_${suffix}`;
+}
+
+export function shouldCreateVillageUsername(value, { hasExistingProfile = false } = {}) {
+  const normalized = String(value ?? "").trim().replace(/^@/, "");
+
+  if (!normalized) {
+    return true;
+  }
+
+  return !hasExistingProfile && normalized === "silent_creator";
+}
+
 export async function tryPlayWelcomeVideo(videoElement) {
   if (!videoElement || typeof videoElement.play !== "function") {
     return false;
@@ -156,8 +189,16 @@ const STEP_DEFINITIONS = {
 const PROFILE_GUIDE_STEP_DEFINITIONS = {
   name: {
     actionLabel: "次へ",
-    lines: ["まずは、あなたの名前を書いてね！", "これからちあが呼ぶ、大切な名前だよ✨"],
+    lines: ["ここで、あなたの名前を教えてね！", "星空Villageでみんなに見える名前だよ✨"],
     targetKey: "name",
+  },
+  username: {
+    actionLabel: "このままでOK！",
+    lines: [
+      "ユーザー名は、一時的にちあが考えたよ！",
+      "独自のユーザー名にしたかったら変更してね。半角英数字と「_」で、あとからでも変えられるよ✨",
+    ],
+    targetKey: "username",
   },
   avatar: {
     lines: ["次は、あなたの星影を写してね！", "好きな写真やイラストを選んでみて✨"],
