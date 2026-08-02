@@ -2,7 +2,7 @@ name: Apply Auth village terms
 
 on:
   pull_request:
-    types: [opened, reopened]
+    types: [opened, reopened, synchronize]
     branches:
       - main
 
@@ -26,28 +26,11 @@ jobs:
           app_path = Path('src/App.jsx')
           app = app_path.read_text()
 
-          old_tabs = '''          <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1">
-            <button
-              className={`min-h-9 rounded-xl text-xs font-black transition ${
-                mode === "login" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
-              }`}
-              onClick={() => setMode("login")}
-              type="button"
-            >
-              ログイン
-            </button>
-            <button
-              className={
-                `min-h-9 rounded-xl text-xs font-black transition ${
-                  mode === "signup" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
-                }`
-              }
-              onClick={() => setMode("signup")}
-              type="button"
-            >
-              会員登録
-            </button>
-          </div>'''
+          form_marker = '        <form className="mt-3 space-y-3" onSubmit={handleSubmit}>'
+          form_start = app.index(form_marker)
+          tabs_start = app.index('          <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1">', form_start)
+          email_marker = '\n\n          <label className="block text-xs font-bold text-slate-400">\n            メールアドレス'
+          tabs_end = app.index(email_marker, tabs_start)
 
           new_tabs = '''          <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1">
             <button
@@ -82,36 +65,26 @@ jobs:
             </button>
           </div>'''
 
-          if old_tabs not in app:
-              raise SystemExit('Auth tabs source did not match expected main state')
-          app = app.replace(old_tabs, new_tabs, 1)
+          app = app[:tabs_start] + new_tabs + app[tabs_end:]
 
-          old_submit = '''          <button
-            className="min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={auth.loading || (isSignUp && !signUpConsentReady)}
-            type="submit"
-          >
-            {auth.loading ? "処理中..." : isSignUp ? "会員登録する" : "ログインする"}
-          </button>'''
-
-          new_submit = '''          <button
-            className="min-h-10 w-full rounded-2xl bg-gradient-to-r from-comet via-aurora to-sakura px-4 text-xs font-black text-night-950 shadow-glow transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={auth.loading || (isSignUp && !signUpConsentReady)}
-            type="submit"
-          >
-            {auth.loading ? "処理中..." : isSignUp ? "入村する" : "村へ帰る"}
-          </button>'''
-
-          if old_submit not in app:
-              raise SystemExit('Auth submit source did not match expected main state')
+          old_submit = '{auth.loading ? "処理中..." : isSignUp ? "会員登録する" : "ログインする"}'
+          new_submit = '{auth.loading ? "処理中..." : isSignUp ? "入村する" : "村へ帰る"}'
+          if app.count(old_submit) != 1:
+              raise SystemExit(f'Expected exactly one Auth submit label, found {app.count(old_submit)}')
           app = app.replace(old_submit, new_submit, 1)
           app_path.write_text(app)
 
           e2e_path = Path('e2e/smoke.spec.mjs')
           e2e = e2e_path.read_text()
-          e2e = e2e.replace('name: "ログインする"', 'name: "村へ帰る"')
-          e2e = e2e.replace('name: "会員登録", exact: true', 'name: "入村手続き（会員登録）", exact: true')
-          e2e = e2e.replace('name: "会員登録する"', 'name: "入村する"')
+          replacements = [
+              ('name: "ログインする"', 'name: "村へ帰る"'),
+              ('name: "会員登録", exact: true', 'name: "入村手続き（会員登録）", exact: true'),
+              ('name: "会員登録する"', 'name: "入村する"'),
+          ]
+          for old, new in replacements:
+              if old not in e2e:
+                  raise SystemExit(f'E2E selector not found: {old}')
+              e2e = e2e.replace(old, new)
           e2e_path.write_text(e2e)
           PY
       - name: Remove temporary implementation helpers
@@ -122,8 +95,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --cached --quiet; then
-            exit 0
-          fi
           git commit -m "fix: Auth操作を星空Village用語に変更"
           git push origin HEAD:fix/auth-village-terms
