@@ -6,6 +6,16 @@ export const AUTH_CONFIRMATION_KIND = Object.freeze({
 });
 
 export const AUTH_CONFIRMATION_RESEND_COOLDOWN_MS = 60_000;
+export const AUTH_PASSWORD_RECOVERY_COOLDOWN_MS = 60_000;
+export const AUTH_PASSWORD_RECOVERY_KIND = Object.freeze({
+  ACTIVE: "active",
+  INVALID: "invalid",
+  REQUEST: "request",
+  RESOLVING: "resolving",
+  SENT: "sent",
+  UPDATED: "updated",
+});
+export const AUTH_PASSWORD_RECOVERY_PATH = "/auth/recovery";
 
 const AUTH_CALLBACK_QUERY_KEYS = [
   "code",
@@ -39,6 +49,19 @@ const RATE_LIMIT_CODES = new Set([
   "over_email_send_rate_limit",
   "over_request_rate_limit",
 ]);
+const ACCOUNT_LOOKUP_CODES = new Set([
+  "email_not_found",
+  "user_not_found",
+]);
+const RECOVERY_SESSION_ERROR_CODES = new Set([
+  "bad_jwt",
+  "flow_state_expired",
+  "flow_state_not_found",
+  "otp_expired",
+  "refresh_token_not_found",
+  "session_not_found",
+  "token_expired",
+]);
 
 function toSearchParams(value) {
   const normalizedValue = String(value ?? "").replace(/^[?#]/, "");
@@ -55,6 +78,26 @@ export function isAuthEmailRateLimitError(error) {
 
 export function isEmailNotConfirmedError(error) {
   return getAuthErrorCode(error) === "email_not_confirmed";
+}
+
+export function isPasswordRecoveryAccountLookupError(error) {
+  return ACCOUNT_LOOKUP_CODES.has(getAuthErrorCode(error));
+}
+
+export function isPasswordRecoverySessionError(error) {
+  return RECOVERY_SESSION_ERROR_CODES.has(getAuthErrorCode(error));
+}
+
+export function isVerifiedPasswordRecoveryUser(
+  verifiedUserId,
+  recoveryStateUserId,
+  sessionUserId,
+) {
+  return Boolean(
+    verifiedUserId &&
+      verifiedUserId === recoveryStateUserId &&
+      verifiedUserId === sessionUserId,
+  );
 }
 
 export function getAuthConfirmationCooldownSeconds(availableAt, now = Date.now()) {
@@ -80,6 +123,7 @@ export function finishAuthAction(inFlightRef) {
 export function getAuthCallbackIntent(locationLike) {
   const searchParams = toSearchParams(locationLike?.search);
   const hashParams = toSearchParams(locationLike?.hash);
+  const pathname = String(locationLike?.pathname ?? "");
   const type = String(hashParams.get("type") ?? searchParams.get("type") ?? "").toLowerCase();
   const errorCode = String(
     hashParams.get("error_code") ?? searchParams.get("error_code") ?? "",
@@ -89,13 +133,20 @@ export function getAuthCallbackIntent(locationLike) {
     hashParams.get("error_description") ?? searchParams.get("error_description") ?? "",
   ).toLowerCase();
 
-  if (type === "recovery") {
-    return { kind: "password_recovery", shouldCleanUrl: false };
-  }
-
   const hasInvalidConfirmationError =
     INVALID_CONFIRMATION_CODES.has(errorCode) ||
     (error === "access_denied" && /confirm|email|expired|invalid|link|token/.test(errorDescription));
+  const hasCallbackError = Boolean(error || errorCode);
+
+  if (type === "recovery" || /^\/auth\/recovery\/?$/.test(pathname)) {
+    return {
+      kind:
+        hasInvalidConfirmationError || hasCallbackError
+          ? "password_recovery_invalid"
+          : "password_recovery",
+      shouldCleanUrl: true,
+    };
+  }
 
   if (hasInvalidConfirmationError) {
     return { kind: AUTH_CONFIRMATION_KIND.INVALID_LINK, shouldCleanUrl: true };
@@ -106,6 +157,24 @@ export function getAuthCallbackIntent(locationLike) {
   }
 
   return { kind: "none", shouldCleanUrl: false };
+}
+
+export function getPasswordRecoveryRedirectUrl(locationLike) {
+  const origin = String(locationLike?.origin ?? "").replace(/\/$/, "");
+
+  return origin ? `${origin}${AUTH_PASSWORD_RECOVERY_PATH}` : AUTH_PASSWORD_RECOVERY_PATH;
+}
+
+export function validatePasswordRecoveryPasswords(password, confirmation) {
+  if (String(password ?? "").length < 6) {
+    return "パスワードは6文字以上で入力してください。";
+  }
+
+  if (password !== confirmation) {
+    return "新しいパスワードが一致していません。";
+  }
+
+  return "";
 }
 
 export function getSanitizedAuthCallbackPath(locationLike) {

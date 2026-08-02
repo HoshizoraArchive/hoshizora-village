@@ -30,7 +30,7 @@ test("signup confirmation callbacks and invalid links are distinguished from pas
   );
   assert.deepEqual(
     getAuthCallbackIntent({ hash: "#type=recovery&access_token=secret", search: "" }),
-    { kind: "password_recovery", shouldCleanUrl: false },
+    { kind: "password_recovery", shouldCleanUrl: true },
   );
 });
 

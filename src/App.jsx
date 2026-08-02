@@ -16,6 +16,7 @@ import StarMovieObservationMode from "./StarMovieObservationMode";
 import ObserveBrandHeader from "./ObserveBrandHeader";
 import InteractiveOnboarding from "./InteractiveOnboarding";
 import AuthConfirmationPanel from "./AuthConfirmationPanel";
+import PasswordRecoveryPanel from "./PasswordRecoveryPanel";
 import ProfileTitleBadge from "./ProfileTitleBadge";
 import ProfileTitleEmblem from "./ProfileTitleEmblem";
 import {
@@ -111,13 +112,21 @@ import {
 import {
   AUTH_CONFIRMATION_KIND,
   AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
+  AUTH_PASSWORD_RECOVERY_COOLDOWN_MS,
+  AUTH_PASSWORD_RECOVERY_KIND,
+  AUTH_PASSWORD_RECOVERY_PATH,
   getAuthCallbackIntent,
   getAuthConfirmationCooldownSeconds,
+  getPasswordRecoveryRedirectUrl,
   getSanitizedAuthCallbackPath,
   finishAuthAction,
   isAuthEmailRateLimitError,
   isEmailNotConfirmedError,
+  isPasswordRecoveryAccountLookupError,
+  isPasswordRecoverySessionError,
+  isVerifiedPasswordRecoveryUser,
   tryStartAuthAction,
+  validatePasswordRecoveryPasswords,
 } from "./authConfirmation";
 
 const bottomNavItems = [
@@ -1748,9 +1757,29 @@ function App() {
         }
       : null,
   );
+  const [passwordRecovery, setPasswordRecovery] = useState(() => {
+    if (initialAuthCallback.kind === "password_recovery_invalid") {
+      return {
+        email: "",
+        kind: AUTH_PASSWORD_RECOVERY_KIND.INVALID,
+        resendAvailableAt: 0,
+      };
+    }
+
+    if (initialAuthCallback.kind === "password_recovery") {
+      return {
+        email: "",
+        kind: AUTH_PASSWORD_RECOVERY_KIND.RESOLVING,
+        resendAvailableAt: 0,
+      };
+    }
+
+    return null;
+  });
   const authActionInFlightRef = useRef(false);
   const authCallbackCleanedRef = useRef(false);
   const authCallbackResolvedRef = useRef(false);
+  const passwordRecoveryVerifiedUserIdRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const [profileForm, setProfileForm] = useState(emptyProfileForm);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -2129,9 +2158,10 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+    let recoveryResolutionTimer = null;
 
-    function cleanAuthCallbackUrl() {
-      if (!initialAuthCallback.shouldCleanUrl || authCallbackCleanedRef.current) {
+    function cleanAuthCallbackUrl(force = false) {
+      if ((!initialAuthCallback.shouldCleanUrl && !force) || authCallbackCleanedRef.current) {
         return;
       }
 
@@ -2143,8 +2173,73 @@ function App() {
       );
     }
 
+    function markPasswordRecoveryInvalid() {
+      authCallbackResolvedRef.current = true;
+      passwordRecoveryVerifiedUserIdRef.current = null;
+      setAuthConfirmation(null);
+      setAuthError("");
+      setAuthMessage("");
+      setPasswordRecovery({
+        email: "",
+        kind: AUTH_PASSWORD_RECOVERY_KIND.INVALID,
+        resendAvailableAt: 0,
+      });
+      setAuthStatus("再設定リンクエラー");
+      cleanAuthCallbackUrl(true);
+    }
+
+    function applyPasswordRecoveryEventSession(currentSession) {
+      const recoveryUserId = currentSession?.user?.id ?? null;
+
+      if (!recoveryUserId) {
+        markPasswordRecoveryInvalid();
+        return;
+      }
+
+      if (recoveryResolutionTimer) {
+        window.clearTimeout(recoveryResolutionTimer);
+        recoveryResolutionTimer = null;
+      }
+
+      authCallbackResolvedRef.current = true;
+      passwordRecoveryVerifiedUserIdRef.current = recoveryUserId;
+      setAuthConfirmation(null);
+      setAuthError("");
+      setAuthMessage("");
+      setPasswordRecovery({
+        email: currentSession.user?.email ?? "",
+        kind: AUTH_PASSWORD_RECOVERY_KIND.ACTIVE,
+        resendAvailableAt: 0,
+        userId: recoveryUserId,
+      });
+      setAuthStatus("パスワード再設定中");
+      cleanAuthCallbackUrl(true);
+    }
+
+    function waitForPasswordRecoveryEvent() {
+      // A recovery pathname is only a candidate. Give detectSessionInUrl's queued
+      // PASSWORD_RECOVERY event time to verify the session before failing closed.
+      recoveryResolutionTimer = window.setTimeout(() => {
+        recoveryResolutionTimer = null;
+
+        if (isMounted && !authCallbackResolvedRef.current) {
+          markPasswordRecoveryInvalid();
+        }
+      }, 100);
+    }
+
     function applyInitialAuthCallback(currentSession) {
       if (authCallbackResolvedRef.current) {
+        return;
+      }
+
+      if (initialAuthCallback.kind === "password_recovery_invalid") {
+        markPasswordRecoveryInvalid();
+        return;
+      }
+
+      if (initialAuthCallback.kind === "password_recovery") {
+        waitForPasswordRecoveryEvent();
         return;
       }
 
@@ -2195,6 +2290,11 @@ function App() {
       }
 
       if (error) {
+        if (initialAuthCallback.kind === "password_recovery") {
+          markPasswordRecoveryInvalid();
+          return;
+        }
+
         setAuthStatus("確認エラー");
         setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SESSION));
         return;
@@ -2205,7 +2305,9 @@ function App() {
       setAuthStatus(
         data.session
           ? "ログイン中"
-          : initialAuthCallback.kind === AUTH_CONFIRMATION_KIND.INVALID_LINK
+          : [AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"].includes(
+                initialAuthCallback.kind,
+              )
             ? "メール確認エラー"
             : "未ログイン",
       );
@@ -2222,10 +2324,25 @@ function App() {
       setAuthStatus(
         session
           ? "ログイン中"
-          : initialAuthCallback.kind === AUTH_CONFIRMATION_KIND.INVALID_LINK
+          : [AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"].includes(
+                initialAuthCallback.kind,
+              )
             ? "メール確認エラー"
             : "未ログイン",
       );
+
+      if (event === "PASSWORD_RECOVERY") {
+        applyPasswordRecoveryEventSession(session);
+        return;
+      }
+
+      if (
+        passwordRecoveryVerifiedUserIdRef.current &&
+        passwordRecoveryVerifiedUserIdRef.current !== (session?.user?.id ?? null)
+      ) {
+        markPasswordRecoveryInvalid();
+        return;
+      }
 
       if (
         event === "SIGNED_IN" &&
@@ -2238,6 +2355,9 @@ function App() {
 
     return () => {
       isMounted = false;
+      if (recoveryResolutionTimer) {
+        window.clearTimeout(recoveryResolutionTimer);
+      }
       subscription.unsubscribe();
     };
   }, [initialAuthCallback.kind, initialAuthCallback.shouldCleanUrl]);
@@ -4511,6 +4631,162 @@ function App() {
       finishAuthAction(authActionInFlightRef);
       setAuthLoading(false);
     }
+  }
+
+  function handleOpenPasswordRecovery(email = "") {
+    passwordRecoveryVerifiedUserIdRef.current = null;
+    setAuthConfirmation(null);
+    setPasswordRecovery({
+      email: email.trim(),
+      kind: AUTH_PASSWORD_RECOVERY_KIND.REQUEST,
+      resendAvailableAt: 0,
+    });
+    setAuthStatus("パスワード再設定");
+    setAuthMessage("");
+    setAuthError("");
+  }
+
+  async function handlePasswordRecoveryRequest(email) {
+    const normalizedEmail = email.trim();
+
+    if (
+      !normalizedEmail ||
+      authActionInFlightRef.current ||
+      getAuthConfirmationCooldownSeconds(passwordRecovery?.resendAvailableAt) > 0
+    ) {
+      return;
+    }
+
+    if (!tryStartAuthAction(authActionInFlightRef)) {
+      return;
+    }
+
+    setAuthLoading(true);
+    passwordRecoveryVerifiedUserIdRef.current = null;
+    setAuthMessage("");
+    setAuthError("");
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: getPasswordRecoveryRedirectUrl(window.location),
+      });
+
+      if (error && !isPasswordRecoveryAccountLookupError(error)) {
+        if (isAuthEmailRateLimitError(error)) {
+          setPasswordRecovery((current) => ({
+            email: normalizedEmail,
+            kind: current?.kind ?? AUTH_PASSWORD_RECOVERY_KIND.REQUEST,
+            resendAvailableAt: Date.now() + AUTH_PASSWORD_RECOVERY_COOLDOWN_MS,
+          }));
+          setAuthError("送信回数が上限に達しました。少し待ってからもう一度お試しください。");
+          return;
+        }
+
+        setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_PASSWORD_RECOVERY_REQUEST));
+        return;
+      }
+
+      setPasswordRecovery({
+        email: normalizedEmail,
+        kind: AUTH_PASSWORD_RECOVERY_KIND.SENT,
+        resendAvailableAt: Date.now() + AUTH_PASSWORD_RECOVERY_COOLDOWN_MS,
+      });
+      setAuthStatus("再設定メール送信済み");
+      setAuthMessage("");
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.AUTH_PASSWORD_RECOVERY_REQUEST, error);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_PASSWORD_RECOVERY_REQUEST));
+    } finally {
+      finishAuthAction(authActionInFlightRef);
+      setAuthLoading(false);
+    }
+  }
+
+  async function handlePasswordRecoveryUpdate(password, confirmation = password) {
+    const validationError = validatePasswordRecoveryPasswords(password, confirmation);
+    const recoveryUserId = passwordRecoveryVerifiedUserIdRef.current;
+
+    if (validationError) {
+      setAuthMessage("");
+      setAuthError(validationError);
+      return;
+    }
+
+    if (
+      passwordRecovery?.kind !== AUTH_PASSWORD_RECOVERY_KIND.ACTIVE ||
+      !isVerifiedPasswordRecoveryUser(
+        recoveryUserId,
+        passwordRecovery.userId,
+        session?.user?.id,
+      )
+    ) {
+      passwordRecoveryVerifiedUserIdRef.current = null;
+      setPasswordRecovery({
+        email: "",
+        kind: AUTH_PASSWORD_RECOVERY_KIND.INVALID,
+        resendAvailableAt: 0,
+      });
+      setAuthStatus("再設定リンクエラー");
+      setAuthMessage("");
+      setAuthError("");
+      return;
+    }
+
+    if (!tryStartAuthAction(authActionInFlightRef)) {
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthMessage("");
+    setAuthError("");
+
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+
+      if (error) {
+        if (isPasswordRecoverySessionError(error)) {
+          passwordRecoveryVerifiedUserIdRef.current = null;
+          setPasswordRecovery({
+            email: session?.user?.email ?? "",
+            kind: AUTH_PASSWORD_RECOVERY_KIND.INVALID,
+            resendAvailableAt: 0,
+          });
+          setAuthStatus("再設定リンクエラー");
+          setAuthError("");
+          return;
+        }
+
+        setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_PASSWORD_RECOVERY_UPDATE));
+        return;
+      }
+
+      setPasswordRecovery({
+        email: session?.user?.email ?? "",
+        kind: AUTH_PASSWORD_RECOVERY_KIND.UPDATED,
+        resendAvailableAt: 0,
+        userId: recoveryUserId,
+      });
+      setAuthStatus("パスワード変更完了");
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.AUTH_PASSWORD_RECOVERY_UPDATE, error);
+      setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_PASSWORD_RECOVERY_UPDATE));
+    } finally {
+      finishAuthAction(authActionInFlightRef);
+      setAuthLoading(false);
+    }
+  }
+
+  function handleClosePasswordRecovery() {
+    passwordRecoveryVerifiedUserIdRef.current = null;
+    if (window.location.pathname === AUTH_PASSWORD_RECOVERY_PATH) {
+      window.history.replaceState(window.history.state, "", "/");
+      setRoute(getRouteFromLocation());
+    }
+
+    setPasswordRecovery(null);
+    setAuthError("");
+    setAuthMessage("");
+    setAuthStatus(session ? "ログイン中" : "未ログイン");
   }
 
   async function handleResendConfirmation(email) {
@@ -7678,8 +7954,12 @@ function App() {
     onCloseConfirmation: handleCloseAuthConfirmation,
     onLogin: handleLogin,
     onLogout: handleLogout,
+    onOpenPasswordRecovery: handleOpenPasswordRecovery,
+    onPasswordRecoveryRequest: handlePasswordRecoveryRequest,
+    onPasswordRecoveryUpdate: handlePasswordRecoveryUpdate,
     onResendConfirmation: handleResendConfirmation,
     onSignUp: handleSignUp,
+    passwordRecovery,
     session,
     status: authStatus,
   };
@@ -7687,7 +7967,8 @@ function App() {
   const shouldShowInteractiveOnboarding =
     onboardingIsActive &&
     !onboardingLoading &&
-    authConfirmation?.kind !== AUTH_CONFIRMATION_KIND.CONFIRMED;
+    authConfirmation?.kind !== AUTH_CONFIRMATION_KIND.CONFIRMED &&
+    !passwordRecovery;
   const onboardingTarget = getOnboardingTarget(sessionOnboardingProgress, profileScreenMode);
   const onboardingState = {
     active: onboardingIsActive,
@@ -8045,13 +8326,16 @@ function App() {
     progress: postVideoTrimProgress,
     startSeconds: postVideoTrimStart,
   };
-  const isPostEditor = route.name === "home" && activeTab === "post";
+  const isPasswordRecoveryVisible = Boolean(passwordRecovery);
+  const isPostEditor = !isPasswordRecoveryVisible && route.name === "home" && activeTab === "post";
 
   return (
     <div
       className={`app-shell relative isolate bg-night-950 text-starlight ${
         isPostEditor
           ? "post-editor-shell overflow-hidden pb-0"
+          : isPasswordRecoveryVisible
+            ? "min-h-screen overflow-x-hidden pb-0"
           : "app-shell-with-bottom-nav min-h-screen overflow-x-hidden pb-28"
       }`}
     >
@@ -8063,9 +8347,22 @@ function App() {
           isPostEditor ? "h-full min-h-0 max-w-none overflow-hidden px-0 py-0" : "min-h-screen max-w-[1180px] px-3 py-3 sm:px-4 lg:py-5"
         }`}
       >
-        {!isPostEditor && <AppHeader auth={auth} />}
+        {isPasswordRecoveryVisible ? (
+          <PasswordRecoveryPanel
+            error={authError}
+            loading={authLoading}
+            message={authMessage}
+            onBackToLogin={handleClosePasswordRecovery}
+            onContinue={handleClosePasswordRecovery}
+            onRequest={handlePasswordRecoveryRequest}
+            onUpdate={handlePasswordRecoveryUpdate}
+            recovery={passwordRecovery}
+          />
+        ) : (
+          <>
+            {!isPostEditor && <AppHeader auth={auth} />}
 
-        <TabContent
+            <TabContent
           activeTab={activeTab}
           onboarding={onboardingState}
           auth={auth}
@@ -8097,10 +8394,12 @@ function App() {
           onOpenStarMovieObservation={handleOpenStarMovieObservation}
           onOpenPostMedia={handleOpenMediaViewer}
           onOpenStarProfile={handleOpenStarProfile}
-        />
+            />
+          </>
+        )}
       </div>
 
-      {!isPostEditor && (
+      {!isPostEditor && !isPasswordRecoveryVisible && (
         <BottomNav
           activeTab={activeTab}
           onTabChange={handleTabChange}
@@ -12272,6 +12571,16 @@ function AuthPanel({ auth }) {
               value={password}
             />
           </label>
+
+          {!isSignUp ? (
+            <button
+              className="min-h-9 w-full text-right text-xs font-black text-comet transition hover:text-aurora"
+              onClick={() => auth.onOpenPasswordRecovery(email)}
+              type="button"
+            >
+              パスワードを忘れた方
+            </button>
+          ) : null}
 
           {isSignUp && (
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-xs leading-5 text-slate-300">
