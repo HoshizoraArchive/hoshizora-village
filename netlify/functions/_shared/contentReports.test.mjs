@@ -475,6 +475,14 @@ test("verification SQL checks secrecy, RPC grants, indexes, snapshots, and plans
 });
 
 test("migration and schema.sql stay byte-for-byte synchronized", () => {
-  const schemaBlock = schemaSql.split(marker)[1]?.trim();
+  const schemaSuffix = schemaSql.split(marker)[1] ?? "";
+  const transactionEnd = "\ncommit;";
+  const transactionEndIndex = schemaSuffix.indexOf(transactionEnd);
+
+  assert.notEqual(transactionEndIndex, -1, "content reports schema block must end in commit;");
+
+  const schemaBlock = schemaSuffix
+    .slice(0, transactionEndIndex + transactionEnd.length)
+    .trim();
   assert.equal(schemaBlock, migrationSql);
 });
