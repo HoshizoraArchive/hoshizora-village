@@ -335,14 +335,24 @@ function applyProfileGuideInteractionLock(editor, step) {
   const allowed = getProfileGuideAllowedControls(editor, step);
 
   for (const control of editor.querySelectorAll(PROFILE_GUIDE_CONTROL_SELECTOR)) {
-    if (!control.hasAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED)) {
+    const locked = !allowed.has(control);
+    const wasLocked = control.hasAttribute("data-onboarding-locked");
+
+    if (!locked) {
+      if (wasLocked) {
+        control.disabled = control.getAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED) === "true";
+        control.removeAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED);
+        control.removeAttribute("data-onboarding-locked");
+      }
+      continue;
+    }
+
+    if (!wasLocked) {
       control.setAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED, control.disabled ? "true" : "false");
     }
 
-    const originallyDisabled = control.getAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED) === "true";
-    const locked = !allowed.has(control);
-    control.disabled = originallyDisabled || locked;
-    control.toggleAttribute("data-onboarding-locked", locked);
+    control.disabled = true;
+    control.setAttribute("data-onboarding-locked", "true");
   }
 }
 
