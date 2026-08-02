@@ -2,7 +2,7 @@ name: Finalize Auth village terms
 
 on:
   pull_request:
-    types: [synchronize]
+    types: [opened]
     branches:
       - main
 
