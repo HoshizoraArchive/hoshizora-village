@@ -1,16 +1,17 @@
 name: Apply Auth village terms
 
 on:
-  push:
+  pull_request:
+    types: [opened, reopened]
     branches:
-      - fix/auth-village-terms
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]' && github.head_ref == 'fix/auth-village-terms'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,8 +40,8 @@ jobs:
               className={
                 `min-h-9 rounded-xl text-xs font-black transition ${
                   mode === "signup" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
-                }
-              `}
+                }`
+              }
               onClick={() => setMode("signup")}
               type="button"
             >
@@ -113,11 +114,14 @@ jobs:
           e2e = e2e.replace('name: "会員登録する"', 'name: "入村する"')
           e2e_path.write_text(e2e)
           PY
+      - name: Remove temporary implementation helpers
+        run: |
+          rm -f .github/workflows/apply-auth-village-terms.yml .auth-village-terms-trigger
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/App.jsx e2e/smoke.spec.mjs
+          git add -A
           if git diff --cached --quiet; then
             exit 0
           fi
