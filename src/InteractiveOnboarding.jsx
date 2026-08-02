@@ -3,6 +3,7 @@ import {
   ONBOARDING_MINI_CHIA_SRC,
   ONBOARDING_WELCOME_VIDEO_SRC,
   createVillageUsername,
+  getHomeScreenInstallMode,
   getNotificationSkipStatus,
   getOnboardingStepDefinition,
   getProfileGuideStepDefinition,
@@ -14,6 +15,8 @@ import {
 
 const PROFILE_DYNAMIC_TARGET = "profile-guide-active";
 const PROFILE_USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
+const PROFILE_GUIDE_CONTROL_SELECTOR = "input, textarea, button, select";
+const PROFILE_GUIDE_ORIGINAL_DISABLED = "data-onboarding-original-disabled";
 
 function WelcomeVideo({ error, onComplete }) {
   const dialogRef = useRef(null);
@@ -242,6 +245,10 @@ function ensureVillageUsername(editor, displayName, generatedUsernameRef) {
     return input.value.trim().replace(/^@/, "");
   }
 
+  if (generatedUsernameRef.current && !input.value.trim()) {
+    return "";
+  }
+
   const username = generatedUsernameRef.current || createVillageUsername();
   generatedUsernameRef.current = username;
   setProfileInputValue(input, username);
@@ -271,6 +278,84 @@ function isProfileAvatarReady(editor) {
   const avatarUrlInput = editor?.querySelector('input[placeholder="https://example.com/avatar.png"]');
   const avatarSection = getProfileAvatarSection(editor);
   return Boolean(avatarUrlInput?.value?.trim() || avatarSection?.querySelector("img[src]"));
+}
+
+function getProfileGuideAllowedControls(editor, step) {
+  const allowed = new Set();
+
+  if (!editor) {
+    return allowed;
+  }
+
+  if (step === "name") {
+    const input = editor.querySelector('input[placeholder="名無しの観測者"]');
+    if (input) allowed.add(input);
+    return allowed;
+  }
+
+  if (step === "username") {
+    const input = getProfileUsernameInput(editor);
+    if (input) allowed.add(input);
+    return allowed;
+  }
+
+  if (step === "avatar") {
+    const avatarSection = getProfileAvatarSection(editor);
+    for (const control of avatarSection?.querySelectorAll(PROFILE_GUIDE_CONTROL_SELECTOR) ?? []) {
+      allowed.add(control);
+    }
+    return allowed;
+  }
+
+  if (step === "bio") {
+    const input = editor.querySelector('textarea[placeholder^="まだ名前のない作品"]');
+    if (input) allowed.add(input);
+    return allowed;
+  }
+
+  if (step === "star_chart") {
+    const input = editor.querySelector('textarea[placeholder^="好きなもの"]');
+    if (input) allowed.add(input);
+    return allowed;
+  }
+
+  if (step === "save") {
+    const button = editor.querySelector('button[type="submit"]');
+    if (button) allowed.add(button);
+  }
+
+  return allowed;
+}
+
+function applyProfileGuideInteractionLock(editor, step) {
+  if (!editor) {
+    return;
+  }
+
+  const allowed = getProfileGuideAllowedControls(editor, step);
+
+  for (const control of editor.querySelectorAll(PROFILE_GUIDE_CONTROL_SELECTOR)) {
+    if (!control.hasAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED)) {
+      control.setAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED, control.disabled ? "true" : "false");
+    }
+
+    const originallyDisabled = control.getAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED) === "true";
+    const locked = !allowed.has(control);
+    control.disabled = originallyDisabled || locked;
+    control.toggleAttribute("data-onboarding-locked", locked);
+  }
+}
+
+function restoreProfileGuideInteractionLock(editor) {
+  if (!editor) {
+    return;
+  }
+
+  for (const control of editor.querySelectorAll(`[${PROFILE_GUIDE_ORIGINAL_DISABLED}]`)) {
+    control.disabled = control.getAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED) === "true";
+    control.removeAttribute(PROFILE_GUIDE_ORIGINAL_DISABLED);
+    control.removeAttribute("data-onboarding-locked");
+  }
 }
 
 function getProfileGuideTargetElement(targetKey) {
@@ -326,23 +411,50 @@ export default function InteractiveOnboarding({
 }) {
   const dialogueRef = useRef(null);
   const generatedUsernameRef = useRef("");
+  const installPromptRef = useRef(null);
   const profileGuideStepRef = useRef("entry");
   const [collapsed, setCollapsed] = useState(false);
+  const [homeScreenHelpMode, setHomeScreenHelpMode] = useState("");
+  const [homeScreenInstallComplete, setHomeScreenInstallComplete] = useState(false);
   const [placement, setPlacement] = useState("bottom");
   const [profileAvatarReady, setProfileAvatarReady] = useState(false);
   const [profileGuideError, setProfileGuideError] = useState("");
   const [profileGuideStep, setProfileGuideStep] = useState("entry");
-  const [showIosInstallSteps, setShowIosInstallSteps] = useState(false);
 
   useEffect(() => {
     profileGuideStepRef.current = profileGuideStep;
   }, [profileGuideStep]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    function handleBeforeInstallPrompt(event) {
+      event.preventDefault();
+      installPromptRef.current = event;
+    }
+
+    function handleAppInstalled() {
+      installPromptRef.current = null;
+      setHomeScreenHelpMode("");
+      setHomeScreenInstallComplete(true);
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  useEffect(() => {
     setCollapsed(false);
+    setHomeScreenHelpMode("");
     setPlacement("bottom");
     setProfileGuideError("");
-    setShowIosInstallSteps(false);
 
     if (progress?.current_step !== "profile_setup") {
       generatedUsernameRef.current = "";
@@ -358,6 +470,7 @@ export default function InteractiveOnboarding({
     }
 
     let timerId;
+    let lockedEditor = null;
 
     function setProfileStep(nextStep) {
       if (profileGuideStepRef.current === nextStep) {
@@ -367,6 +480,7 @@ export default function InteractiveOnboarding({
       profileGuideStepRef.current = nextStep;
       setProfileGuideError("");
       setProfileGuideStep(nextStep);
+      applyProfileGuideInteractionLock(getProfileEditor(), nextStep);
     }
 
     function synchronizeProfileGuide() {
@@ -374,6 +488,10 @@ export default function InteractiveOnboarding({
       const editor = getProfileEditor();
       const avatarReady = isProfileAvatarReady(editor);
       setProfileAvatarReady(avatarReady);
+
+      if (editor) {
+        lockedEditor = editor;
+      }
 
       if (cropDialog) {
         setProfileStep("avatar_crop");
@@ -393,13 +511,16 @@ export default function InteractiveOnboarding({
 
       if (profileGuideStepRef.current === "avatar_crop") {
         setProfileStep(avatarReady ? "bio" : "avatar");
+        return;
       }
+
+      applyProfileGuideInteractionLock(editor, profileGuideStepRef.current);
     }
 
     function handleFocus(event) {
       const editor = getProfileEditor();
 
-      if (!editor?.contains(event.target)) {
+      if (!editor?.contains(event.target) || event.target.disabled) {
         return;
       }
 
@@ -429,6 +550,7 @@ export default function InteractiveOnboarding({
       observer.disconnect();
       document.removeEventListener("change", synchronizeProfileGuide, true);
       document.removeEventListener("focusin", handleFocus, true);
+      restoreProfileGuideInteractionLock(lockedEditor ?? getProfileEditor());
     };
   }, [displayName, progress?.current_step]);
 
@@ -436,10 +558,16 @@ export default function InteractiveOnboarding({
     progress?.current_step === "profile_setup" && profileGuideStep !== "entry"
       ? getProfileGuideStepDefinition(profileGuideStep)
       : null;
-  const needsIosHomeScreen = Boolean(
+  const isNotificationStep = Boolean(
     progress &&
-      ["notification_permission", "device_registration", "push_test"].includes(progress.current_step) &&
-      isIosHomeScreenRequiredForPush(),
+      ["notification_permission", "device_registration", "push_test"].includes(progress.current_step),
+  );
+  const homeScreenInstallMode = isNotificationStep ? getHomeScreenInstallMode() : "";
+  const needsIosHomeScreen = Boolean(
+    isNotificationStep && homeScreenInstallMode === "ios" && isIosHomeScreenRequiredForPush(),
+  );
+  const showHomeScreenInstall = Boolean(
+    isNotificationStep && homeScreenInstallMode && !homeScreenInstallComplete,
   );
 
   let step = progress ? getOnboardingStepDefinition(progress.current_step, displayName) : null;
@@ -451,10 +579,7 @@ export default function InteractiveOnboarding({
     };
   } else if (needsIosHomeScreen) {
     step = {
-      lines: [
-        "iPhoneでは、このSafari画面のままだと通知を許可できないの。",
-        "画面下の共有ボタンから「ホーム画面に追加」を選んで、追加した星空Villageを開いてから操作してみてね！",
-      ],
+      lines: ["iPhoneでは、ホーム画面に追加すると通知を受け取れるよ！"],
     };
   }
 
@@ -588,6 +713,7 @@ export default function InteractiveOnboarding({
     profileGuideDefinition ||
       effectiveTargetName ||
       allowNotificationSkip ||
+      showHomeScreenInstall ||
       ["archive_success", "notification_permission", "device_registration", "push_test"].includes(
         progress.current_step,
       ),
@@ -612,6 +738,7 @@ export default function InteractiveOnboarding({
     profileGuideStepRef.current = nextStep;
     setProfileGuideError("");
     setProfileGuideStep(nextStep);
+    applyProfileGuideInteractionLock(getProfileEditor(), nextStep);
   }
 
   function handleProfileGuideNext() {
@@ -651,7 +778,7 @@ export default function InteractiveOnboarding({
 
     if (profileGuideStep === "avatar") {
       if (!isProfileAvatarReady(getProfileEditor())) {
-        setProfileGuideError("先に星影を選んでね！");
+        setProfileGuideError("先に星影を選ぶか「今は設定しない」を押してね！");
         return;
       }
       moveProfileGuideTo("bio");
@@ -666,6 +793,41 @@ export default function InteractiveOnboarding({
     if (profileGuideStep === "star_chart") {
       moveProfileGuideTo("save");
     }
+  }
+
+  async function handleHomeScreenInstall() {
+    setHomeScreenHelpMode("");
+
+    if (homeScreenInstallMode === "ios") {
+      setHomeScreenHelpMode("ios");
+      return;
+    }
+
+    if (homeScreenInstallMode !== "android") {
+      return;
+    }
+
+    const promptEvent = installPromptRef.current;
+
+    if (!promptEvent || typeof promptEvent.prompt !== "function") {
+      setHomeScreenHelpMode("android");
+      return;
+    }
+
+    try {
+      await promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+
+      if (choice?.outcome === "accepted") {
+        installPromptRef.current = null;
+        setHomeScreenInstallComplete(true);
+        return;
+      }
+    } catch {
+      // Browser-provided install prompts are optional. Fall back to manual instructions.
+    }
+
+    setHomeScreenHelpMode("android");
   }
 
   if (collapsed) {
@@ -724,23 +886,26 @@ export default function InteractiveOnboarding({
               <p key={`${index}-${line}`}>{line}</p>
             ))}
           </div>
-          {needsIosHomeScreen ? (
-            <>
-              <button
-                className="mt-3 min-h-10 w-full rounded-2xl border border-comet/30 bg-comet/10 px-3 text-xs font-black text-comet transition hover:bg-comet/15"
-                onClick={() => setShowIosInstallSteps((current) => !current)}
-                type="button"
-              >
-                {showIosInstallSteps ? "追加方法を閉じる" : "ホーム画面への追加方法を見る"}
-              </button>
-              {showIosInstallSteps ? (
-                <ol className="mt-2 space-y-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-bold leading-5 text-slate-200">
-                  <li>1. Safari下部の共有ボタンを押す</li>
-                  <li>2. 「ホーム画面に追加」を選ぶ</li>
-                  <li>3. 追加された星空Villageをホーム画面から開く</li>
-                </ol>
-              ) : null}
-            </>
+          {showHomeScreenInstall ? (
+            <button
+              className="mt-3 min-h-10 w-full rounded-2xl border border-comet/30 bg-comet/10 px-3 text-xs font-black text-comet transition hover:bg-comet/15"
+              onClick={() => void handleHomeScreenInstall()}
+              type="button"
+            >
+              星空Villageをホーム画面に追加
+            </button>
+          ) : null}
+          {homeScreenHelpMode === "ios" ? (
+            <div className="mt-2 space-y-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-bold leading-5 text-slate-200">
+              <p>あとちょっとだよ！✨</p>
+              <p>Safariの「…」から「共有」を開いて、</p>
+              <p>下にスクロールして「ホーム画面に追加」を選んでね！</p>
+            </div>
+          ) : null}
+          {homeScreenHelpMode === "android" ? (
+            <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-bold leading-5 text-slate-200">
+              右上の「︙」から「アプリをインストール」または「ホーム画面に追加」を選んでね！
+            </div>
           ) : null}
           {profileGuideError ? <p className="mt-2 text-xs leading-5 text-sakura">{profileGuideError}</p> : null}
           {error ? <p className="mt-2 text-xs leading-5 text-sakura">{error}</p> : null}
@@ -757,7 +922,13 @@ export default function InteractiveOnboarding({
             <button
               className="mt-2 min-h-9 w-full rounded-2xl border border-white/15 bg-white/5 px-3 text-[11px] font-black text-slate-200 transition hover:bg-white/10"
               onClick={() =>
-                moveProfileGuideTo(profileGuideStep === "bio" ? "star_chart" : "save")
+                moveProfileGuideTo(
+                  profileGuideStep === "avatar"
+                    ? "bio"
+                    : profileGuideStep === "bio"
+                      ? "star_chart"
+                      : "save",
+                )
               }
               type="button"
             >
