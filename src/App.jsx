@@ -8579,13 +8579,9 @@ function AppHeader({ auth }) {
   }
 
   return (
-    <header className="glass-panel mb-4 p-4" data-auth-panel="visible">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-        <h1 className="text-sm font-black leading-6 text-comet">バズより共鳴。</h1>
-
-        <AuthPanel auth={auth} />
-      </div>
-    </header>
+    <div className="mb-4" data-auth-panel="visible">
+      <AuthPanel auth={auth} />
+    </div>
   );
 }
 
