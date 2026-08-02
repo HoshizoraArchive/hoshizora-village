@@ -88,6 +88,23 @@ test("プロフィール案内は現在の入力だけを操作可能にして�
   }
 });
 
+test("オンボーディングの操作ロックはReact側の保存中disabledを上書きしない", () => {
+  for (const token of [
+    'const wasLocked = control.hasAttribute("data-onboarding-locked")',
+    "if (!locked)",
+    "if (wasLocked)",
+    'control.setAttribute("data-onboarding-locked", "true")',
+  ]) {
+    assert.equal(componentSource.includes(token), true, `missing lock ownership guard: ${token}`);
+  }
+
+  assert.equal(
+    componentSource.includes("control.disabled = originallyDisabled || locked"),
+    false,
+    "allowed controls must keep the disabled state owned by React/app logic",
+  );
+});
+
 test("操作案内は対象ごとに小型化でき、邪魔な時は折りたためる", () => {
   for (const token of [
     'const PROFILE_DYNAMIC_TARGET = "profile-guide-active"',
