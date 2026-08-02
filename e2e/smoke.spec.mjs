@@ -89,7 +89,7 @@ test.describe("星空Village browser smoke", () => {
 
     await expect(page.getByLabel("メールアドレス")).toBeVisible();
     await expect(page.getByLabel("パスワード")).toBeVisible();
-    await expect(page.getByRole("button", { name: "村へ帰る" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "村へ帰る", exact: true })).toBeVisible();
 
     const navigation = page.getByRole("navigation", {
       name: "星空Village bottom navigation",
@@ -250,7 +250,7 @@ test.describe("星空Village browser smoke", () => {
     await page.goto("/");
     await page.getByLabel("メールアドレス", { exact: true }).fill("pending@example.com");
     await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
-    await page.getByRole("button", { name: "村へ帰る" }).click();
+    await page.getByRole("button", { name: "村へ帰る", exact: true }).click();
 
     await expect(
       page.getByRole("heading", { name: "メールアドレスの確認がまだ完了していません。" }),
@@ -644,7 +644,7 @@ test.describe("星空Village browser smoke", () => {
     await page.goto("/");
     await page.getByLabel("メールアドレス", { exact: true }).fill("confirmed@example.com");
     await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
-    await page.getByRole("button", { name: "村へ帰る" }).click();
+    await page.getByRole("button", { name: "村へ帰る", exact: true }).click();
 
     await expect(page.locator('[data-auth-panel="visible"]')).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "星空Village bottom navigation" })).toBeVisible();
