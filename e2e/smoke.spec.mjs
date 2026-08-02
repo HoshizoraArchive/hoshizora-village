@@ -129,6 +129,41 @@ test.describe("星空Village browser smoke", () => {
     expect(signupRequests).toBe(1);
   });
 
+  test("初回会員登録のrate limitは登録完了扱いにせず再試行可能にする", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    let signupRequests = 0;
+
+    await page.route("**/__supabase/auth/v1/signup", async (route) => {
+      signupRequests += 1;
+      await fulfillAuthJson(
+        route,
+        {
+          error_code: "over_email_send_rate_limit",
+          msg: "Email rate limit exceeded",
+        },
+        429,
+      );
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "会員登録", exact: true }).click();
+    await page.getByLabel("メールアドレス", { exact: true }).fill("rate-limited@example.com");
+    await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
+    await page.getByLabel("利用規約とプライバシーポリシーに同意する").check();
+    await page.getByLabel("私は18歳以上であることを確認します").check();
+    await page.getByRole("button", { name: "会員登録する" }).click();
+
+    await expect(
+      page.getByText("会員登録を完了できませんでした。少し待ってから、もう一度お試しください。", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "会員登録できました！" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "確認メールを再送する" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "会員登録する" })).toBeEnabled();
+    expect(signupRequests).toBe(1);
+  });
+
   test("期限切れ確認リンクはsignupを再実行せず確認メールを再送できる", async ({ page }) => {
     await mockSupabaseAsEmptyVillage(page);
     let signupRequests = 0;
@@ -181,6 +216,81 @@ test.describe("星空Village browser smoke", () => {
       page.getByRole("heading", { name: "メールアドレスの確認がまだ完了していません。" }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "確認メールを再送する" })).toBeEnabled();
+  });
+
+  test("確認成功画面を閉じてから初回オンボーディングを開始する", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    const userId = "33333333-3333-4333-8333-333333333333";
+    const accessToken = createUnsignedTestJwt({
+      aud: "authenticated",
+      exp: Math.floor(Date.now() / 1000) + 3_600,
+      sub: userId,
+    });
+    const user = {
+      id: userId,
+      aud: "authenticated",
+      role: "authenticated",
+      email: "new-confirmed@example.com",
+      app_metadata: { provider: "email", providers: ["email"] },
+      user_metadata: {},
+      created_at: "2026-08-02T00:00:00.000Z",
+      updated_at: "2026-08-02T00:00:00.000Z",
+    };
+    let onboardingRequests = 0;
+
+    await page.route("**/__supabase/auth/v1/user", async (route) => {
+      await fulfillAuthJson(route, user);
+    });
+    await page.route("**/__supabase/rest/v1/user_onboarding_progress*", async (route) => {
+      onboardingRequests += 1;
+      await fulfillAuthJson(route, {
+        user_id: userId,
+        current_step: "welcome_video",
+        welcome_video_status: "pending",
+        welcome_video_completed_at: null,
+        profile_completed_at: null,
+        target_post_id: null,
+        archive_completed_at: null,
+        archive_confirmed_at: null,
+        notification_permission_status: "unknown",
+        notification_permission_updated_at: null,
+        push_registered_at: null,
+        push_registration_status: "not_started",
+        push_test_status: "not_started",
+        push_test_updated_at: null,
+        first_post_id: null,
+        first_post_completed_at: null,
+        completed_at: null,
+        created_at: "2026-08-02T00:00:00.000Z",
+        updated_at: "2026-08-02T00:00:00.000Z",
+      });
+    });
+    await page.addInitScript(
+      ({ session }) => {
+        window.localStorage.setItem("sb-127-auth-token", JSON.stringify(session));
+      },
+      {
+        session: {
+          access_token: accessToken,
+          expires_at: Math.floor(Date.now() / 1000) + 3_600,
+          expires_in: 3_600,
+          refresh_token: "test-refresh-token",
+          token_type: "bearer",
+          user,
+        },
+      },
+    );
+
+    await page.goto("/?type=signup");
+
+    await expect(page.getByRole("heading", { name: "メールアドレスを確認しました" })).toBeVisible();
+    await expect.poll(() => onboardingRequests).toBeGreaterThan(0);
+    await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "案内へ進む" }).click();
+
+    await expect(page.getByRole("heading", { name: "メールアドレスを確認しました" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toBeVisible();
   });
 
   test("通常ログインは従来どおりセッションと同意記録を確定する", async ({ page }) => {

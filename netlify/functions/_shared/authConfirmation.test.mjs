@@ -75,6 +75,18 @@ test("signup success without a session enters an exclusive confirmation-pending 
   assert.match(confirmationPanelSource, /メール内のリンクを開いて、メールアドレスを確認してください。/);
 });
 
+test("initial signup rate limits remain an incomplete signup instead of confirmation pending", () => {
+  const signUpHandler = appSource.match(/async function handleSignUp[\s\S]*?\n  async function handleLogin/)?.[0] ?? "";
+  const rateLimitBranch = signUpHandler.match(
+    /if \(isAuthEmailRateLimitError\(error\)\) \{[\s\S]*?\n          return;/,
+  )?.[0] ?? "";
+
+  assert.match(rateLimitBranch, /setAuthStatus\("未ログイン"\)/);
+  assert.match(rateLimitBranch, /会員登録を完了できませんでした。少し待ってから、もう一度お試しください。/);
+  assert.doesNotMatch(rateLimitBranch, /setAuthConfirmation/);
+  assert.doesNotMatch(rateLimitBranch, /AUTH_CONFIRMATION_KIND\.EMAIL_NOT_CONFIRMED/);
+});
+
 test("confirmation resend uses auth.resend instead of creating another signup", () => {
   const resendHandler = appSource.match(/async function handleResendConfirmation[\s\S]*?\n  function handleCloseAuthConfirmation/)?.[0] ?? "";
 
@@ -103,6 +115,10 @@ test("successful signup callback shows confirmation success without confusing no
   );
   assert.match(appSource, /!authCallbackResolvedRef\.current/);
   assert.match(appSource, /kind: AUTH_CONFIRMATION_KIND\.CONFIRMED/);
+  assert.match(
+    appSource,
+    /const shouldShowInteractiveOnboarding =[\s\S]*?authConfirmation\?\.kind !== AUTH_CONFIRMATION_KIND\.CONFIRMED/,
+  );
   assert.match(confirmationPanelSource, /メールアドレスを確認しました/);
   assert.match(confirmationPanelSource, /案内へ進む/);
 });

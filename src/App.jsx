@@ -4416,13 +4416,8 @@ function App() {
 
       if (error) {
         if (isAuthEmailRateLimitError(error)) {
-          setAuthConfirmation({
-            email: normalizedEmail,
-            kind: AUTH_CONFIRMATION_KIND.EMAIL_NOT_CONFIRMED,
-            resendAvailableAt: Date.now() + AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
-          });
-          setAuthStatus("メール確認待ち");
-          setAuthError("確認メールの送信回数が上限に達しました。少し待ってから再送してください。");
+          setAuthStatus("未ログイン");
+          setAuthError("会員登録を完了できませんでした。少し待ってから、もう一度お試しください。");
           return;
         }
 
@@ -7689,6 +7684,10 @@ function App() {
     status: authStatus,
   };
   const onboardingIsActive = isOnboardingActive(sessionOnboardingProgress);
+  const shouldShowInteractiveOnboarding =
+    onboardingIsActive &&
+    !onboardingLoading &&
+    authConfirmation?.kind !== AUTH_CONFIRMATION_KIND.CONFIRMED;
   const onboardingTarget = getOnboardingTarget(sessionOnboardingProgress, profileScreenMode);
   const onboardingState = {
     active: onboardingIsActive,
@@ -8144,7 +8143,7 @@ function App() {
         onClose={handleCloseStarMovieObservation}
         post={starMovieObservationPost}
       />
-      {onboardingIsActive && !onboardingLoading ? (
+      {shouldShowInteractiveOnboarding ? (
         <InteractiveOnboarding
           busy={onboardingBusy}
           displayName={sessionOnboardingProfile?.display_name ?? ""}
