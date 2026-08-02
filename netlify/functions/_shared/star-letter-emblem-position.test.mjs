@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const observeCss = readFileSync(new URL("../../../src/observePolish.css", import.meta.url), "utf8");
-const unifiedFeedCss = readFileSync(new URL("../../../src/unifiedFeedPolish.css", import.meta.url), "utf8");
+const starLetterCss = readFileSync(new URL("../../../src/starLetterProfileNavigation.css", import.meta.url), "utf8");
 
 function getRuleBody(css, selector) {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -21,7 +21,7 @@ function getDeclaration(ruleBody, property) {
 test("star-letter emblem uses the same corner geometry as Observe meteor cards", () => {
   const meteorRule = getRuleBody(observeCss, ".observe-screen .profile-title-emblem-post-card-slot");
   const starLetterRule = getRuleBody(
-    unifiedFeedCss,
+    starLetterCss,
     ".star-letter-item > .flex > .min-w-0 > .flex > .profile-title-emblem-compact",
   );
 
@@ -36,14 +36,14 @@ test("star-letter emblem uses the same corner geometry as Observe meteor cards",
 
 test("star-letter emblem reserves identity-row space only when an emblem exists", () => {
   const starLetterRule = getRuleBody(
-    unifiedFeedCss,
+    starLetterCss,
     ".star-letter-item > .flex > .min-w-0 > .flex > .profile-title-emblem-compact",
   );
 
   assert.equal(getDeclaration(starLetterRule, "position"), "absolute");
-  assert.match(unifiedFeedCss, /\.star-letter-item\s*\{[^}]*position:\s*relative;/s);
+  assert.match(starLetterCss, /\.star-letter-item\s*\{[^}]*position:\s*relative;/s);
   assert.match(
-    unifiedFeedCss,
+    starLetterCss,
     /\.star-letter-item:has\(> \.flex > \.min-w-0 > \.flex > \.profile-title-emblem-compact\)[^{]*\{[^}]*padding-right:\s*5rem;/s,
   );
 });
