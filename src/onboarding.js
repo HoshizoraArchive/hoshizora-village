@@ -202,6 +202,7 @@ const PROFILE_GUIDE_STEP_DEFINITIONS = {
   },
   avatar: {
     lines: ["次は、あなたの星影を写してね！", "好きな写真やイラストを選んでみて✨"],
+    optionalLabel: "今は設定しない",
     targetKey: "avatar",
   },
   avatar_crop: {
@@ -247,7 +248,18 @@ export function getProfileGuideStepDefinition(step) {
   return definition ? { ...definition, lines: [...definition.lines] } : null;
 }
 
-export function isIosHomeScreenRequiredForPush(environment = {}) {
+export function isStandaloneWebApp(environment = {}) {
+  if (typeof environment.standalone === "boolean") {
+    return environment.standalone;
+  }
+
+  const displayModeStandalone =
+    typeof window !== "undefined" && window.matchMedia?.("(display-mode: standalone)")?.matches;
+  const navigatorStandalone = typeof navigator !== "undefined" && navigator.standalone === true;
+  return Boolean(displayModeStandalone || navigatorStandalone);
+}
+
+export function isIosDevice(environment = {}) {
   const userAgent = String(
     environment.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : ""),
   );
@@ -257,14 +269,35 @@ export function isIosHomeScreenRequiredForPush(environment = {}) {
   const maxTouchPoints = Number(
     environment.maxTouchPoints ?? (typeof navigator !== "undefined" ? navigator.maxTouchPoints : 0),
   );
-  const standalone = Boolean(
-    environment.standalone ??
-      (typeof window !== "undefined" && window.matchMedia?.("(display-mode: standalone)")?.matches) ??
-      (typeof navigator !== "undefined" && navigator.standalone === true),
-  );
-  const isIos = /iPhone|iPad|iPod/i.test(userAgent) || (platform === "MacIntel" && maxTouchPoints > 1);
 
-  return isIos && !standalone;
+  return /iPhone|iPad|iPod/i.test(userAgent) || (platform === "MacIntel" && maxTouchPoints > 1);
+}
+
+export function isAndroidDevice(environment = {}) {
+  const userAgent = String(
+    environment.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : ""),
+  );
+  return /Android/i.test(userAgent);
+}
+
+export function getHomeScreenInstallMode(environment = {}) {
+  if (isStandaloneWebApp(environment)) {
+    return "";
+  }
+
+  if (isIosDevice(environment)) {
+    return "ios";
+  }
+
+  if (isAndroidDevice(environment)) {
+    return "android";
+  }
+
+  return "";
+}
+
+export function isIosHomeScreenRequiredForPush(environment = {}) {
+  return isIosDevice(environment) && !isStandaloneWebApp(environment);
 }
 
 export function replaceOnboardingDisplayName(line, displayName) {
