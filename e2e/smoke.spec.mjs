@@ -89,7 +89,7 @@ test.describe("星空Village browser smoke", () => {
 
     await expect(page.getByLabel("メールアドレス")).toBeVisible();
     await expect(page.getByLabel("パスワード")).toBeVisible();
-    await expect(page.getByRole("button", { name: "ログインする" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "村へ帰る", exact: true })).toBeVisible();
 
     const navigation = page.getByRole("navigation", {
       name: "星空Village bottom navigation",
@@ -155,16 +155,16 @@ test.describe("星空Village browser smoke", () => {
     });
 
     await page.goto("/");
-    await page.getByRole("button", { name: "会員登録", exact: true }).click();
+    await page.getByRole("button", { name: "入村手続き（会員登録）", exact: true }).click();
     await page.getByLabel("メールアドレス", { exact: true }).fill("new-villager@example.com");
     await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
     await page.getByLabel("利用規約とプライバシーポリシーに同意する").check();
     await page.getByLabel("私は18歳以上であることを確認します").check();
-    await page.getByRole("button", { name: "会員登録する" }).click();
+    await page.getByRole("button", { name: "入村する" }).click();
 
     await expect(page.getByRole("heading", { name: "会員登録できました！" })).toBeVisible();
     await expect(page.getByText("new-villager@example.com 宛に確認メールを送りました。", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "会員登録する" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "入村する" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /秒後に再送できます/ })).toBeDisabled();
     expect(signupRequests).toBe(1);
   });
@@ -186,12 +186,12 @@ test.describe("星空Village browser smoke", () => {
     });
 
     await page.goto("/");
-    await page.getByRole("button", { name: "会員登録", exact: true }).click();
+    await page.getByRole("button", { name: "入村手続き（会員登録）", exact: true }).click();
     await page.getByLabel("メールアドレス", { exact: true }).fill("rate-limited@example.com");
     await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
     await page.getByLabel("利用規約とプライバシーポリシーに同意する").check();
     await page.getByLabel("私は18歳以上であることを確認します").check();
-    await page.getByRole("button", { name: "会員登録する" }).click();
+    await page.getByRole("button", { name: "入村する" }).click();
 
     await expect(
       page.getByText("会員登録を完了できませんでした。少し待ってから、もう一度お試しください。", {
@@ -200,7 +200,7 @@ test.describe("星空Village browser smoke", () => {
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "会員登録できました！" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "確認メールを再送する" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "会員登録する" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "入村する" })).toBeEnabled();
     expect(signupRequests).toBe(1);
   });
 
@@ -250,7 +250,7 @@ test.describe("星空Village browser smoke", () => {
     await page.goto("/");
     await page.getByLabel("メールアドレス", { exact: true }).fill("pending@example.com");
     await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
-    await page.getByRole("button", { name: "ログインする" }).click();
+    await page.getByRole("button", { name: "村へ帰る", exact: true }).click();
 
     await expect(
       page.getByRole("heading", { name: "メールアドレスの確認がまだ完了していません。" }),
@@ -644,7 +644,7 @@ test.describe("星空Village browser smoke", () => {
     await page.goto("/");
     await page.getByLabel("メールアドレス", { exact: true }).fill("confirmed@example.com");
     await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
-    await page.getByRole("button", { name: "ログインする" }).click();
+    await page.getByRole("button", { name: "村へ帰る", exact: true }).click();
 
     await expect(page.locator('[data-auth-panel="visible"]')).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "星空Village bottom navigation" })).toBeVisible();
