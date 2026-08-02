@@ -14,12 +14,15 @@ function getAppHeaderSource() {
   return appSource.slice(start, end);
 }
 
-test("未ログインヘッダーは『バズより共鳴。』だけをブランド表示する", () => {
+test("未ログインヘッダーは外側カードやブランド文言を持たずAuthPanelだけを表示する", () => {
   const appHeaderSource = getAppHeaderSource();
 
-  assert.match(appHeaderSource, /<h1 className="[^"]*">バズより共鳴。<\/h1>/);
+  assert.doesNotMatch(appHeaderSource, /バズより共鳴。/);
   assert.doesNotMatch(appHeaderSource, /Re:AiSNS/);
   assert.doesNotMatch(appHeaderSource, /星空Village/);
-  assert.doesNotMatch(appHeaderSource, /shadow-glow/);
+  assert.doesNotMatch(appHeaderSource, /glass-panel/);
+  assert.doesNotMatch(appHeaderSource, /<header/);
+  assert.doesNotMatch(appHeaderSource, /p-4/);
+  assert.match(appHeaderSource, /<div className="mb-4 lg:ml-auto lg:w-\[320px\]" data-auth-panel="visible">/);
   assert.match(appHeaderSource, /<AuthPanel auth=\{auth\} \/>/);
 });
