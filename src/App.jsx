@@ -8581,15 +8581,7 @@ function AppHeader({ auth }) {
   return (
     <header className="glass-panel mb-4 p-4" data-auth-panel="visible">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-        <div className="flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-comet via-aurora to-sakura text-lg font-black text-night-950 shadow-glow">
-            星
-          </div>
-          <div>
-            <p className="text-xs font-bold normal-case text-comet">Re:AiSNS</p>
-            <h1 className="text-xl font-black leading-tight">星空Village</h1>
-          </div>
-        </div>
+        <h1 className="text-sm font-black leading-6 text-comet">バズより共鳴。</h1>
 
         <AuthPanel auth={auth} />
       </div>

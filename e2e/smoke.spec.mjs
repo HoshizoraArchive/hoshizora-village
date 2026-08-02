@@ -24,7 +24,7 @@ async function mockSupabaseAsEmptyVillage(page) {
 async function openVillageAsGuest(page) {
   await mockSupabaseAsEmptyVillage(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "星空Village" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "バズより共鳴。" })).toBeVisible();
 }
 
 async function fulfillAuthJson(route, body, status = 200) {
