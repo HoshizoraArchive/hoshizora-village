@@ -76,6 +76,8 @@ verification objectとbucketは確認後に削除します。通常の`avatars` 
 
 backup function自身が`CONTEXT=production`を必須にします。
 
+`SUPABASE_SERVICE_ROLE_KEY`はNetlify上でSecretとして扱い、実値を設定するのはProductionだけにします。Deploy Previewでは空値、Branch Deployでは無効値または空値とし、未マージコードからProductionのservice roleを利用できない状態を維持します。環境変数を変更した場合は、Production Functionsへ反映されるようProduction deployを1回完了させてからbackupの実働確認を行います。
+
 Deploy Previewでは`SUPABASE_SERVICE_ROLE_KEY`を空にしているため、未マージコードからこのbackupを実行できません。またScheduled Functionsはpublished Production deployだけでschedule実行されます。
 
 ## 完全なSupabase logical dump
