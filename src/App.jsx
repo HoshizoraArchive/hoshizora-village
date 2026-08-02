@@ -12511,27 +12511,37 @@ function AuthPanel({ auth }) {
       ) : (
         <form className="mt-3 space-y-3" onSubmit={handleSubmit}>
           <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1">
-            <button
-              className={`min-h-9 rounded-xl text-xs font-black transition ${
-                mode === "login" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
-              }`}
-              onClick={() => setMode("login")}
-              type="button"
-            >
-              ログイン
-            </button>
-            <button
-              className={
-                `min-h-9 rounded-xl text-xs font-black transition ${
-                  mode === "signup" ? "bg-comet/20 text-white" : "text-slate-400 hover:text-white"
-                }
-              `}
-              onClick={() => setMode("signup")}
-              type="button"
-            >
-              会員登録
-            </button>
-          </div>
+  <button
+    aria-label="村へ帰る（ログイン）"
+    className={`relative min-h-12 rounded-xl px-3 pb-4 pt-2 text-xs font-black transition ${
+      mode === "login"
+        ? "bg-comet/20 text-comet shadow-[0_0_18px_rgba(103,232,249,0.12)]"
+        : "text-comet/75 hover:bg-comet/10 hover:text-comet"
+    }`}
+    onClick={() => setMode("login")}
+    type="button"
+  >
+    <span className="block text-[13px] leading-5">村へ帰る</span>
+    <span aria-hidden="true" className="absolute bottom-1 right-2 text-[9px] font-bold text-white/85">
+      （ログイン）
+    </span>
+  </button>
+  <button
+    aria-label="入村手続き（会員登録）"
+    className={`relative min-h-12 rounded-xl px-3 pb-4 pt-2 text-xs font-black transition ${
+      mode === "signup"
+        ? "bg-gradient-to-r from-aurora/20 to-sakura/20 text-sakura shadow-[0_0_18px_rgba(244,114,182,0.14)]"
+        : "text-sakura/75 hover:bg-sakura/10 hover:text-sakura"
+    }`}
+    onClick={() => setMode("signup")}
+    type="button"
+  >
+    <span className="block text-[13px] leading-5">入村手続き</span>
+    <span aria-hidden="true" className="absolute bottom-1 right-2 text-[9px] font-bold text-white/85">
+      （会員登録）
+    </span>
+  </button>
+</div>
 
           <label className="block text-xs font-bold text-slate-400">
             メールアドレス
@@ -12616,7 +12626,7 @@ function AuthPanel({ auth }) {
             disabled={auth.loading || (isSignUp && !signUpConsentReady)}
             type="submit"
           >
-            {auth.loading ? "処理中..." : isSignUp ? "会員登録する" : "ログインする"}
+            {auth.loading ? "処理中..." : isSignUp ? "入村する" : "村へ帰る"}
           </button>
         </form>
       )}
