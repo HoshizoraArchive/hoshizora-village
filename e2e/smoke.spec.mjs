@@ -293,6 +293,213 @@ test.describe("星空Village browser smoke", () => {
     await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toBeVisible();
   });
 
+  test("パスワード再設定要求から更新完了まで専用画面で進行する", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    const userId = "44444444-4444-4444-8444-444444444444";
+    const accessToken = createUnsignedTestJwt({
+      aud: "authenticated",
+      exp: Math.floor(Date.now() / 1000) + 3_600,
+      sub: userId,
+    });
+    const user = {
+      id: userId,
+      aud: "authenticated",
+      role: "authenticated",
+      email: "recovering@example.com",
+      app_metadata: { provider: "email", providers: ["email"] },
+      user_metadata: {},
+      created_at: "2026-08-02T00:00:00.000Z",
+      updated_at: "2026-08-02T00:00:00.000Z",
+    };
+    let resetRequests = 0;
+    let passwordUpdates = 0;
+
+    await page.route("**/__supabase/auth/v1/recover*", async (route) => {
+      resetRequests += 1;
+      const requestUrl = new URL(route.request().url());
+      const body = route.request().postDataJSON();
+
+      expect(body.email).toBe("recovering@example.com");
+      expect(requestUrl.searchParams.get("redirect_to")).toBe(
+        "http://127.0.0.1:4173/auth/recovery",
+      );
+      await fulfillAuthJson(route, {});
+    });
+
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "パスワードを忘れた方" })).toBeVisible();
+    await page.getByLabel("メールアドレス", { exact: true }).fill("recovering@example.com");
+    await page.getByRole("button", { name: "パスワードを忘れた方" }).click();
+    await expect(page.getByRole("heading", { name: "パスワードを再設定" })).toBeVisible();
+    await page.getByRole("button", { name: "再設定メールを送る" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "パスワード再設定メールを送信しました。" }),
+    ).toBeVisible();
+    await expect(page.getByText(/秒後に再送できます/)).toBeVisible();
+    expect(resetRequests).toBe(1);
+
+    await page.route("**/__supabase/auth/v1/user", async (route) => {
+      if (route.request().method() === "PUT") {
+        passwordUpdates += 1;
+        expect(route.request().postDataJSON().password).toBe("new-safe-password");
+      }
+
+      await fulfillAuthJson(route, user);
+    });
+    await page.route("**/__supabase/rest/v1/user_onboarding_progress*", async (route) => {
+      await fulfillAuthJson(route, {
+        user_id: userId,
+        current_step: "welcome_video",
+        welcome_video_status: "pending",
+        welcome_video_completed_at: null,
+        profile_completed_at: null,
+        target_post_id: null,
+        archive_completed_at: null,
+        archive_confirmed_at: null,
+        notification_permission_status: "unknown",
+        notification_permission_updated_at: null,
+        push_registered_at: null,
+        push_registration_status: "not_started",
+        push_test_status: "not_started",
+        push_test_updated_at: null,
+        first_post_id: null,
+        first_post_completed_at: null,
+        completed_at: null,
+        created_at: "2026-08-02T00:00:00.000Z",
+        updated_at: "2026-08-02T00:00:00.000Z",
+      });
+    });
+    await page.evaluate(
+      ({ session }) => {
+        window.localStorage.setItem("sb-127-auth-token", JSON.stringify(session));
+      },
+      {
+        session: {
+          access_token: accessToken,
+          expires_at: Math.floor(Date.now() / 1000) + 3_600,
+          expires_in: 3_600,
+          refresh_token: "test-recovery-refresh-token",
+          token_type: "bearer",
+          user,
+        },
+      },
+    );
+
+    await page.goto("/auth/recovery?type=recovery");
+    await expect(page.getByRole("heading", { name: "新しいパスワードを設定" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "星空Village bottom navigation" })).toHaveCount(0);
+
+    await page.getByLabel("新しいパスワード", { exact: true }).fill("new-safe-password");
+    await page.getByLabel("新しいパスワード（確認）", { exact: true }).fill("different-password");
+    await page.getByRole("button", { name: "パスワードを変更する" }).click();
+
+    await expect(page.getByText("新しいパスワードが一致していません。", { exact: true })).toBeVisible();
+    expect(passwordUpdates).toBe(0);
+
+    await page.getByLabel("新しいパスワード（確認）", { exact: true }).fill("new-safe-password");
+    await page.getByRole("button", { name: "パスワードを変更する" }).click();
+
+    await expect(page.getByRole("heading", { name: "パスワードを変更しました。" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toHaveCount(0);
+    expect(passwordUpdates).toBe(1);
+
+    await page.getByRole("button", { name: "星空Villageへ進む" }).click();
+    await expect(page.getByRole("heading", { name: "入村案内をはじめます" })).toBeVisible();
+  });
+
+  test("再設定メールはsingle-flightで送信しrate limitを安全に表示する", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    let resetRequests = 0;
+
+    await page.route("**/__supabase/auth/v1/recover*", async (route) => {
+      resetRequests += 1;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await fulfillAuthJson(
+        route,
+        {
+          error_code: "over_email_send_rate_limit",
+          msg: "Email rate limit exceeded",
+        },
+        429,
+      );
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "パスワードを忘れた方" }).click();
+    await page.getByLabel("メールアドレス", { exact: true }).fill("rate-limited@example.com");
+    await page.getByRole("button", { name: "再設定メールを送る" }).evaluate((button) => {
+      button.click();
+      button.click();
+    });
+
+    await expect(
+      page.getByText("送信回数が上限に達しました。少し待ってからもう一度お試しください。", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "パスワード再設定メールを送信しました。" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /秒後に再送できます/ })).toBeDisabled();
+    expect(resetRequests).toBe(1);
+  });
+
+  test("未登録かもしれないメールでもアカウント存在有無を表示しない", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+
+    await page.route("**/__supabase/auth/v1/recover*", async (route) => {
+      await fulfillAuthJson(
+        route,
+        {
+          error_code: "user_not_found",
+          msg: "User not found",
+        },
+        400,
+      );
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "パスワードを忘れた方" }).click();
+    await page.getByLabel("メールアドレス", { exact: true }).fill("unknown@example.com");
+    await page.getByRole("button", { name: "再設定メールを送る" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "パスワード再設定メールを送信しました。" }),
+    ).toBeVisible();
+    await expect(page.getByText(/登録されていません|ユーザーが存在しません/)).toHaveCount(0);
+  });
+
+  test("期限切れRecoveryリンクはsignup確認と混同せず再送へ復旧する", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    let resetRequests = 0;
+
+    await page.route("**/__supabase/auth/v1/recover*", async (route) => {
+      resetRequests += 1;
+      await fulfillAuthJson(route, {});
+    });
+
+    await page.goto(
+      "/auth/recovery?type=recovery&error=access_denied&error_code=otp_expired&error_description=Recovery+link+expired",
+    );
+
+    await expect(
+      page.getByRole("heading", {
+        name: "このパスワード再設定リンクは古いか、期限切れになっています。",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "この確認リンクは古いか、期限切れになっています。" }),
+    ).toHaveCount(0);
+
+    await page.getByLabel("メールアドレス", { exact: true }).fill("recovering@example.com");
+    await page.getByRole("button", { name: "再設定メールを送る" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "パスワード再設定メールを送信しました。" }),
+    ).toBeVisible();
+    expect(resetRequests).toBe(1);
+  });
+
   test("通常ログインは従来どおりセッションと同意記録を確定する", async ({ page }) => {
     await mockSupabaseAsEmptyVillage(page);
     const userId = "22222222-2222-4222-8222-222222222222";
