@@ -17,7 +17,7 @@ function getAppHeaderSource() {
 test("未ログインヘッダーは『バズより共鳴。』だけをブランド表示する", () => {
   const appHeaderSource = getAppHeaderSource();
 
-  assert.match(appHeaderSource, /バズより共鳴。/);
+  assert.match(appHeaderSource, /<h1 className="[^"]*">バズより共鳴。<\/h1>/);
   assert.doesNotMatch(appHeaderSource, /Re:AiSNS/);
   assert.doesNotMatch(appHeaderSource, /星空Village/);
   assert.doesNotMatch(appHeaderSource, /shadow-glow/);
