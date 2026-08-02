@@ -1,0 +1,77 @@
+name: Format Auth village terms
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]' && github.head_ref == 'fix/auth-village-terms'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/auth-village-terms
+          fetch-depth: 0
+      - name: Normalize Auth tab JSX indentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          path = Path('src/App.jsx')
+          app = path.read_text()
+          form_start = app.index('        <form className="mt-3 space-y-3" onSubmit={handleSubmit}>')
+          tabs_start = app.index('          <div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1">', form_start)
+          email_marker = '\n\n          <label className="block text-xs font-bold text-slate-400">\n            メールアドレス'
+          tabs_end = app.index(email_marker, tabs_start)
+
+          raw = '''<div className="grid grid-cols-2 rounded-2xl border border-white/10 bg-white/5 p-1">
+  <button
+    aria-label="村へ帰る（ログイン）"
+    className={`relative min-h-12 rounded-xl px-3 pb-4 pt-2 text-xs font-black transition ${
+      mode === "login"
+        ? "bg-comet/20 text-comet shadow-[0_0_18px_rgba(103,232,249,0.12)]"
+        : "text-comet/75 hover:bg-comet/10 hover:text-comet"
+    }`}
+    onClick={() => setMode("login")}
+    type="button"
+  >
+    <span className="block text-[13px] leading-5">村へ帰る</span>
+    <span aria-hidden="true" className="absolute bottom-1 right-2 text-[9px] font-bold text-white/85">
+      （ログイン）
+    </span>
+  </button>
+  <button
+    aria-label="入村手続き（会員登録）"
+    className={`relative min-h-12 rounded-xl px-3 pb-4 pt-2 text-xs font-black transition ${
+      mode === "signup"
+        ? "bg-gradient-to-r from-aurora/20 to-sakura/20 text-sakura shadow-[0_0_18px_rgba(244,114,182,0.14)]"
+        : "text-sakura/75 hover:bg-sakura/10 hover:text-sakura"
+    }`}
+    onClick={() => setMode("signup")}
+    type="button"
+  >
+    <span className="block text-[13px] leading-5">入村手続き</span>
+    <span aria-hidden="true" className="absolute bottom-1 right-2 text-[9px] font-bold text-white/85">
+      （会員登録）
+    </span>
+  </button>
+</div>'''
+          new_tabs = textwrap.indent(raw, '          ')
+          app = app[:tabs_start] + new_tabs + app[tabs_end:]
+          path.write_text(app)
+          PY
+      - name: Remove temporary workflow and commit
+        run: |
+          rm -f .github/workflows/format-auth-village-terms.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: Auth用語UIのJSX整形を修正"
+          git push origin HEAD:fix/auth-village-terms
