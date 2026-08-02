@@ -22,6 +22,7 @@ test("未ログインヘッダーは外側カードやブランド文言を持�
   assert.doesNotMatch(appHeaderSource, /星空Village/);
   assert.doesNotMatch(appHeaderSource, /glass-panel/);
   assert.doesNotMatch(appHeaderSource, /<header/);
+  assert.doesNotMatch(appHeaderSource, /p-4/);
   assert.match(appHeaderSource, /<div className="mb-4 lg:ml-auto lg:w-\[320px\]" data-auth-panel="visible">/);
   assert.match(appHeaderSource, /<AuthPanel auth=\{auth\} \/>/);
 });
