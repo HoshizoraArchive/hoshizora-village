@@ -8,11 +8,16 @@ import {
 
 const componentSource = readFileSync("src/InteractiveOnboarding.jsx", "utf8");
 
-test("My Const.を名前・星影・自己紹介・My Star Chart・保存の順で案内する", () => {
+test("My Const.を名前・ユーザー名・星影・自己紹介・My Star Chart・保存の順で案内する", () => {
   assert.deepEqual(getProfileGuideStepDefinition("name").lines, [
-    "まずは、あなたの名前を書いてね！",
-    "これからちあが呼ぶ、大切な名前だよ✨",
+    "ここで、あなたの名前を教えてね！",
+    "星空Villageでみんなに見える名前だよ✨",
   ]);
+  assert.deepEqual(getProfileGuideStepDefinition("username").lines, [
+    "ユーザー名は、一時的にちあが考えたよ！",
+    "独自のユーザー名にしたかったら変更してね。半角英数字と「_」で、あとからでも変えられるよ✨",
+  ]);
+  assert.equal(getProfileGuideStepDefinition("username").targetKey, "username");
   assert.deepEqual(getProfileGuideStepDefinition("avatar").lines, [
     "次は、あなたの星影を写してね！",
     "好きな写真やイラストを選んでみて✨",
@@ -24,6 +29,8 @@ test("My Const.を名前・星影・自己紹介・My Star Chart・保存の順�
   assert.equal(getProfileGuideStepDefinition("bio").optionalLabel, "自己紹介はあとで");
   assert.equal(getProfileGuideStepDefinition("star_chart").optionalLabel, "My Star Chartはあとで");
   assert.equal(getProfileGuideStepDefinition("save").targetKey, "save");
+
+  assert.equal(componentSource.indexOf('moveProfileGuideTo("username")') < componentSource.indexOf('moveProfileGuideTo("avatar")'), true);
 });
 
 test("iPhone Safariではホーム画面追加を案内し、PWAでは通常の通知導線へ進む", () => {

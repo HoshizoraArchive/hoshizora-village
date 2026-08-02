@@ -2,15 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ONBOARDING_MINI_CHIA_SRC,
   ONBOARDING_WELCOME_VIDEO_SRC,
+  createVillageUsername,
   getNotificationSkipStatus,
   getOnboardingStepDefinition,
   getProfileGuideStepDefinition,
   isIosHomeScreenRequiredForPush,
+  shouldCreateVillageUsername,
   shouldOfferNotificationSkip,
   tryPlayWelcomeVideo,
 } from "./onboarding";
 
 const PROFILE_DYNAMIC_TARGET = "profile-guide-active";
+const PROFILE_USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
 
 function WelcomeVideo({ error, onComplete }) {
   const dialogRef = useRef(null);
@@ -202,6 +205,49 @@ function getProfileEditor() {
   );
 }
 
+function getProfileUsernameInput(editor) {
+  return editor?.querySelector('input[placeholder="silent_creator"]') ?? null;
+}
+
+function setProfileInputValue(input, value) {
+  if (!input) {
+    return;
+  }
+
+  const inputWindow = input.ownerDocument?.defaultView;
+  const valueSetter = inputWindow?.HTMLInputElement
+    ? Object.getOwnPropertyDescriptor(inputWindow.HTMLInputElement.prototype, "value")?.set
+    : null;
+
+  if (valueSetter) {
+    valueSetter.call(input, value);
+  } else {
+    input.value = value;
+  }
+
+  const InputEvent = inputWindow?.Event ?? Event;
+  input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+}
+
+function ensureVillageUsername(editor, displayName, generatedUsernameRef) {
+  const input = getProfileUsernameInput(editor);
+
+  if (!input) {
+    return "";
+  }
+
+  const hasExistingProfile = Boolean(String(displayName ?? "").trim());
+
+  if (!shouldCreateVillageUsername(input.value, { hasExistingProfile })) {
+    return input.value.trim().replace(/^@/, "");
+  }
+
+  const username = generatedUsernameRef.current || createVillageUsername();
+  generatedUsernameRef.current = username;
+  setProfileInputValue(input, username);
+  return username;
+}
+
 function getProfileAvatarSection(editor) {
   const fileInput = editor?.querySelector('input[type="file"]');
   let current = fileInput?.parentElement ?? null;
@@ -246,6 +292,10 @@ function getProfileGuideTargetElement(targetKey) {
     return editor.querySelector('input[placeholder="名無しの観測者"]');
   }
 
+  if (targetKey === "username") {
+    return getProfileUsernameInput(editor);
+  }
+
   if (targetKey === "avatar") {
     const fileInput = editor.querySelector('input[type="file"]');
     return getProfileAvatarSection(editor) ?? fileInput?.closest("label") ?? fileInput;
@@ -275,6 +325,7 @@ export default function InteractiveOnboarding({
   progress,
 }) {
   const dialogueRef = useRef(null);
+  const generatedUsernameRef = useRef("");
   const profileGuideStepRef = useRef("entry");
   const [collapsed, setCollapsed] = useState(false);
   const [placement, setPlacement] = useState("bottom");
@@ -294,6 +345,7 @@ export default function InteractiveOnboarding({
     setShowIosInstallSteps(false);
 
     if (progress?.current_step !== "profile_setup") {
+      generatedUsernameRef.current = "";
       profileGuideStepRef.current = "entry";
       setProfileGuideStep("entry");
       setProfileAvatarReady(false);
@@ -332,6 +384,8 @@ export default function InteractiveOnboarding({
         return;
       }
 
+      ensureVillageUsername(editor, displayName, generatedUsernameRef);
+
       if (profileGuideStepRef.current === "entry") {
         setProfileStep("name");
         return;
@@ -351,6 +405,8 @@ export default function InteractiveOnboarding({
 
       if (event.target.matches('input[placeholder="名無しの観測者"]')) {
         setProfileStep("name");
+      } else if (event.target === getProfileUsernameInput(editor)) {
+        setProfileStep("username");
       } else if (event.target.matches('textarea[placeholder^="まだ名前のない作品"]')) {
         setProfileStep("bio");
       } else if (event.target.matches('textarea[placeholder^="好きなもの"]')) {
@@ -374,7 +430,7 @@ export default function InteractiveOnboarding({
       document.removeEventListener("change", synchronizeProfileGuide, true);
       document.removeEventListener("focusin", handleFocus, true);
     };
-  }, [progress?.current_step]);
+  }, [displayName, progress?.current_step]);
 
   const profileGuideDefinition =
     progress?.current_step === "profile_setup" && profileGuideStep !== "entry"
@@ -496,6 +552,10 @@ export default function InteractiveOnboarding({
         block: "center",
         inline: "nearest",
       });
+
+      if (profileGuideStep === "name" || profileGuideStep === "username") {
+        target.focus?.({ preventScroll: true });
+      }
     }
 
     timerId = window.setTimeout(focusTargetWhenReady, 80);
@@ -562,6 +622,29 @@ export default function InteractiveOnboarding({
         input?.focus();
         return;
       }
+      ensureVillageUsername(getProfileEditor(), displayName, generatedUsernameRef);
+      moveProfileGuideTo("username");
+      return;
+    }
+
+    if (profileGuideStep === "username") {
+      const input = getProfileUsernameInput(getProfileEditor());
+      const username = ensureVillageUsername(getProfileEditor(), displayName, generatedUsernameRef)
+        .trim()
+        .replace(/^@/, "");
+
+      if (!username) {
+        setProfileGuideError("ユーザー名を決めてから次へ進んでね！");
+        input?.focus();
+        return;
+      }
+
+      if (!PROFILE_USERNAME_PATTERN.test(username)) {
+        setProfileGuideError("ユーザー名は3〜32文字の半角英数字と「_」で決めてね！");
+        input?.focus();
+        return;
+      }
+
       moveProfileGuideTo("avatar");
       return;
     }
