@@ -14,3 +14,25 @@
 .star-letter-profile-link:focus-visible {
   box-shadow: 0 0 0 2px rgb(125 223 255 / 0.5);
 }
+
+/* Keep official star-letter emblems on the same corner anchor as Observe
+ * meteor cards: top: 0 / right: 0.8rem / 4rem square. */
+.star-letter-item {
+  position: relative;
+}
+
+.star-letter-item > .flex > .min-w-0 > .flex > .profile-title-emblem-compact {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0.8rem;
+  width: 4rem;
+  height: 4rem;
+  pointer-events: none;
+}
+
+.star-letter-item:has(> .flex > .min-w-0 > .flex > .profile-title-emblem-compact)
+  > .flex
+  > .min-w-0 {
+  padding-right: 5rem;
+}
