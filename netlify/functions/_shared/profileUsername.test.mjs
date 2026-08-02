@@ -57,6 +57,8 @@ test("表示名の次にちあが仮ユーザー名を案内し利用者がそ�
     'shouldCreateVillageUsername(input.value, { hasExistingProfile })',
     'PROFILE_USERNAME_PATTERN',
     'profileGuideStep === "username"',
+    "generatedUsernameRef.current && !input.value.trim()",
+    "applyProfileGuideInteractionLock",
   ]) {
     assert.equal(interactiveOnboardingSource.includes(token), true, `missing username onboarding: ${token}`);
   }
