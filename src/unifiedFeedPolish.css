@@ -87,32 +87,11 @@
 }
 
 .star-letter-item {
-  position: relative;
   border-top: 1px solid rgb(210 232 255 / 0.055);
   background: transparent;
   transition:
     background 160ms ease,
     border-color 160ms ease;
-}
-
-/* Match the official emblem placement used by Observe meteor cards:
- * top: 0 / right: 0.8rem / 4rem square. The existing compact emblem is
- * lifted out of the identity row so the two content types share one visual
- * anchor without changing the title badge itself. */
-.star-letter-item > .flex > .min-w-0 > .flex > .profile-title-emblem-compact {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  right: 0.8rem;
-  width: 4rem;
-  height: 4rem;
-  pointer-events: none;
-}
-
-.star-letter-item:has(> .flex > .min-w-0 > .flex > .profile-title-emblem-compact)
-  > .flex
-  > .min-w-0 {
-  padding-right: 5rem;
 }
 
 .star-letter-item-reply {
