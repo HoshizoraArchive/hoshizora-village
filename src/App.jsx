@@ -8579,7 +8579,7 @@ function AppHeader({ auth }) {
   }
 
   return (
-    <div className="mb-4" data-auth-panel="visible">
+    <div className="mb-4 lg:ml-auto lg:w-[320px]" data-auth-panel="visible">
       <AuthPanel auth={auth} />
     </div>
   );
