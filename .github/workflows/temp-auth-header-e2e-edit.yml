@@ -1,0 +1,45 @@
+name: Temporary auth header E2E edit
+
+on:
+  push:
+    branches:
+      - fix/auth-header-tagline
+
+permissions:
+  contents: write
+
+jobs:
+  edit-auth-header-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/auth-header-tagline
+
+      - name: Update guest heading expectation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("e2e/smoke.spec.mjs")
+          source = path.read_text()
+          old = 'await expect(page.getByRole("heading", { name: "星空Village" })).toBeVisible();'
+          new = 'await expect(page.getByRole("heading", { name: "バズより共鳴。" })).toBeVisible();'
+
+          if source.count(old) != 1:
+              raise SystemExit(f"expected exactly one old heading assertion, found {source.count(old)}")
+
+          path.write_text(source.replace(old, new, 1))
+          PY
+
+      - name: Remove temporary workflow and commit edit
+        shell: bash
+        run: |
+          rm .github/workflows/temp-auth-header-e2e-edit.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add e2e/smoke.spec.mjs .github/workflows/temp-auth-header-e2e-edit.yml
+          git commit -m "test: AuthヘッダーのE2E期待値を更新"
+          git push origin HEAD:fix/auth-header-tagline
