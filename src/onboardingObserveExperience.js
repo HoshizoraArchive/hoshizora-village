@@ -54,6 +54,7 @@ let contextReadQueued = false;
 let lastContextReadAt = 0;
 let scheduledFrameId = null;
 let scheduledRefreshTimerIds = [];
+let inactiveObserveGuide = null;
 
 function getGuide() {
   return document.querySelector(GUIDE_SELECTOR);
@@ -324,6 +325,10 @@ async function readObserveContext() {
     .eq("user_id", userId)
     .maybeSingle();
 
+  if (!error && progress?.current_step && progress.current_step !== "archive_prompt") {
+    inactiveObserveGuide = guide;
+  }
+
   if (
     error ||
     progress?.current_step !== "archive_prompt" ||
@@ -357,7 +362,22 @@ async function readObserveContext() {
   applyObserveGuide();
 }
 
+function shouldRequestContextSynchronization() {
+  const guide = getGuide();
+
+  if (!guide) {
+    inactiveObserveGuide = null;
+    return false;
+  }
+
+  return document.visibilityState !== "hidden" && guide !== inactiveObserveGuide;
+}
+
 function requestContextSynchronization() {
+  if (!shouldRequestContextSynchronization()) {
+    return;
+  }
+
   if (contextReadInFlight) {
     contextReadQueued = true;
     return;
