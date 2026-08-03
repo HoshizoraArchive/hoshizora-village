@@ -212,7 +212,7 @@ test("PWA復帰相当のpagehide→focusでも投稿カード関連データを�
   expect(unexpectedNavigations).toBe(0);
 });
 
-test("入力をblurした後でも未送信下書きがあればPWA復帰再同期で消さない", async ({ page }) => {
+test("入力をblurした後でも未送信下書きがあればPWA復帰でDOMを再マウントしない", async ({ page }) => {
   const counters = { posts: 0, resonances: 0, starLetters: 0, archives: 0 };
   await mockVillage(page, counters);
   await page.goto("/");
@@ -222,7 +222,6 @@ test("入力をblurした後でも未送信下書きがあればPWA復帰再同�
   await emailInput.fill("draft@example.com");
   await emailInput.evaluate((input) => input.setAttribute("data-refresh-guard-probe", "keep"));
   await emailInput.blur();
-  const beforePosts = counters.posts;
 
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await page.waitForTimeout(420);
@@ -231,5 +230,4 @@ test("入力をblurした後でも未送信下書きがあればPWA復帰再同�
 
   await expect(emailInput).toHaveValue("draft@example.com");
   await expect(emailInput).toHaveAttribute("data-refresh-guard-probe", "keep");
-  expect(counters.posts).toBe(beforePosts);
 });
