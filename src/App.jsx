@@ -87,6 +87,7 @@ import {
   runObserveTimelineSingleFlight,
   shouldTriggerObservePullRefresh,
 } from "./observeTimelineRefresh";
+import { APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS, shouldRefreshAfterForeground } from "./appDataFreshness";
 import {
   BLACK_HOLE_ERROR_MESSAGE,
   BLACK_HOLE_RESTORE_ERROR_MESSAGE,
@@ -1837,11 +1838,14 @@ function App() {
   const [timelineRefreshing, setTimelineRefreshing] = useState(false);
   const [timelinePullDistance, setTimelinePullDistance] = useState(0);
   const [timelineHasNewPosts, setTimelineHasNewPosts] = useState(false);
+  const [serverDataRevision, setServerDataRevision] = useState(0);
   const publicPostsRefreshInFlightRef = useRef(false);
   const publicPostsFreshnessCheckInFlightRef = useRef(false);
   const publicTimelineKnownPostIdsRef = useRef(new Set());
   const publicTimelineTopPostRef = useRef(null);
   const isObserveTimelineActiveRef = useRef(false);
+  const foregroundHiddenAtRef = useRef(null);
+  const foregroundRefreshTimerRef = useRef(null);
   const appMountedRef = useRef(true);
   const [postDraft, setPostDraft] = useState("");
   const [postImageDrafts, setPostImageDrafts] = useState([]);
@@ -2486,7 +2490,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [postIdsKey]);
+  }, [postIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2527,7 +2531,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [ownPostIdsKey]);
+  }, [ownPostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2568,7 +2572,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [resonatedPostIdsKey]);
+  }, [resonatedPostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2609,7 +2613,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [archivedPostIdsKey]);
+  }, [archivedPostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2650,7 +2654,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [publicProfilePostIdsKey]);
+  }, [publicProfilePostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2691,7 +2695,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [meteorTagPostIdsKey]);
+  }, [meteorTagPostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2727,7 +2731,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [detailPost?.id]);
+  }, [detailPost?.id, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2773,7 +2777,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [allPostIdsKey]);
+  }, [allPostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2820,7 +2824,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [allPostIdsKey]);
+  }, [allPostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3461,7 +3465,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [allPostIdsKey, profileFrames]);
+  }, [allPostIdsKey, profileFrames, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3898,7 +3902,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profileFrames]);
+  }, [session?.user?.id, profileFrames, serverDataRevision]);
 
   useEffect(() => {
     if (activeTab !== "archive") {
@@ -4117,6 +4121,7 @@ function App() {
         return false;
       }
 
+      setServerDataRevision((current) => current + 1);
       setTimelineHasNewPosts(false);
 
       if (scrollToTop) {
@@ -4127,6 +4132,59 @@ function App() {
     },
     [refreshPublicPosts],
   );
+
+  useEffect(() => {
+    const markHidden = () => {
+      foregroundHiddenAtRef.current = Date.now();
+      window.clearTimeout(foregroundRefreshTimerRef.current);
+      foregroundRefreshTimerRef.current = null;
+    };
+
+    const scheduleForegroundRefresh = () => {
+      if (document.visibilityState !== "visible" || foregroundHiddenAtRef.current === null) {
+        return;
+      }
+
+      const hiddenAt = foregroundHiddenAtRef.current;
+      foregroundHiddenAtRef.current = null;
+      window.clearTimeout(foregroundRefreshTimerRef.current);
+      foregroundRefreshTimerRef.current = window.setTimeout(() => {
+        foregroundRefreshTimerRef.current = null;
+
+        if (
+          shouldRefreshAfterForeground({
+            hiddenAt,
+            now: Date.now(),
+            visibilityState: document.visibilityState,
+          })
+        ) {
+          void refreshObserveTimeline();
+        }
+      }, 180);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        markHidden();
+      } else {
+        scheduleForegroundRefresh();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", markHidden);
+    window.addEventListener("pageshow", scheduleForegroundRefresh);
+    window.addEventListener("focus", scheduleForegroundRefresh);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", markHidden);
+      window.removeEventListener("pageshow", scheduleForegroundRefresh);
+      window.removeEventListener("focus", scheduleForegroundRefresh);
+      window.clearTimeout(foregroundRefreshTimerRef.current);
+      foregroundRefreshTimerRef.current = null;
+    };
+  }, [refreshObserveTimeline]);
 
   const checkForNewPublicPosts = useCallback(async () => {
     if (!isObserveTimelineActive || document.visibilityState !== "visible") {
