@@ -9,6 +9,8 @@ const EXPECTED_WIDTH = 864;
 const EXPECTED_HEIGHT = 1536;
 const EXPECTED_SHA256 =
   "f737734ca6300ada09452be2926917d5ee8851ff7276add4d3fa439d3b8a75f7";
+const EXPECTED_PART03_SHA256 =
+  "10a9c00f59aa84b4520fc8a5c9d8be8021bfa5dffdb12110775bc162848b52fb";
 
 const SOURCE_PARTS = [
   "hoshizora-village-background-current.part01.b64",
@@ -43,35 +45,22 @@ const sourceContents = await Promise.all(
 const normalizedParts = sourceContents.map((content) => content.replace(/\s+/g, ""));
 const base64 = normalizedParts.join("");
 
-function sha256OfBase64(candidate) {
-  if (candidate.length !== EXPECTED_BASE64_LENGTH || candidate.length % 4 !== 0) {
-    return null;
-  }
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(candidate)) {
-    return null;
-  }
-  const decoded = Buffer.from(candidate, "base64");
-  if (decoded.length !== EXPECTED_BYTES) {
-    return null;
-  }
-  return createHash("sha256").update(decoded).digest("hex");
+function sha256Text(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 if (base64.length !== EXPECTED_BASE64_LENGTH) {
   const lengths = normalizedParts.map((part, index) => `${SOURCE_PARTS[index]}=${part.length}`);
   console.error(`Background source part lengths: ${lengths.join(", ")}`);
 
-  if (base64.length === EXPECTED_BASE64_LENGTH + 1) {
-    let boundary = 0;
-    for (let index = 0; index < normalizedParts.length - 1; index += 1) {
-      boundary += normalizedParts[index].length;
-      for (const removeAt of [boundary - 1, boundary]) {
-        const candidate = base64.slice(0, removeAt) + base64.slice(removeAt + 1);
-        if (sha256OfBase64(candidate) === EXPECTED_SHA256) {
-          throw new Error(
-            `星空Village background has one extra character at source boundary ${SOURCE_PARTS[index]} -> ${SOURCE_PARTS[index + 1]} (remove concatenated index ${removeAt}, char ${JSON.stringify(base64[removeAt])}).`,
-          );
-        }
+  const part03 = normalizedParts[2];
+  if (part03.length === 20001) {
+    for (let index = 0; index < part03.length; index += 1) {
+      const candidate = part03.slice(0, index) + part03.slice(index + 1);
+      if (sha256Text(candidate) === EXPECTED_PART03_SHA256) {
+        throw new Error(
+          `星空Village background part03 has one extra character at index ${index}: ${JSON.stringify(part03[index])}.`,
+        );
       }
     }
   }
