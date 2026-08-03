@@ -4,7 +4,6 @@ import "./pwaInstallPromptBridge.js";
 import "./onboardingProfileNameAutoAdvance.js";
 import "./onboardingProfileFollowthrough.js";
 import App from "./App.jsx";
-import AppDataFreshnessBoundary from "./AppDataFreshnessBoundary.jsx";
 import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
@@ -30,6 +29,6 @@ import "./starLetterProfileNavigation.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <AppDataFreshnessBoundary AppComponent={App} />
+    <App />
   </React.StrictMode>,
 );
