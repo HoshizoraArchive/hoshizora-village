@@ -5,29 +5,18 @@
  * to phone/tablet widths. Desktop keeps the existing procedural background
  * until a matching landscape master is selected.
  *
- * The moon and occasional shooting-star elements stay as independent overlays.
- * The old procedural haze/stars/village/stardust are hidden on mobile so the
- * static artwork remains the visual source of truth instead of looking like
- * moving snow layered over the illustration.
+ * IMPORTANT: iOS Safari is given the native WebP directly. Do not wrap the
+ * WebP in SVG/data-URI layers for the runtime background; Safari rendered that
+ * nested image path incorrectly on real iPhones.
  */
 
 @media (max-width: 1023px) {
   .cosmic-background {
     background-color: #020615;
-    background-image:
-      linear-gradient(180deg, rgb(2 6 21 / 0.02), rgb(2 6 21 / 0.08)),
-      url("/images/hoshizora-village-background-current.svg");
+    background-image: url("/images/hoshizora-village-background-current.webp?v=20260803-native");
     background-position: center center;
     background-repeat: no-repeat;
-    /*
-     * The artwork is an SVG wrapper around the selected portrait WebP. iOS
-     * Safari can resolve an SVG-with-viewBox background through its fallback
-     * intrinsic size before applying `cover`, which massively crops and scales
-     * the embedded portrait. Size the SVG to the fixed viewport box directly;
-     * the SVG's own preserveAspectRatio="xMidYMid slice" then performs the
-     * intended portrait crop without the Safari intrinsic-size path.
-     */
-    background-size: 100% 100%;
+    background-size: cover;
   }
 
   .cosmic-background .cosmic-haze,
