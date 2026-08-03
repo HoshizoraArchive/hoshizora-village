@@ -1,30 +1,46 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
   APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS,
-  OBSERVE_REFRESH_ACTIVE_TEXT,
-  normalizeActiveTabLabel,
   shouldRefreshAfterForeground,
-  shouldRefreshForObserveStatus,
-  shouldRestoreUiSnapshot,
 } from "../../../src/appDataFreshness.js";
 
-const boundarySource = readFileSync("src/AppDataFreshnessBoundary.jsx", "utf8");
+const appSource = readFileSync("src/App.jsx", "utf8");
 const mainSource = readFileSync("src/main.jsx", "utf8");
 
-test("観測欄の既存更新が完了したら投稿カード全体のsoft refreshへ接続する", () => {
-  assert.equal(shouldRefreshForObserveStatus(OBSERVE_REFRESH_ACTIVE_TEXT), true);
-  assert.equal(shouldRefreshForObserveStatus("  ✦  流星便を観測中…  "), true);
-  assert.equal(shouldRefreshForObserveStatus("✦ 離して更新"), false);
-
-  assert.equal(boundarySource.includes(".observe-timeline-refresh-status"), true);
-  assert.equal(boundarySource.includes("observeRefreshActiveRef.current = true"), true);
-  assert.equal(boundarySource.includes("requestSoftRefresh();"), true);
-  assert.equal(boundarySource.includes("new MutationObserver"), true);
+test("観測更新はApp全体をremountせずサーバーデータrevisionを直接進める", () => {
+  assert.equal(appSource.includes("const [serverDataRevision, setServerDataRevision] = useState(0)"), true);
+  assert.equal(appSource.includes("setServerDataRevision((current) => current + 1)"), true);
+  assert.equal(appSource.includes("const refreshed = await refreshPublicPosts();"), true);
+  assert.equal(mainSource.includes("<App />"), true);
+  assert.equal(mainSource.includes("AppDataFreshnessBoundary"), false);
+  assert.equal(existsSync("src/AppDataFreshnessBoundary.jsx"), false);
+  assert.equal(appSource.includes("new MutationObserver"), false);
 });
 
-test("iPhone/PWAがバックグラウンドから戻った時だけ安全に再同期する", () => {
+test("共鳴・星文・Archive・投稿カード補助データは同じrevisionで再取得する", () => {
+  for (const dependency of [
+    "[postIdsKey, serverDataRevision]",
+    "[ownPostIdsKey, serverDataRevision]",
+    "[resonatedPostIdsKey, serverDataRevision]",
+    "[archivedPostIdsKey, serverDataRevision]",
+    "[publicProfilePostIdsKey, serverDataRevision]",
+    "[meteorTagPostIdsKey, serverDataRevision]",
+    "[detailPost?.id, serverDataRevision]",
+    "[allPostIdsKey, serverDataRevision]",
+    "[allPostIdsKey, profileFrames, serverDataRevision]",
+    "[session?.user?.id, profileFrames, serverDataRevision]",
+  ]) {
+    assert.equal(appSource.includes(dependency), true, `missing freshness dependency: ${dependency}`);
+  }
+
+  assert.equal(appSource.includes('.from("resonances")'), true);
+  assert.equal(appSource.includes('.from("star_letters")'), true);
+  assert.equal(appSource.includes('.from("archives")'), true);
+});
+
+test("iPhone/PWA復帰は一定時間バックグラウンドだった場合だけ全データ再同期する", () => {
   const hiddenAt = 10_000;
   const readyAt = hiddenAt + APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS;
 
@@ -40,47 +56,31 @@ test("iPhone/PWAがバックグラウンドから戻った時だけ安全に再�
     shouldRefreshAfterForeground({ hiddenAt, now: readyAt, visibilityState: "hidden" }),
     false,
   );
-  assert.equal(
-    shouldRefreshAfterForeground({ hiddenAt, now: readyAt, onboardingVisible: true }),
-    false,
-  );
-  assert.equal(
-    shouldRefreshAfterForeground({ hiddenAt, now: readyAt, unsafeInteraction: true }),
-    false,
-  );
 
   for (const listener of ["visibilitychange", "pagehide", "pageshow", "focus"]) {
-    assert.equal(boundarySource.includes(`\"${listener}\"`), true, `missing ${listener} listener`);
+    assert.equal(appSource.includes(`\"${listener}\"`), true, `missing ${listener} listener`);
   }
+
+  assert.equal(appSource.includes("void refreshObserveTimeline();"), true);
 });
 
-test("非フォーカスの未送信入力も再同期ガード対象にする", () => {
-  assert.equal(boundarySource.includes("function hasUnsavedLocalDraft()"), true);
-  assert.equal(
-    boundarySource.includes('document.querySelectorAll(\'input, textarea, [contenteditable="true"]\')'),
-    true,
-  );
-  assert.equal(boundarySource.includes("DRAFT_INPUT_TYPES.has(inputType)"), true);
-  assert.equal(boundarySource.includes("control.value?.trim()"), true);
-  assert.equal(boundarySource.includes("control.textContent?.trim()"), true);
-  assert.equal(boundarySource.includes("if (hasUnsavedLocalDraft())"), true);
-});
+test("再同期はローカル下書きstateを初期化する処理を持たない", () => {
+  const foregroundBlockStart = appSource.indexOf("const markHidden = () => {");
+  const foregroundBlockEnd = appSource.indexOf("const checkForNewPublicPosts", foregroundBlockStart);
+  assert.notEqual(foregroundBlockStart, -1);
+  assert.notEqual(foregroundBlockEnd, -1);
+  const foregroundBlock = appSource.slice(foregroundBlockStart, foregroundBlockEnd);
 
-test("再同期はブラウザreloadではなくAppだけを再マウントし、同じ画面ならタブとスクロールを戻す", () => {
-  assert.equal(shouldRestoreUiSnapshot({ beforeHref: "https://village.test/", afterHref: "https://village.test/" }), true);
-  assert.equal(shouldRestoreUiSnapshot({ beforeHref: "https://village.test/", afterHref: "https://village.test/meteor/1" }), false);
-  assert.equal(normalizeActiveTabLabel("  R.Connect  "), "R.Connect");
+  for (const setter of [
+    "setPostDraft(",
+    "setStarLetterDrafts(",
+    "setStarLetterEditDrafts(",
+    "setStarLetterReplyComposer(",
+    "setActiveTab(",
+    "setRoute(",
+  ]) {
+    assert.equal(foregroundBlock.includes(setter), false, `foreground refresh must not reset ${setter}`);
+  }
 
-  assert.equal(boundarySource.includes("window.location.reload"), false);
-  assert.equal(boundarySource.includes("setRevision((current) => current + 1)"), true);
-  assert.equal(boundarySource.includes("targetButton.click()"), true);
-  assert.equal(boundarySource.includes("window.scrollTo"), true);
-  assert.equal(boundarySource.includes('activeTabLabel === "流星便"'), true);
-  assert.equal(boundarySource.includes("プロフィール編集"), true);
-  assert.equal(boundarySource.includes("hasVisibleOnboardingUi()"), true);
-});
-
-test("mainは全データ再同期境界の内側でAppを起動する", () => {
-  assert.equal(mainSource.includes('import AppDataFreshnessBoundary from "./AppDataFreshnessBoundary.jsx"'), true);
-  assert.equal(mainSource.includes("<AppDataFreshnessBoundary AppComponent={App} />"), true);
+  assert.equal(appSource.includes("window.location.reload"), false);
 });
