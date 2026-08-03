@@ -40,9 +40,42 @@ const outputPath = path.join(
 const sourceContents = await Promise.all(
   SOURCE_PARTS.map((filename) => readFile(path.join(imageDir, filename), "utf8")),
 );
-const base64 = sourceContents.join("").replace(/\s+/g, "");
+const normalizedParts = sourceContents.map((content) => content.replace(/\s+/g, ""));
+const base64 = normalizedParts.join("");
+
+function sha256OfBase64(candidate) {
+  if (candidate.length !== EXPECTED_BASE64_LENGTH || candidate.length % 4 !== 0) {
+    return null;
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(candidate)) {
+    return null;
+  }
+  const decoded = Buffer.from(candidate, "base64");
+  if (decoded.length !== EXPECTED_BYTES) {
+    return null;
+  }
+  return createHash("sha256").update(decoded).digest("hex");
+}
 
 if (base64.length !== EXPECTED_BASE64_LENGTH) {
+  const lengths = normalizedParts.map((part, index) => `${SOURCE_PARTS[index]}=${part.length}`);
+  console.error(`Background source part lengths: ${lengths.join(", ")}`);
+
+  if (base64.length === EXPECTED_BASE64_LENGTH + 1) {
+    let boundary = 0;
+    for (let index = 0; index < normalizedParts.length - 1; index += 1) {
+      boundary += normalizedParts[index].length;
+      for (const removeAt of [boundary - 1, boundary]) {
+        const candidate = base64.slice(0, removeAt) + base64.slice(removeAt + 1);
+        if (sha256OfBase64(candidate) === EXPECTED_SHA256) {
+          throw new Error(
+            `星空Village background has one extra character at source boundary ${SOURCE_PARTS[index]} -> ${SOURCE_PARTS[index + 1]} (remove concatenated index ${removeAt}, char ${JSON.stringify(base64[removeAt])}).`,
+          );
+        }
+      }
+    }
+  }
+
   throw new Error(
     `星空Village background base64 length mismatch: expected ${EXPECTED_BASE64_LENGTH}, got ${base64.length}.`,
   );
