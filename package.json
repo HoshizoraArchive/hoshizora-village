@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "prebuild": "node scripts/extract-village-background.mjs",
     "build": "vite build",
     "test": "node --test netlify/functions/_shared/*.test.mjs",
     "preview": "vite preview --host 0.0.0.0"
