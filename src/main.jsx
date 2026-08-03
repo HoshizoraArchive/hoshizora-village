@@ -17,6 +17,7 @@ import "./onboardingObserveExperience.js";
 import "./onboardingObserveRecovery.js";
 import "./onboardingVisibilityRecovery.js";
 import "./index.css";
+import "./villageBackgroundArt.css";
 import "./titlePlateSquareFix.css";
 import "./observePolish.css";
 import "./onboardingProfileFollowthrough.css";
