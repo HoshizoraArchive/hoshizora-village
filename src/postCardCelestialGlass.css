@@ -1,26 +1,26 @@
 /*
- * 流星便カード専用の天体ガラス。
- * 背景アートそのものがカード越しに見えることを最優先にする。
- * 濃紺を「塗る」のではなく、透明な夜色ガラスとして重ねる。
+ * 投稿カード専用の「Apple系の洗練感を持った、かなり透ける天体ガラス」表現。
+ * 背景を青い板で塗りつぶさず、背景の星空・街灯り・湖面反射がきちんと見えることを最優先にする。
  */
 
 .post-card-panel {
+  position: relative;
   isolation: isolate;
-  border: 1px solid rgb(183 220 255 / 0.48);
+  border: 1px solid rgb(210 232 255 / 0.34);
   border-radius: 1.7rem;
   background:
-    radial-gradient(circle at 12% 0%, rgb(211 236 255 / 0.12), transparent 34%),
-    radial-gradient(circle at 92% 8%, rgb(120 167 255 / 0.07), transparent 30%),
-    linear-gradient(150deg, rgb(19 52 94 / 0.34) 0%, rgb(7 27 61 / 0.29) 48%, rgb(4 16 42 / 0.36) 100%);
+    linear-gradient(180deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.05) 16%, transparent 34%),
+    linear-gradient(135deg, rgb(116 171 255 / 0.14), rgb(57 112 225 / 0.1) 42%, rgb(6 20 52 / 0.16) 100%),
+    rgb(7 21 53 / 0.12);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.34),
-    inset 1px 0 0 rgb(206 233 255 / 0.14),
-    inset 0 -1px 0 rgb(89 151 222 / 0.14),
-    0 0 0 1px rgb(106 177 255 / 0.07),
-    0 0 24px rgb(98 171 255 / 0.08),
-    0 20px 56px rgb(0 4 18 / 0.28);
-  -webkit-backdrop-filter: blur(14px) saturate(148%) brightness(1.04);
-  backdrop-filter: blur(14px) saturate(148%) brightness(1.04);
+    inset 0 1px 0 rgb(255 255 255 / 0.50),
+    inset 0 0 0 1px rgb(255 255 255 / 0.05),
+    inset 0 -1px 0 rgb(168 206 255 / 0.14),
+    0 12px 40px rgb(1 7 22 / 0.24),
+    0 0 0 1px rgb(255 255 255 / 0.04),
+    0 0 24px rgb(112 182 255 / 0.08);
+  -webkit-backdrop-filter: blur(16px) saturate(165%) brightness(1.05);
+  backdrop-filter: blur(16px) saturate(165%) brightness(1.05);
   transition:
     border-color 180ms ease,
     background 180ms ease,
@@ -28,31 +28,34 @@
     filter 180ms ease;
 }
 
-/* ガラス表面の斜めの反射。背景を隠さない程度の薄い光だけを置く。 */
-.post-card-panel::before {
+.post-card-panel::before,
+.post-card-panel::after {
+  content: "";
   position: absolute;
-  z-index: 0;
   inset: 0;
   border-radius: inherit;
-  background:
-    linear-gradient(118deg, rgb(255 255 255 / 0.12) 0%, rgb(213 237 255 / 0.045) 19%, transparent 42%),
-    radial-gradient(ellipse at 78% 100%, rgb(126 193 255 / 0.07), transparent 42%);
   pointer-events: none;
-  content: "";
 }
 
-/* 縁の内側にもう一枚うっすら反射を作り、厚みを出す。 */
-.post-card-panel::after {
-  position: absolute;
+/* 上面のコーティング感とApple系ガラスの光沢。 */
+.post-card-panel::before {
   z-index: 0;
-  inset: 2px;
-  border: 1px solid rgb(226 242 255 / 0.09);
-  border-radius: calc(1.7rem - 2px);
-  box-shadow:
-    inset 0 12px 28px rgb(229 244 255 / 0.025),
-    inset 0 -18px 30px rgb(20 78 145 / 0.035);
-  pointer-events: none;
-  content: "";
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.24), rgb(255 255 255 / 0.10) 10%, transparent 24%),
+    linear-gradient(115deg, transparent 18%, rgb(255 255 255 / 0.08) 36%, rgb(255 255 255 / 0.02) 46%, transparent 60%),
+    radial-gradient(circle at 18% 0%, rgb(255 255 255 / 0.30), transparent 28%);
+  opacity: 0.95;
+}
+
+/* 下側の湖面反射や街灯りの写り込みをうっすら疑似再現。 */
+.post-card-panel::after {
+  z-index: 0;
+  background:
+    radial-gradient(circle at 76% 86%, rgb(255 196 120 / 0.11), transparent 21%),
+    radial-gradient(circle at 34% 100%, rgb(143 200 255 / 0.16), transparent 27%),
+    radial-gradient(circle at 88% 18%, rgb(143 178 255 / 0.10), transparent 20%),
+    linear-gradient(180deg, transparent 56%, rgb(9 25 60 / 0.08) 100%);
+  opacity: 0.78;
 }
 
 .post-card-panel > * {
@@ -60,92 +63,99 @@
   z-index: 1;
 }
 
-/* 既存の投稿ごとの発光色は、ガラス上辺のごく細い反射として残す。 */
+/* 既存の投稿ごとの発光色は、帯ではなく極細の上辺反射として使う。 */
 .post-card-panel > .h-1 {
   height: 1px;
-  opacity: 0.42;
-  filter: saturate(0.8) brightness(1.18);
+  opacity: 0.34;
+  filter: saturate(0.72) brightness(1.1);
 }
 
 .post-card-panel.is-clickable:hover,
 .post-card-panel.is-clickable:focus-visible {
-  border-color: rgb(204 233 255 / 0.62);
+  border-color: rgb(224 241 255 / 0.48);
   background:
-    radial-gradient(circle at 12% 0%, rgb(222 242 255 / 0.15), transparent 35%),
-    radial-gradient(circle at 92% 8%, rgb(133 179 255 / 0.09), transparent 31%),
-    linear-gradient(150deg, rgb(23 60 105 / 0.38) 0%, rgb(9 31 68 / 0.33) 48%, rgb(5 19 47 / 0.4) 100%);
+    linear-gradient(180deg, rgb(255 255 255 / 0.15), rgb(255 255 255 / 0.06) 16%, transparent 34%),
+    linear-gradient(135deg, rgb(129 183 255 / 0.16), rgb(66 122 236 / 0.11) 42%, rgb(7 22 55 / 0.17) 100%),
+    rgb(8 24 58 / 0.14);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.4),
-    inset 1px 0 0 rgb(215 237 255 / 0.16),
-    inset 0 -1px 0 rgb(94 157 229 / 0.16),
-    0 0 0 1px rgb(131 194 255 / 0.09),
-    0 0 30px rgb(105 180 255 / 0.1),
-    0 22px 60px rgb(0 4 18 / 0.31);
+    inset 0 1px 0 rgb(255 255 255 / 0.56),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06),
+    inset 0 -1px 0 rgb(178 213 255 / 0.18),
+    0 16px 44px rgb(1 7 22 / 0.28),
+    0 0 0 1px rgb(255 255 255 / 0.05),
+    0 0 28px rgb(126 193 255 / 0.10);
 }
 
 .post-card-panel.is-clickable:active {
-  filter: brightness(1.025);
+  filter: brightness(1.03);
 }
 
-/* 本文は背景が透けても読みやすい青白へ。 */
 .post-card-panel .post-card-content > p.text-slate-100 {
-  color: rgb(239 247 255 / 0.97);
-  text-shadow: 0 1px 10px rgb(0 7 24 / 0.3);
+  color: rgb(239 246 255 / 0.97);
+  text-shadow: 0 1px 14px rgb(8 27 71 / 0.16);
 }
 
-/* 共鳴 / 星文 / Archive も、中が見える薄いガラスピルにする。 */
+.post-card-panel .text-slate-500 {
+  color: rgb(206 223 244 / 0.62) !important;
+}
+
+/* 共鳴 / 星文 / Archive もかなり透けるApple系ミニガラスピルに。 */
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3) {
-  border-color: rgb(179 218 255 / 0.28);
+  border-color: rgb(215 235 255 / 0.26);
   background:
-    linear-gradient(180deg, rgb(153 203 255 / 0.08), rgb(4 17 42 / 0.12)),
-    rgb(5 24 54 / 0.08);
+    linear-gradient(180deg, rgb(255 255 255 / 0.11), rgb(255 255 255 / 0.03) 24%, transparent 50%),
+    linear-gradient(135deg, rgb(107 164 255 / 0.10), rgb(11 29 67 / 0.10)),
+    rgb(8 24 58 / 0.08);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.14),
-    inset 0 -1px 0 rgb(67 126 193 / 0.08),
-    0 6px 16px rgb(0 5 21 / 0.1);
-  -webkit-backdrop-filter: blur(8px) saturate(140%);
-  backdrop-filter: blur(8px) saturate(140%);
+    inset 0 1px 0 rgb(255 255 255 / 0.30),
+    inset 0 -1px 0 rgb(154 196 255 / 0.12),
+    0 6px 16px rgb(1 7 22 / 0.14);
+  -webkit-backdrop-filter: blur(14px) saturate(160%) brightness(1.04);
+  backdrop-filter: blur(14px) saturate(160%) brightness(1.04);
 }
 
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):hover:not(:disabled),
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):focus-visible {
-  border-color: rgb(199 230 255 / 0.42);
+  border-color: rgb(227 242 255 / 0.40);
   background:
-    linear-gradient(180deg, rgb(165 211 255 / 0.12), rgb(5 21 49 / 0.16)),
-    rgb(7 29 61 / 0.1);
+    linear-gradient(180deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.04) 24%, transparent 50%),
+    linear-gradient(135deg, rgb(118 176 255 / 0.12), rgb(13 34 76 / 0.12)),
+    rgb(9 27 63 / 0.10);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.18),
-    0 0 16px rgb(105 180 255 / 0.06),
-    0 7px 18px rgb(0 5 21 / 0.12);
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    0 0 18px rgb(112 186 255 / 0.08),
+    0 8px 18px rgb(1 7 22 / 0.16);
 }
 
-/* 三点メニューもカードと同じ透明度へ寄せる。 */
+/* 三点メニューも板感を消して透ける小ガラスに。 */
 .post-card-panel > .absolute.right-3.top-3 > button {
-  border-color: rgb(177 216 255 / 0.22);
-  background: rgb(4 18 43 / 0.18);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.09);
-  -webkit-backdrop-filter: blur(8px) saturate(135%);
-  backdrop-filter: blur(8px) saturate(135%);
+  border-color: rgb(215 235 255 / 0.24);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.10), rgb(255 255 255 / 0.03) 24%, transparent 48%),
+    rgb(8 23 55 / 0.10);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.25),
+    0 4px 14px rgb(1 7 22 / 0.12);
+  -webkit-backdrop-filter: blur(14px) saturate(160%) brightness(1.03);
+  backdrop-filter: blur(14px) saturate(160%) brightness(1.03);
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .post-card-panel {
-    background: linear-gradient(150deg, rgb(12 40 78 / 0.78), rgb(5 18 46 / 0.82));
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.10), transparent 18%),
+      linear-gradient(135deg, rgb(79 132 226 / 0.34), rgb(8 26 66 / 0.50));
   }
 
   .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3) {
-    background: rgb(7 25 57 / 0.7);
+    background: rgb(12 31 72 / 0.52);
   }
 }
 
 @media (max-width: 639px) {
   .post-card-panel {
     border-radius: 1.55rem;
-    -webkit-backdrop-filter: blur(11px) saturate(150%) brightness(1.04);
-    backdrop-filter: blur(11px) saturate(150%) brightness(1.04);
-  }
-
-  .post-card-panel::after {
-    border-radius: calc(1.55rem - 2px);
+    -webkit-backdrop-filter: blur(14px) saturate(170%) brightness(1.05);
+    backdrop-filter: blur(14px) saturate(170%) brightness(1.05);
   }
 }
