@@ -1,37 +1,28 @@
 /*
- * 星空Village 流星便カード — reference glass v3
- * 添付リファレンスを基準に、透明すぎる状態を修正。
- * - blur は使わない
- * - 黒寄りの深いネイビーを主面にして、明るい背景を強く抑える
- * - 青は消さず、縁とごく薄い反射に残す
- * - 右上メニュー / ブラックホール / 通報など既存機能・配置には干渉しない
+ * 流星便カード専用。
+ * 添付リファレンスの投稿カードを基準に、
+ * 「深い濃紺の透明ガラス + 鮮明な背景透過 + 強めの縁反射」を再現する。
+ * blur は使わない。既存レイアウト・右上メニュー・機能には触れない。
  */
 
 .post-card-panel {
   position: relative;
   isolation: isolate;
-  border: 1px solid rgb(170 211 249 / 0.34);
+  border: 1px solid rgb(176 215 255 / 0.58);
   border-radius: 1.7rem;
   background:
-    linear-gradient(
-      180deg,
-      rgb(190 221 248 / 0.065) 0%,
-      rgb(82 126 181 / 0.022) 8%,
-      transparent 18%
-    ),
-    linear-gradient(
-      155deg,
-      rgb(8 25 55 / 0.76) 0%,
-      rgb(4 17 41 / 0.80) 48%,
-      rgb(2 11 29 / 0.84) 100%
-    );
+    linear-gradient(180deg, rgb(116 169 226 / 0.12) 0%, rgb(23 67 126 / 0.08) 16%, transparent 34%),
+    radial-gradient(ellipse at 10% -4%, rgb(179 220 255 / 0.13), transparent 34%),
+    radial-gradient(ellipse at 92% 92%, rgb(54 105 174 / 0.10), transparent 38%),
+    linear-gradient(145deg, rgb(10 35 77 / 0.40) 0%, rgb(4 22 55 / 0.36) 50%, rgb(3 15 40 / 0.42) 100%);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.22),
-    inset 1px 0 0 rgb(190 225 255 / 0.07),
-    inset -1px 0 0 rgb(90 149 218 / 0.055),
-    inset 0 -1px 0 rgb(82 140 208 / 0.075),
-    0 0 0 1px rgb(92 156 221 / 0.025),
-    0 8px 22px rgb(0 4 17 / 0.24);
+    inset 0 1px 0 rgb(255 255 255 / 0.46),
+    inset 1px 0 0 rgb(210 235 255 / 0.16),
+    inset -1px 0 0 rgb(104 167 235 / 0.10),
+    inset 0 -1px 0 rgb(112 173 244 / 0.18),
+    0 0 0 1px rgb(106 178 255 / 0.09),
+    0 0 22px rgb(92 165 255 / 0.10),
+    0 18px 42px rgb(0 5 20 / 0.26);
   transition:
     border-color 180ms ease,
     background 180ms ease,
@@ -46,57 +37,48 @@
   pointer-events: none;
 }
 
-/* 参照画像の上辺にある、細く抑えた白〜青白い反射。 */
+/* リファレンスの上辺〜左上に見える、細く明るい表面反射。 */
 .post-card-panel::before {
   z-index: 0;
   inset: 0;
   border-radius: inherit;
   background:
-    linear-gradient(
-      180deg,
-      rgb(255 255 255 / 0.12) 0%,
-      rgb(220 239 255 / 0.035) 4%,
-      transparent 12%
-    ),
-    radial-gradient(
-      ellipse 38% 14% at 10% -1%,
-      rgb(245 252 255 / 0.11) 0%,
-      rgb(170 211 248 / 0.028) 42%,
-      transparent 78%
-    );
+    linear-gradient(180deg, rgb(255 255 255 / 0.22) 0%, rgb(216 239 255 / 0.075) 8%, transparent 21%),
+    linear-gradient(118deg, rgb(255 255 255 / 0.10) 0%, rgb(222 242 255 / 0.035) 20%, transparent 42%),
+    radial-gradient(ellipse at 7% 0%, rgb(255 255 255 / 0.22), transparent 25%);
+  opacity: 0.92;
 }
 
-/* 内側の薄い二重縁。ネオン発光ではなく、ガラス断面の反射だけ。 */
+/* 二重の縁と、下側に溜まる青い反射でガラスの厚みを出す。 */
 .post-card-panel::after {
   z-index: 0;
   inset: 2px;
-  border: 1px solid rgb(221 239 255 / 0.045);
+  border: 1px solid rgb(225 242 255 / 0.11);
   border-radius: calc(1.7rem - 2px);
   background:
-    radial-gradient(
-      ellipse 44% 12% at 50% 102%,
-      rgb(68 126 199 / 0.025),
-      transparent 74%
-    );
+    radial-gradient(ellipse at 20% 102%, rgb(95 169 255 / 0.075), transparent 32%),
+    radial-gradient(ellipse at 82% 100%, rgb(54 128 225 / 0.055), transparent 34%),
+    radial-gradient(circle at 87% 24%, rgb(130 180 255 / 0.035), transparent 22%);
   box-shadow:
-    inset 0 -8px 18px rgb(13 43 91 / 0.02);
+    inset 0 8px 20px rgb(232 246 255 / 0.018),
+    inset 0 -14px 26px rgb(41 99 174 / 0.035);
 }
 
-/* 本文だけ前面へ。absolute の右上メニューには干渉しない。 */
+/* 中身だけ前面へ。absolute の右上メニューは上書きしない。 */
 .post-card-panel .post-card-content {
   position: relative;
   z-index: 1;
 }
 
-/* 元の投稿別グロー帯は参照画像にないためほぼ消す。 */
 .post-card-panel > .h-1 {
   position: relative;
   z-index: 1;
   height: 1px;
-  opacity: 0.035;
+  opacity: 0.22;
+  filter: saturate(0.72) brightness(1.1);
 }
 
-/* 右上メニューの元位置を保持。 */
+/* 右上メニューの本来の位置を固定。 */
 .post-card-panel > .absolute.right-3.top-3 {
   position: absolute;
   right: 0.75rem;
@@ -104,87 +86,70 @@
   z-index: 20;
 }
 
-/* 参照画像同様、丸い黒ボタンではなく三点だけ見せる。 */
-.post-card-panel > .absolute.right-3.top-3 > button {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-  color: rgb(201 223 251 / 0.80);
-}
-
-.post-card-panel > .absolute.right-3.top-3 > button:hover,
-.post-card-panel > .absolute.right-3.top-3 > button:focus-visible {
-  border-color: rgb(190 224 252 / 0.09);
-  background: rgb(105 164 226 / 0.04);
-  color: rgb(239 248 255 / 0.98);
-}
-
 .post-card-panel.is-clickable:hover,
 .post-card-panel.is-clickable:focus-visible {
-  border-color: rgb(187 222 253 / 0.40);
+  border-color: rgb(199 228 255 / 0.68);
   background:
-    linear-gradient(
-      180deg,
-      rgb(201 229 251 / 0.072) 0%,
-      rgb(89 134 188 / 0.026) 8%,
-      transparent 18%
-    ),
-    linear-gradient(
-      155deg,
-      rgb(9 28 60 / 0.77) 0%,
-      rgb(5 19 45 / 0.81) 48%,
-      rgb(2 12 31 / 0.85) 100%
-    );
+    linear-gradient(180deg, rgb(128 181 236 / 0.14) 0%, rgb(28 75 137 / 0.09) 16%, transparent 34%),
+    radial-gradient(ellipse at 10% -4%, rgb(192 227 255 / 0.15), transparent 34%),
+    radial-gradient(ellipse at 92% 92%, rgb(63 117 188 / 0.11), transparent 38%),
+    linear-gradient(145deg, rgb(12 41 87 / 0.43) 0%, rgb(5 25 61 / 0.39) 50%, rgb(3 17 44 / 0.45) 100%);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.25),
-    inset 1px 0 0 rgb(198 229 255 / 0.08),
-    inset -1px 0 0 rgb(97 156 224 / 0.06),
-    inset 0 -1px 0 rgb(89 147 214 / 0.08),
-    0 9px 24px rgb(0 4 17 / 0.26);
+    inset 0 1px 0 rgb(255 255 255 / 0.52),
+    inset 1px 0 0 rgb(219 240 255 / 0.18),
+    inset -1px 0 0 rgb(113 177 242 / 0.11),
+    inset 0 -1px 0 rgb(123 184 250 / 0.20),
+    0 0 0 1px rgb(120 190 255 / 0.10),
+    0 0 26px rgb(101 175 255 / 0.12),
+    0 20px 46px rgb(0 5 20 / 0.29);
 }
 
 .post-card-panel.is-clickable:active {
-  filter: brightness(1.01);
+  filter: brightness(1.02);
 }
 
 .post-card-panel .post-card-content > p.text-slate-100 {
-  color: rgb(239 246 254 / 0.96);
-  text-shadow: 0 1px 8px rgb(0 4 16 / 0.46);
+  color: rgb(238 246 255 / 0.96);
+  text-shadow: 0 1px 10px rgb(0 7 24 / 0.30);
 }
 
 .post-card-panel .text-slate-500 {
-  color: rgb(182 201 229 / 0.74) !important;
+  color: rgb(183 203 231 / 0.78) !important;
 }
 
-/* 共鳴 / 星文 / Archive — 本体より少し透明な濃紺ガラスピル。 */
+/* リファレンス同様、アクションは細い縁の濃紺ガラスピル。 */
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3) {
-  border-color: rgb(169 210 248 / 0.28);
+  border-color: rgb(178 216 255 / 0.35);
   background:
-    linear-gradient(
-      180deg,
-      rgb(211 234 253 / 0.04) 0%,
-      transparent 28%
-    ),
-    rgb(3 16 40 / 0.46);
+    linear-gradient(180deg, rgb(200 229 255 / 0.055), transparent 38%),
+    linear-gradient(145deg, rgb(11 44 92 / 0.25), rgb(3 20 50 / 0.23));
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.11),
-    inset 0 -1px 0 rgb(78 136 205 / 0.06),
-    0 3px 10px rgb(0 4 17 / 0.10);
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    inset 0 -1px 0 rgb(89 154 229 / 0.11),
+    0 5px 14px rgb(0 5 21 / 0.12);
 }
 
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):hover:not(:disabled),
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):focus-visible {
-  border-color: rgb(192 224 251 / 0.36);
+  border-color: rgb(203 232 255 / 0.48);
   background:
-    linear-gradient(
-      180deg,
-      rgb(224 241 254 / 0.05) 0%,
-      transparent 28%
-    ),
-    rgb(4 19 46 / 0.49);
+    linear-gradient(180deg, rgb(214 237 255 / 0.07), transparent 38%),
+    linear-gradient(145deg, rgb(14 51 103 / 0.28), rgb(4 23 57 / 0.26));
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.14),
-    0 4px 11px rgb(0 4 17 / 0.11);
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 0 14px rgb(94 177 255 / 0.06),
+    0 6px 16px rgb(0 5 21 / 0.13);
+}
+
+/* 三点メニューも同じ濃紺ガラス。位置・機能は変更しない。 */
+.post-card-panel > .absolute.right-3.top-3 > button {
+  border-color: rgb(178 216 255 / 0.30);
+  background:
+    linear-gradient(180deg, rgb(205 233 255 / 0.055), transparent 40%),
+    rgb(4 25 61 / 0.26);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 4px 12px rgb(0 5 20 / 0.11);
 }
 
 @media (max-width: 639px) {
