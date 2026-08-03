@@ -127,13 +127,17 @@ async function mockVillage(page, counters, { authenticated = false, withPost = f
   });
 }
 
-async function triggerObserveRefreshCompletion(page) {
+async function triggerObservePullRefresh(page) {
   await page.evaluate(() => {
-    const status = document.createElement("p");
-    status.className = "observe-timeline-refresh-status";
-    status.textContent = "✦ 流星便を観測中…";
-    document.body.appendChild(status);
-    window.setTimeout(() => status.remove(), 40);
+    const dispatchTouch = (type, touches) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", { value: touches });
+      window.dispatchEvent(event);
+    };
+
+    dispatchTouch("touchstart", [{ clientX: 120, clientY: 10 }]);
+    dispatchTouch("touchmove", [{ clientX: 120, clientY: 105 }]);
+    dispatchTouch("touchend", []);
   });
 }
 
@@ -155,7 +159,7 @@ function allCardReadsAdvanced(counters, before) {
   );
 }
 
-test("観測欄の更新完了後に投稿・共鳴・星文・Archiveを全部再取得する", async ({ page }) => {
+test("観測欄を引いて更新すると投稿・共鳴・星文・Archiveを全部再取得する", async ({ page }) => {
   const counters = { posts: 0, resonances: 0, starLetters: 0, archives: 0 };
   await mockVillage(page, counters, { authenticated: true, withPost: true });
   await page.goto("/");
@@ -174,7 +178,7 @@ test("観測欄の更新完了後に投稿・共鳴・星文・Archiveを全部�
     }
   });
 
-  await triggerObserveRefreshCompletion(page);
+  await triggerObservePullRefresh(page);
 
   await expect.poll(() => allCardReadsAdvanced(counters, before)).toBe(true);
   expect(unexpectedNavigations).toBe(0);
@@ -212,22 +216,26 @@ test("PWA復帰相当のpagehide→focusでも投稿カード関連データを�
   expect(unexpectedNavigations).toBe(0);
 });
 
-test("入力をblurした後でも未送信下書きがあればPWA復帰でDOMを再マウントしない", async ({ page }) => {
+test("星文を書いてblurしていてもPWA復帰再同期で下書きを保持する", async ({ page }) => {
   const counters = { posts: 0, resonances: 0, starLetters: 0, archives: 0 };
-  await mockVillage(page, counters);
+  await mockVillage(page, counters, { authenticated: true, withPost: true });
   await page.goto("/");
 
   await expect.poll(() => counters.posts).toBeGreaterThan(0);
-  const emailInput = page.getByLabel("メールアドレス");
-  await emailInput.fill("draft@example.com");
-  await emailInput.evaluate((input) => input.setAttribute("data-refresh-guard-probe", "keep"));
-  await emailInput.blur();
+  const starLetterButton = page.getByRole("button", { name: "星文 0" }).first();
+  await expect(starLetterButton).toBeVisible();
+  await starLetterButton.click();
+  const starLetterDraft = page.getByPlaceholder("この流星便に星文を残す").first();
+  await starLetterDraft.fill("まだ送っていない星文の下書き");
+  await starLetterDraft.evaluate((input) => input.setAttribute("data-refresh-guard-probe", "keep"));
+  await starLetterDraft.blur();
+  const before = snapshotCardReads(counters);
 
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await page.waitForTimeout(420);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page.waitForTimeout(350);
 
-  await expect(emailInput).toHaveValue("draft@example.com");
-  await expect(emailInput).toHaveAttribute("data-refresh-guard-probe", "keep");
+  await expect.poll(() => allCardReadsAdvanced(counters, before)).toBe(true);
+  await expect(starLetterDraft).toHaveValue("まだ送っていない星文の下書き");
+  await expect(starLetterDraft).toHaveAttribute("data-refresh-guard-probe", "keep");
 });
