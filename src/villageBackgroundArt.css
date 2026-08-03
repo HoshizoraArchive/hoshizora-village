@@ -6,14 +6,14 @@
  * until a matching landscape master is selected.
  *
  * IMPORTANT: iOS Safari is given the native WebP directly. Do not wrap the
- * WebP in SVG/data-URI layers for the runtime background; Safari rendered that
- * nested image path incorrectly on real iPhones.
+ * WebP in SVG/data-URI layers for the runtime background. The build reconstructs
+ * and verifies the exact selected WebP bytes before Vite copies it to dist.
  */
 
 @media (max-width: 1023px) {
   .cosmic-background {
     background-color: #020615;
-    background-image: url("/images/hoshizora-village-background-current.webp?v=20260803-native");
+    background-image: url("/images/hoshizora-village-background-current.webp?v=20260803-bg75-integrity");
     background-position: center center;
     background-repeat: no-repeat;
     background-size: cover;
