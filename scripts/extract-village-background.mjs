@@ -32,6 +32,18 @@ const EXPECTED_PART04_BLOCK_SHA256 = [
   "e8df07586ba8b87e65b7f00b6678d02e16f44e783abb57ceea3bc568b1bfc24f",
   "e963d9c8102cbf59a2891ab13b44bbfbb7d21d32c53e0af049d4e80e3d4d222c",
 ];
+const EXPECTED_PART04_BLOCK9_SUB_SHA256 = [
+  "862fdc10b121ad28b0ee2d2933c980a92f9efb228949b8239743313efaa1e4d9",
+  "472c0ab9214cb01abbae16940776a98a41b496d84a2f57370f8d9ff876abda59",
+  "171e0a99a9887bad1141d2de932e6c9da96d2ed204067ca938ac47b7a023a6d5",
+  "80188f9eb6fe54af4f45a40717274c41aa8af5598eb2d6c4d982cc9028ca86d4",
+  "bf87148f464bd2d4bd1f52d50489f1112ba278d27683b86435e49d7a9e8f11cf",
+  "cda52ad20cb5ea5cda91c301641118f63d3680c12bb0a15f2611120da104fbb9",
+  "a79bf3e4d8b3541a9ee3e4019679a42f0d6b4f3568f9d05be55d00520f426ad8",
+  "1f30958504490cc81cb075da4ffb8ff587e5fdd52d8ea6f86472e3b7784bcfe3",
+  "95f818703a019e548c9ea2d52682371f24d606b09bd771580a24bf4cea838134",
+  "e94969b610c50103d4e8bbb3121fdce354e8a708bd92ab11d15b4cd046511816",
+];
 
 const SOURCE_PARTS = [
   ["hoshizora-village-background-current.part01.b64", 20000, "2d17a7f11832121061d4a6f47695f58e6275afe6dfed140c01c9d1af8e7ee5ec"],
@@ -79,9 +91,22 @@ for (let index = 0; index < SOURCE_PARTS.length; index += 1) {
       for (let block = 0; block < 20; block += 1) {
         const blockValue = actual.slice(block * 1000, (block + 1) * 1000);
         const blockHash = sha256Text(blockValue);
-        if (blockHash !== EXPECTED_PART04_BLOCK_SHA256[block]) badBlocks.push(`${block}: ${blockHash}/${EXPECTED_PART04_BLOCK_SHA256[block]}`);
+        if (blockHash !== EXPECTED_PART04_BLOCK_SHA256[block]) {
+          badBlocks.push(`${block}: ${blockHash}/${EXPECTED_PART04_BLOCK_SHA256[block]}`);
+          if (block === 9) {
+            const badSubBlocks = [];
+            for (let sub = 0; sub < 10; sub += 1) {
+              const subValue = blockValue.slice(sub * 100, (sub + 1) * 100);
+              const subHash = sha256Text(subValue);
+              if (subHash !== EXPECTED_PART04_BLOCK9_SUB_SHA256[sub]) {
+                badSubBlocks.push(`${sub}: ${subHash}/${EXPECTED_PART04_BLOCK9_SUB_SHA256[sub]}`);
+              }
+            }
+            badBlocks.push(`block9 mismatching 100-char subblocks: ${badSubBlocks.join(", ")}`);
+          }
+        }
       }
-      mismatches.push(`part04 mismatching 1000-char blocks: ${badBlocks.join(", ")}`);
+      mismatches.push(`part04 mismatching 1000-char blocks: ${badBlocks.join(" | ")}`);
     }
   }
 }
