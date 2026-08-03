@@ -11,6 +11,8 @@ const EXPECTED_SHA256 =
   "f737734ca6300ada09452be2926917d5ee8851ff7276add4d3fa439d3b8a75f7";
 const EXPECTED_PART03_SHA256 =
   "10a9c00f59aa84b4520fc8a5c9d8be8021bfa5dffdb12110775bc162848b52fb";
+const LEGACY_PART03_EXTRA_INDEX = 17181;
+const LEGACY_PART03_EXTRA_CHAR = "o";
 
 const SOURCE_PARTS = [
   "hoshizora-village-background-current.part01.b64",
@@ -39,32 +41,40 @@ const outputPath = path.join(
   "hoshizora-village-background-current.webp",
 );
 
+const sha256Text = (value) =>
+  createHash("sha256").update(value, "utf8").digest("hex");
+
 const sourceContents = await Promise.all(
   SOURCE_PARTS.map((filename) => readFile(path.join(imageDir, filename), "utf8")),
 );
 const normalizedParts = sourceContents.map((content) => content.replace(/\s+/g, ""));
-const base64 = normalizedParts.join("");
 
-function sha256Text(value) {
-  return createHash("sha256").update(value, "utf8").digest("hex");
+// The original text transfer introduced exactly one verified extra character in
+// part03. Repair only that known defect, and only when the repaired part hashes
+// to the canonical 20,000-character slice from bg-75.webp. Any other drift is
+// a hard build failure.
+const rawPart03 = normalizedParts[2];
+if (rawPart03.length === 20001) {
+  if (rawPart03[LEGACY_PART03_EXTRA_INDEX] !== LEGACY_PART03_EXTRA_CHAR) {
+    throw new Error("星空Village background part03 legacy defect no longer matches the audited source.");
+  }
+  const repairedPart03 =
+    rawPart03.slice(0, LEGACY_PART03_EXTRA_INDEX) +
+    rawPart03.slice(LEGACY_PART03_EXTRA_INDEX + 1);
+  if (sha256Text(repairedPart03) !== EXPECTED_PART03_SHA256) {
+    throw new Error("星空Village background part03 repair did not match the canonical source hash.");
+  }
+  normalizedParts[2] = repairedPart03;
+} else if (
+  rawPart03.length !== 20000 ||
+  sha256Text(rawPart03) !== EXPECTED_PART03_SHA256
+) {
+  throw new Error("星空Village background part03 does not match the canonical source.");
 }
 
+const base64 = normalizedParts.join("");
+
 if (base64.length !== EXPECTED_BASE64_LENGTH) {
-  const lengths = normalizedParts.map((part, index) => `${SOURCE_PARTS[index]}=${part.length}`);
-  console.error(`Background source part lengths: ${lengths.join(", ")}`);
-
-  const part03 = normalizedParts[2];
-  if (part03.length === 20001) {
-    for (let index = 0; index < part03.length; index += 1) {
-      const candidate = part03.slice(0, index) + part03.slice(index + 1);
-      if (sha256Text(candidate) === EXPECTED_PART03_SHA256) {
-        throw new Error(
-          `星空Village background part03 has one extra character at index ${index}: ${JSON.stringify(part03[index])}.`,
-        );
-      }
-    }
-  }
-
   throw new Error(
     `星空Village background base64 length mismatch: expected ${EXPECTED_BASE64_LENGTH}, got ${base64.length}.`,
   );
