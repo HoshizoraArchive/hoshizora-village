@@ -17,6 +17,13 @@ const PROFILE_DYNAMIC_TARGET = "profile-guide-active";
 const PROFILE_USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
 const PROFILE_GUIDE_CONTROL_SELECTOR = "input, textarea, button, select";
 const PROFILE_GUIDE_ORIGINAL_DISABLED = "data-onboarding-original-disabled";
+const PROFILE_GUIDE_PREVIOUS_STEP = Object.freeze({
+  username: "name",
+  avatar: "username",
+  bio: "avatar",
+  star_chart: "bio",
+  save: "star_chart",
+});
 
 function WelcomeVideo({ error, onComplete }) {
   const dialogRef = useRef(null);
@@ -568,6 +575,9 @@ export default function InteractiveOnboarding({
     progress?.current_step === "profile_setup" && profileGuideStep !== "entry"
       ? getProfileGuideStepDefinition(profileGuideStep)
       : null;
+  const canGoBackProfileGuide = Boolean(
+    profileGuideDefinition && PROFILE_GUIDE_PREVIOUS_STEP[profileGuideStep],
+  );
   const isNotificationStep = Boolean(
     progress &&
       ["notification_permission", "device_registration", "push_test"].includes(progress.current_step),
@@ -751,6 +761,16 @@ export default function InteractiveOnboarding({
     applyProfileGuideInteractionLock(getProfileEditor(), nextStep);
   }
 
+  function handleProfileGuideBack() {
+    const previousStep = PROFILE_GUIDE_PREVIOUS_STEP[profileGuideStep];
+
+    if (!previousStep) {
+      return;
+    }
+
+    moveProfileGuideTo(previousStep);
+  }
+
   function handleProfileGuideNext() {
     if (profileGuideStep === "name") {
       const input = getProfileGuideTargetElement("name");
@@ -882,14 +902,26 @@ export default function InteractiveOnboarding({
         >
           <div className="flex items-start justify-between gap-3">
             <p className="text-[11px] font-black tracking-[0.12em] text-comet">星空ちあ</p>
-            <button
-              aria-label="ちあの案内を小さくする"
-              className="-mr-1 -mt-1 min-h-8 shrink-0 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] font-black text-slate-300 transition hover:bg-white/10 hover:text-white"
-              onClick={() => setCollapsed(true)}
-              type="button"
-            >
-              小さく
-            </button>
+            <div className="-mr-1 -mt-1 flex shrink-0 items-center gap-1">
+              {canGoBackProfileGuide ? (
+                <button
+                  aria-label="ひとつ前の案内に戻る"
+                  className="min-h-8 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] font-black text-slate-300 transition hover:bg-white/10 hover:text-white"
+                  onClick={handleProfileGuideBack}
+                  type="button"
+                >
+                  戻る
+                </button>
+              ) : null}
+              <button
+                aria-label="ちあの案内を小さくする"
+                className="min-h-8 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] font-black text-slate-300 transition hover:bg-white/10 hover:text-white"
+                onClick={() => setCollapsed(true)}
+                type="button"
+              >
+                小さく
+              </button>
+            </div>
           </div>
           <div className={`${isCompact ? "mt-1.5 text-[13px] leading-5" : "mt-2 text-sm leading-6 sm:text-base sm:leading-7"} space-y-1.5 font-bold text-white`}>
             {step.lines.map((line, index) => (
