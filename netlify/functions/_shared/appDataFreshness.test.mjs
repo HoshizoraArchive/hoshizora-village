@@ -54,6 +54,18 @@ test("iPhone/PWAがバックグラウンドから戻った時だけ安全に再�
   }
 });
 
+test("非フォーカスの未送信入力も再同期ガード対象にする", () => {
+  assert.equal(boundarySource.includes("function hasUnsavedLocalDraft()"), true);
+  assert.equal(
+    boundarySource.includes('document.querySelectorAll(\'input, textarea, [contenteditable="true"]\')'),
+    true,
+  );
+  assert.equal(boundarySource.includes("DRAFT_INPUT_TYPES.has(inputType)"), true);
+  assert.equal(boundarySource.includes("control.value?.trim()"), true);
+  assert.equal(boundarySource.includes("control.textContent?.trim()"), true);
+  assert.equal(boundarySource.includes("if (hasUnsavedLocalDraft())"), true);
+});
+
 test("再同期はブラウザreloadではなくAppだけを再マウントし、同じ画面ならタブとスクロールを戻す", () => {
   assert.equal(shouldRestoreUiSnapshot({ beforeHref: "https://village.test/", afterHref: "https://village.test/" }), true);
   assert.equal(shouldRestoreUiSnapshot({ beforeHref: "https://village.test/", afterHref: "https://village.test/meteor/1" }), false);
