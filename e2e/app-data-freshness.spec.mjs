@@ -82,7 +82,7 @@ test("PWA復帰相当のpagehide→focusでもブラウザreloadせず最新デ�
   expect(unexpectedNavigations).toBe(0);
 });
 
-test("入力中はPWA復帰相当でもsoft remountせず入力内容を守る", async ({ page }) => {
+test("入力中はPWA復帰相当でもsoft remountせず入力内容とDOMを守る", async ({ page }) => {
   const counters = { postReads: 0 };
   await mockEmptyVillage(page, counters);
   await page.goto("/");
@@ -91,7 +91,7 @@ test("入力中はPWA復帰相当でもsoft remountせず入力内容を守る",
   const emailInput = page.getByLabel("メールアドレス");
   await emailInput.fill("draft@example.com");
   await emailInput.focus();
-  const initialPostReads = counters.postReads;
+  await emailInput.evaluate((input) => input.setAttribute("data-refresh-guard-probe", "keep"));
 
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await page.waitForTimeout(420);
@@ -99,5 +99,5 @@ test("入力中はPWA復帰相当でもsoft remountせず入力内容を守る",
   await page.waitForTimeout(350);
 
   await expect(emailInput).toHaveValue("draft@example.com");
-  expect(counters.postReads).toBe(initialPostReads);
+  await expect(emailInput).toHaveAttribute("data-refresh-guard-probe", "keep");
 });
