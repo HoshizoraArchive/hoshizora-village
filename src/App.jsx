@@ -4115,13 +4115,15 @@ function App() {
 
   const refreshObserveTimeline = useCallback(
     async ({ scrollToTop = false } = {}) => {
+      // Related card data must refresh even if the public-post request is already
+      // in flight or fails. New post ids still trigger their own dependent reads.
+      setServerDataRevision((current) => current + 1);
       const refreshed = await refreshPublicPosts();
 
       if (!refreshed) {
         return false;
       }
 
-      setServerDataRevision((current) => current + 1);
       setTimelineHasNewPosts(false);
 
       if (scrollToTop) {
