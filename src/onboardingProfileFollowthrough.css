@@ -1,0 +1,21 @@
+.onboarding-guide[data-onboarding-step="profile_setup"][data-profile-keyboard-open="true"] .onboarding-guide-inner {
+  top: max(0.55rem, env(safe-area-inset-top)) !important;
+  bottom: auto !important;
+  max-height: min(42dvh, 18rem) !important;
+}
+
+.onboarding-guide[data-onboarding-step="profile_setup"][data-profile-keyboard-open="true"] .onboarding-dialogue {
+  max-height: min(30dvh, 12.5rem) !important;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-height: 620px) {
+  .onboarding-guide[data-onboarding-step="profile_setup"][data-profile-keyboard-open="true"] .onboarding-mini-chia {
+    max-height: 6.75rem !important;
+  }
+
+  .onboarding-guide[data-onboarding-step="profile_setup"][data-profile-keyboard-open="true"] .onboarding-dialogue {
+    max-height: min(28dvh, 10rem) !important;
+  }
+}
