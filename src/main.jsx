@@ -23,6 +23,7 @@ import "./villageBackgroundArt.css";
 import "./onboardingProfileFollowthrough.css";
 import "./myUniversePolish.css";
 import "./unifiedFeedPolish.css";
+import "./postCardCelestialGlass.css";
 import "./myStarChartPreview.css";
 import "./starLetterProfileNavigation.css";
 
