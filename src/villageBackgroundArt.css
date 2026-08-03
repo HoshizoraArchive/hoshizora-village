@@ -1,0 +1,32 @@
+/*
+ * 星空Village current mobile background artwork.
+ *
+ * The selected artwork is a portrait (9:16) asset, so this override is scoped
+ * to phone/tablet widths. Desktop keeps the existing procedural background
+ * until a matching landscape master is selected.
+ *
+ * The moon and occasional shooting-star elements stay as independent overlays.
+ * The old procedural haze/stars/village/stardust are hidden on mobile so the
+ * static artwork remains the visual source of truth instead of looking like
+ * moving snow layered over the illustration.
+ */
+
+@media (max-width: 1023px) {
+  .cosmic-background {
+    background-color: #020615;
+    background-image:
+      linear-gradient(180deg, rgb(2 6 21 / 0.02), rgb(2 6 21 / 0.08)),
+      url("/images/hoshizora-village-background-current.svg");
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  .cosmic-background .cosmic-haze,
+  .cosmic-background .stars-layer,
+  .cosmic-background .distant-stars,
+  .cosmic-background .distant-village,
+  .foreground-stardust {
+    display: none;
+  }
+}
