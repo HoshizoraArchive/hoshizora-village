@@ -1,7 +1,7 @@
 /*
- * 流星便カード専用の高透過ガラス。
- * 「青い板」ではなく、背景の星空・街灯り・湖面反射がカード越しに見えることを最優先にする。
- * Apple系の洗練感を、薄い白ハイライト・細い縁・控えめなぼかしで出す。
+ * 流星便カード専用の高透過クリアガラス。
+ * 背景アートはカード越しにも鮮明に見せ、曇りガラスのような blur は一切使わない。
+ * ガラス感は薄い色膜、表面反射、細い縁、環境光の写り込みだけで作る。
  */
 
 .post-card-panel {
@@ -20,8 +20,6 @@
     0 10px 34px rgb(1 7 22 / 0.18),
     0 0 0 1px rgb(255 255 255 / 0.035),
     0 0 20px rgb(112 182 255 / 0.05);
-  -webkit-backdrop-filter: blur(7px) saturate(160%) brightness(1.045);
-  backdrop-filter: blur(7px) saturate(160%) brightness(1.045);
   transition:
     border-color 180ms ease,
     background 180ms ease,
@@ -38,7 +36,7 @@
   pointer-events: none;
 }
 
-/* Apple系の薄い表面コーティング。背景は隠さない。 */
+/* 透明なガラス表面にだけ入る白い反射。背景そのものはぼかさない。 */
 .post-card-panel::before {
   z-index: 0;
   background:
@@ -47,7 +45,7 @@
     radial-gradient(circle at 17% 0%, rgb(255 255 255 / 0.15), transparent 28%);
 }
 
-/* ごく薄い環境光の写り込み。 */
+/* 湖面や街灯りを拾う、ごく薄い環境光。 */
 .post-card-panel::after {
   z-index: 0;
   inset: 2px;
@@ -111,7 +109,7 @@
   color: rgb(215 229 247 / 0.68) !important;
 }
 
-/* 共鳴 / 星文 / Archive も同じ高透過ガラスへ。 */
+/* 共鳴 / 星文 / Archive もクリアガラス。 */
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3) {
   border-color: rgb(225 240 255 / 0.26);
   background:
@@ -121,8 +119,6 @@
     inset 0 1px 0 rgb(255 255 255 / 0.24),
     inset 0 -1px 0 rgb(154 196 255 / 0.08),
     0 5px 14px rgb(1 7 22 / 0.10);
-  -webkit-backdrop-filter: blur(5px) saturate(155%) brightness(1.03);
-  backdrop-filter: blur(5px) saturate(155%) brightness(1.03);
 }
 
 .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):hover:not(:disabled),
@@ -137,7 +133,7 @@
     0 6px 16px rgb(1 7 22 / 0.11);
 }
 
-/* 三点メニューのボタンも透過ガラス。ただし位置・機能は既存のまま。 */
+/* 三点メニューもクリアガラス。位置・機能は既存のまま。 */
 .post-card-panel > .absolute.right-3.top-3 > button {
   border-color: rgb(225 240 255 / 0.24);
   background:
@@ -146,27 +142,11 @@
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.22),
     0 4px 12px rgb(1 7 22 / 0.09);
-  -webkit-backdrop-filter: blur(5px) saturate(150%) brightness(1.03);
-  backdrop-filter: blur(5px) saturate(150%) brightness(1.03);
-}
-
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .post-card-panel {
-    background:
-      linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 20%),
-      linear-gradient(135deg, rgb(66 119 210 / 0.18), rgb(7 23 58 / 0.26));
-  }
-
-  .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3) {
-    background: rgb(10 28 64 / 0.22);
-  }
 }
 
 @media (max-width: 639px) {
   .post-card-panel {
     border-radius: 1.55rem;
-    -webkit-backdrop-filter: blur(5px) saturate(165%) brightness(1.045);
-    backdrop-filter: blur(5px) saturate(165%) brightness(1.045);
   }
 
   .post-card-panel::after {
