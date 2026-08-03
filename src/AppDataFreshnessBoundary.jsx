@@ -9,6 +9,7 @@ import {
 const FOREGROUND_SETTLE_DELAY_MS = 180;
 const RESTORE_NAVIGATION_DELAY_MS = 120;
 const RESTORE_SCROLL_DELAY_MS = 80;
+const DRAFT_INPUT_TYPES = new Set(["email", "number", "password", "search", "tel", "text", "url"]);
 
 function getActiveBottomNavigationButton() {
   if (typeof document === "undefined") {
@@ -50,6 +51,39 @@ function hasVisibleOnboardingUi() {
   );
 }
 
+function hasUnsavedLocalDraft() {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  for (const control of document.querySelectorAll('input, textarea, [contenteditable="true"]')) {
+    if (control.disabled || control.readOnly || control.getAttribute("aria-disabled") === "true") {
+      continue;
+    }
+
+    if (control.matches('[contenteditable="true"]')) {
+      if (control.textContent?.trim()) {
+        return true;
+      }
+      continue;
+    }
+
+    if (control.tagName === "TEXTAREA") {
+      if (control.value?.trim()) {
+        return true;
+      }
+      continue;
+    }
+
+    const inputType = String(control.getAttribute("type") || "text").toLowerCase();
+    if (DRAFT_INPUT_TYPES.has(inputType) && control.value?.trim()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function hasUnsafeLocalInteraction() {
   if (typeof document === "undefined") {
     return false;
@@ -64,6 +98,10 @@ function hasUnsafeLocalInteraction() {
     document.querySelector('[aria-label="星影を切り取る"], [role="dialog"]') ||
     [...document.querySelectorAll("form")].some((form) => form.textContent?.includes("プロフィール編集"))
   ) {
+    return true;
+  }
+
+  if (hasUnsavedLocalDraft()) {
     return true;
   }
 
