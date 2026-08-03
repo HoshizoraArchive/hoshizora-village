@@ -19,7 +19,15 @@
       url("/images/hoshizora-village-background-current.svg");
     background-position: center center;
     background-repeat: no-repeat;
-    background-size: cover;
+    /*
+     * The artwork is an SVG wrapper around the selected portrait WebP. iOS
+     * Safari can resolve an SVG-with-viewBox background through its fallback
+     * intrinsic size before applying `cover`, which massively crops and scales
+     * the embedded portrait. Size the SVG to the fixed viewport box directly;
+     * the SVG's own preserveAspectRatio="xMidYMid slice" then performs the
+     * intended portrait crop without the Safari intrinsic-size path.
+     */
+    background-size: 100% 100%;
   }
 
   .cosmic-background .cosmic-haze,
@@ -27,6 +35,6 @@
   .cosmic-background .distant-stars,
   .cosmic-background .distant-village,
   .foreground-stardust {
-    display: none;
+    display: none !important;
   }
 }
