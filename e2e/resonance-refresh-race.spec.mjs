@@ -113,6 +113,7 @@ async function mockVillage(page, controls) {
           id: `33333333-3333-4333-8333-33333333333${index}`,
           post_id: TEST_POST_ID,
           profile_id: TEST_USER_ID,
+          type: "normal",
         })),
       );
       return;
