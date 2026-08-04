@@ -1,0 +1,33 @@
+name: Temporary PR 202 surgical fix
+
+on:
+  push:
+    branches:
+      - fix/resonance-refresh-race-20260804
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-push:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/resonance-refresh-race-20260804
+          fetch-depth: 0
+
+      - name: Apply fixes
+        run: python3 .github/scripts/pr202_surgical_fix.py
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          rm .github/workflows/temporary-pr202-surgical-fix.yml
+          rm .github/scripts/pr202_surgical_fix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Fix notification refresh guard and archive batching"
+          git push origin HEAD:fix/resonance-refresh-race-20260804
