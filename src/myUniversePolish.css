@@ -33,9 +33,10 @@
 }
 
 /*
- * My Universe の見出し〜プロフィールヒーローを、スマホではひと続きの
- * フルブリード領域として扱う。app-main-content の px-3 / py-3 をこの画面だけ
- * 外側へ逃がし、上端と左右端まで星空を大きく見せる。
+ * My Universe の見出し〜プロフィールを、スマホではひと続きの
+ * フルブリード・ヒーローとして見せる。
+ * 見出し側にも実際の面を敷き、プロフィール面との空白をなくすことで、
+ * スマホ上端からプロフィール末尾まで一枚の大きな領域に見せる。
  */
 @media (max-width: 639px) {
   .my-universe-page > .page-intro {
@@ -43,18 +44,26 @@
     width: 100vw;
     margin-top: -0.75rem;
     margin-right: calc(50% - 50vw);
-    margin-bottom: 1.25rem;
+    margin-bottom: 0;
     margin-left: calc(50% - 50vw);
-    padding-top: calc(env(safe-area-inset-top) + 0.75rem);
+    padding-top: calc(env(safe-area-inset-top) + 0.95rem);
     padding-right: 0.75rem;
+    padding-bottom: 1.35rem;
     padding-left: 0.75rem;
+    border-top: 1px solid rgb(210 232 255 / 0.06);
+    background:
+      linear-gradient(180deg, rgb(197 226 255 / 0.045), rgb(197 226 255 / 0.018) 72%, transparent 100%);
   }
 
   .my-universe-page .profile-surface {
     width: 100vw;
     max-width: none;
+    margin-top: 0;
     margin-right: calc(50% - 50vw);
     margin-left: calc(50% - 50vw);
+    border-top-color: transparent;
+    background:
+      linear-gradient(180deg, rgb(197 226 255 / 0.022), transparent 38%);
   }
 
   .my-universe-page .profile-surface > .p-4.pt-0 {
