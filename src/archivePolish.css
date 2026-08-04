@@ -1,0 +1,110 @@
+/*
+ * Archive では保存した流星便と星文を「カード」ではなく、
+ * 星空の上に記録そのものが並ぶ見え方にする。
+ * 操作ロジックや他画面の投稿カードには触れない。
+ */
+
+.archive-page .post-card-panel,
+.archive-page .post-card-panel.is-clickable:hover,
+.archive-page .post-card-panel.is-clickable:focus-visible,
+.archive-page .post-card-panel.is-clickable:active {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  filter: none;
+}
+
+/* カードレスでもキーボード操作時の現在位置は残す。 */
+.archive-page .post-card-panel.is-clickable:focus-visible {
+  outline: 2px solid rgb(125 223 255 / 0.58);
+  outline-offset: 4px;
+}
+
+.archive-page .post-card-panel::before,
+.archive-page .post-card-panel::after,
+.archive-page .post-card-panel > .h-1 {
+  display: none;
+}
+
+.archive-page .post-card-panel .post-card-content {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* 背景の明暗に負けないよう、面ではなく文字だけを少し持ち上げる。 */
+.archive-page .post-card-panel .post-card-content > p.text-slate-100 {
+  color: rgb(244 249 255 / 0.98);
+  text-shadow:
+    0 1px 8px rgb(0 5 20 / 0.66),
+    0 0 20px rgb(0 8 30 / 0.28);
+}
+
+.archive-page .post-card-panel .text-slate-500 {
+  color: rgb(190 210 237 / 0.86) !important;
+  text-shadow: 0 1px 7px rgb(0 5 20 / 0.52);
+}
+
+/* 共鳴 / 星文 / Archive は箱を外して文字とアイコンだけにする。 */
+.archive-page .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3),
+.archive-page .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):hover:not(:disabled),
+.archive-page .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 三点メニューも見た目だけカードレスにする。 */
+.archive-page .post-card-panel > .absolute.right-3.top-3 > button {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 保存した流星便同士はカードの代わりに余白で区切る。 */
+.archive-page .content-feed-list > .post-card-panel + .post-card-panel {
+  margin-top: 1.6rem !important;
+}
+
+/* 保存した星文も同じくカード面を消す。 */
+.archive-page .content-letter-row {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-right: 0;
+  padding-left: 0;
+  text-shadow: 0 1px 8px rgb(0 5 20 / 0.52);
+}
+
+.archive-page .content-letter-row .text-slate-300,
+.archive-page .content-letter-row .text-slate-400,
+.archive-page .content-letter-row .text-slate-500 {
+  color: rgb(209 224 244 / 0.9) !important;
+}
+
+.archive-page .content-letter-row .text-slate-600 {
+  color: rgb(166 190 222 / 0.8) !important;
+}
+
+/* 星文内の「会話を見る / Archive解除」も箱を消す。 */
+.archive-page .content-letter-row button,
+.archive-page .content-letter-row button:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.archive-page .content-letter-row button:focus-visible {
+  outline: 2px solid rgb(125 223 255 / 0.58);
+  outline-offset: 2px;
+}
+
+/* 星文同士は面ではなく、空気感とごく薄い境界だけで分ける。 */
+.archive-page .content-feed-list > .content-letter-row + .content-letter-row {
+  margin-top: 1.4rem !important;
+  padding-top: 1.4rem;
+  border-top: 1px solid rgb(210 232 255 / 0.075);
+}
