@@ -1113,7 +1113,7 @@ test("star-letter mutation RPCs authenticate ownership and visible post access",
   }
 });
 
-test("legacy root composer remains compatible while conversation mutations use their RPCs", () => {
+test("root composer and conversation mutations use RPC boundaries", () => {
   const sql = normalizedSql(starLetterConversationMigrationSql);
   const app = normalizedSql(appJsx);
 
@@ -1125,10 +1125,8 @@ test("legacy root composer remains compatible while conversation mutations use t
     app,
     /const star_letter_select_columns = "[^"]*client_request_id/i,
   );
-  assert.match(
-    app,
-    /\.from\("star_letters"\) \.insert\(\{ post_id: postid, author_id: session\.user\.id, body, \}\) \.select\(columns\)/i,
-  );
+  assert.match(app, /createrootstarletter\(supabase/i);
+  assert.doesNotMatch(app, /\.from\("star_letters"\)[\s\S]{0,180}\.insert\(/i);
   for (const token of [
     "updateStarLetter(supabase",
     "deleteStarLetter(supabase",

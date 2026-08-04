@@ -22,6 +22,7 @@ test("Archive画面で流星便と星文を切り替え、保存した星文へ�
 
 test("星文Archiveの取得はログイン中の本人行だけに限定する", () => {
   assert.equal(source.includes('.eq("profile_id", userId)'), true);
-  assert.equal(source.includes('.in("id", starLetterIds)'), true);
+  assert.equal(source.includes('threadSnapshots = await readStarThreadSnapshots(supabase, postIds)'), true);
+  assert.equal(source.includes('.filter((letter) => letter.is_archived)'), true);
   assert.equal(source.includes('setArchivedStarLetters((currentItems) => currentItems.filter((item) => item.id !== letter.id))'), true);
 });

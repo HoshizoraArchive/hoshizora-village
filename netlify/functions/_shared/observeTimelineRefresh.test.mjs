@@ -128,26 +128,50 @@ test("observe focus and visible returns check immediately while keeping one fres
 });
 
 test("observe full refresh coalesces overlap into one latest queued rerun", async () => {
-  let releaseFirst;
+  let firstContext;
   const calls = [];
   const queueRef = { current: { pendingOperation: null, promise: null } };
-  const first = runLatestQueuedOperation(queueRef, async () => {
+  const first = runLatestQueuedOperation(queueRef, async (context) => {
+    firstContext = context;
     calls.push("first");
-    await new Promise((resolve) => {
-      releaseFirst = resolve;
-    });
-    return false;
+    await new Promise(() => {});
   });
-  const overlapping = runLatestQueuedOperation(queueRef, async () => {
+  await Promise.resolve();
+
+  const overlapping = runLatestQueuedOperation(queueRef, async (context) => {
     calls.push("latest");
+    assert.equal(context.isCurrent(), true);
+    assert.equal(context.shouldFinish(), true);
     return true;
   });
 
   assert.equal(first, overlapping);
   assert.deepEqual(calls, ["first"]);
-  releaseFirst();
+  assert.equal(firstContext.signal.aborted, true);
+  assert.equal(firstContext.isCurrent(), false);
   assert.equal(await overlapping, true);
   assert.deepEqual(calls, ["first", "latest"]);
+  assert.equal(queueRef.current.promise, null);
+});
+
+test("hung refresh is aborted so a foreground or pull refresh still runs exactly once", async () => {
+  const calls = [];
+  const queueRef = { current: null };
+  const hung = runLatestQueuedOperation(queueRef, async ({ signal }) => {
+    calls.push("hung");
+    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    return false;
+  }, { timeoutMs: 5_000 });
+  await Promise.resolve();
+
+  const latest = runLatestQueuedOperation(queueRef, async () => {
+    calls.push("latest");
+    return true;
+  });
+
+  assert.equal(hung, latest);
+  assert.equal(await latest, true);
+  assert.deepEqual(calls, ["hung", "latest"]);
   assert.equal(queueRef.current.promise, null);
 });
 

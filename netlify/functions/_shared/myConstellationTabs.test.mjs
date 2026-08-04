@@ -25,8 +25,8 @@ test("共鳴一覧と送った星文はログイン中の本人に限定して�
     '.from("resonances")\n        .select("id, post_id, profile_id, resonance_type, created_at")\n        .eq("profile_id", userId)',
     '.from("star_letters")\n          .select(columns)\n          .eq("author_id", userId)',
     'query = query.is("deleted_at", null)',
-    'const seenPostIds = new Set()',
-    'seenPostIds.has(post.id)',
+    'const resonanceRowsByPostId = new Map()',
+    '!resonanceRowsByPostId.has(row.post_id)',
   ]) {
     assert.equal(source.includes(token), true, `missing owner-scoped My Constellation query: ${token}`);
   }
@@ -39,8 +39,10 @@ test("My Universeの投稿カードは既存の操作・メディア・星文表
     'onOpenMedia={onOpenPostMedia}',
     'resonance={resonance}',
     'starLetters={starLetters}',
-    'setResonatedPosts((currentPosts) => attachMediaToPosts(currentPosts, mediaByPostId))',
-    'setResonatedPosts((currentPosts) => attachMeteorTagsToPosts(currentPosts, tagsByPostId))',
+    'const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts)',
+    'setResonatedPosts((currentPosts) => reconcilePostSnapshots(currentPosts, hydratedPosts))',
+    'mediaLoaded: true',
+    'tagsLoaded: true',
   ]) {
     assert.equal(source.includes(token), true, `missing shared post behavior: ${token}`);
   }

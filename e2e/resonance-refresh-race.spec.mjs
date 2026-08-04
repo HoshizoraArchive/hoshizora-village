@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const TEST_USER_ID = "11111111-1111-4111-8111-111111111111";
 const TEST_POST_ID = "22222222-2222-4222-8222-222222222222";
+const TEST_REVISION_EPOCH = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 function createUnsignedTestJwt(payload) {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -68,6 +69,61 @@ async function mockVillage(page, controls) {
 
     if (url.includes("/auth/v1/token")) {
       await fulfillJson(route, session);
+      return;
+    }
+
+    if (url.includes("/rest/v1/rpc/get_post_snapshots_v1")) {
+      await fulfillJson(route, [{
+        id: TEST_POST_ID,
+        post_id: TEST_POST_ID,
+        available: true,
+        tombstoned: false,
+        author_id: TEST_USER_ID,
+        type: "text",
+        body: "共鳴数の更新競合テスト",
+        visibility: "public",
+        deleted_at: null,
+        created_at: "2026-08-04T00:00:00.000Z",
+        revision_epoch: TEST_REVISION_EPOCH,
+        content_revision: "1",
+        assets_revision: "1",
+        viewer_context_revision: "1",
+        media_rows: [],
+        tag_rows: [],
+      }]);
+      return;
+    }
+
+    if (url.includes("/rest/v1/rpc/get_post_engagement_snapshots_v1")) {
+      await fulfillJson(route, [{
+        post_id: TEST_POST_ID,
+        revision_epoch: TEST_REVISION_EPOCH,
+        resonance_count: 5,
+        viewer_resonance_count: 5,
+        resonance_revision: "1",
+        is_archived: false,
+        archive_id: null,
+        archived_at: null,
+        archive_revision: "0",
+        viewer_context_revision: "1",
+      }]);
+      return;
+    }
+
+    if (url.includes("/rest/v1/rpc/get_star_thread_snapshots_v1")) {
+      await fulfillJson(route, [{
+        post_id: TEST_POST_ID,
+        revision_epoch: TEST_REVISION_EPOCH,
+        thread_revision: "1",
+        viewer_revision: "0",
+        viewer_context_revision: "1",
+        letters: [],
+      }]);
+      return;
+    }
+
+    if (url.includes("/rest/v1/rpc/get_archived_post_snapshots_v1")) {
+      await fulfillJson(route, []);
       return;
     }
 
