@@ -33,15 +33,22 @@
 }
 
 /*
- * My Universe の上部プロフィール領域だけを、左右対称にほぼ画面いっぱいへ広げる。
- * 画面中央基準ではなく、現在のコンテンツ位置からビューポート左端までの差分を
- * margin-left で相殺することで、左右とも約 12px の安全余白に揃える。
- * 投稿一覧や下部ナビの幅には影響させない。
+ * My Universe のプロフィールヒーローは、スマホでは画面端から画面端まで使う。
+ * unifiedFeedPolish.css の .profile-surface { margin-inline: .75rem } と
+ * Tailwind の p-4 による二重の左右余白を、この画面だけ解消する。
  */
-.my-universe-page .profile-surface {
-  width: calc(100vw - 24px);
-  max-width: 52rem;
-  margin-left: calc(50% - 50vw + 12px);
+@media (max-width: 639px) {
+  .my-universe-page .profile-surface {
+    width: 100vw;
+    max-width: none;
+    margin-right: calc(50% - 50vw);
+    margin-left: calc(50% - 50vw);
+  }
+
+  .my-universe-page .profile-surface > .p-4.pt-0 {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
 }
 
 .my-universe-page .profile-surface > .p-4.pt-0,
@@ -82,11 +89,6 @@
 }
 
 @media (min-width: 640px) {
-  .my-universe-page .profile-surface {
-    width: min(52rem, calc(100vw - 40px));
-    margin-left: calc(50% - 50vw + 20px);
-  }
-
   .page-intro {
     margin-inline: 1.25rem;
   }
