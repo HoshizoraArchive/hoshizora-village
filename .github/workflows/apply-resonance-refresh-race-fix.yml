@@ -1,0 +1,37 @@
+name: Apply resonance refresh race fix
+
+on:
+  push:
+    branches:
+      - fix/resonance-refresh-race-20260804
+    paths:
+      - scripts/apply-resonance-refresh-race-fix.mjs
+      - .github/workflows/apply-resonance-refresh-race-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[skip resonance race fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/resonance-refresh-race-20260804
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/apply-resonance-refresh-race-fix.mjs
+      - name: Commit App.jsx hotfix
+        run: |
+          if git diff --quiet -- src/App.jsx; then
+            echo "No App.jsx changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.jsx
+          git commit -m "観測更新で共鳴数が0へ戻る競合を修正 [skip resonance race fix]"
+          git push origin HEAD:fix/resonance-refresh-race-20260804
