@@ -32,6 +32,18 @@
   bottom: auto;
 }
 
+/*
+ * My Universe の上部プロフィール領域だけを、モバイルではほぼ画面いっぱいに広げる。
+ * 投稿一覧や下部ナビの幅には影響させない。
+ */
+.my-universe-page .profile-surface {
+  position: relative;
+  left: 50%;
+  width: calc(100vw - 24px);
+  max-width: 52rem;
+  transform: translateX(-50%);
+}
+
 .my-universe-page .profile-surface > .p-4.pt-0,
 .public-profile-page .profile-surface > .p-4.pt-0 {
   position: relative;
@@ -70,6 +82,10 @@
 }
 
 @media (min-width: 640px) {
+  .my-universe-page .profile-surface {
+    width: calc(100vw - 40px);
+  }
+
   .page-intro {
     margin-inline: 1.25rem;
   }
