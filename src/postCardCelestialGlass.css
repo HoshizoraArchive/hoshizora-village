@@ -161,3 +161,62 @@
     border-radius: calc(1.55rem - 2px);
   }
 }
+
+/*
+ * My Universe だけは「カード」ではなく、星空の上に流星便そのものを置く。
+ * 観測タイムラインなど他画面のガラスカードは上記デザインをそのまま維持する。
+ */
+.my-universe-page .post-card-panel,
+.my-universe-page .post-card-panel.is-clickable:hover,
+.my-universe-page .post-card-panel.is-clickable:focus-visible,
+.my-universe-page .post-card-panel.is-clickable:active {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  filter: none;
+}
+
+.my-universe-page .post-card-panel::before,
+.my-universe-page .post-card-panel::after {
+  display: none;
+}
+
+.my-universe-page .post-card-panel > .h-1 {
+  display: none;
+}
+
+.my-universe-page .post-card-panel .post-card-content {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* 本文は背景上でも読めるよう、面ではなく文字影だけを残す。 */
+.my-universe-page .post-card-panel .post-card-content > p.text-slate-100 {
+  text-shadow:
+    0 1px 8px rgb(0 5 20 / 0.58),
+    0 0 18px rgb(0 8 30 / 0.24);
+}
+
+/* 共鳴 / 星文 / Archive も「箱」を消して、文字とアイコンだけにする。 */
+.my-universe-page .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3),
+.my-universe-page .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):hover:not(:disabled),
+.my-universe-page .post-card-panel .post-card-content > .mt-5.flex.flex-wrap.gap-3 > button:nth-child(-n + 3):focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 自分の流星便に出る三点メニューも丸いガラス背景を外す。 */
+.my-universe-page .post-card-panel > .absolute.right-3.top-3 > button {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* カードがなくても流星便同士の呼吸は残す。 */
+.my-universe-page .content-feed-list > .post-card-panel + .post-card-panel {
+  margin-top: 1.5rem !important;
+}
