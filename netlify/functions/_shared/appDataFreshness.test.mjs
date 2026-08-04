@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
   APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS,
+  preservePostResonanceCounts,
   shouldRefreshAfterForeground,
 } from "../../../src/appDataFreshness.js";
 
@@ -38,6 +39,25 @@ test("共鳴・星文・Archive・投稿カード補助データは同じrevisio
   assert.equal(appSource.includes('.from("resonances")'), true);
   assert.equal(appSource.includes('.from("star_letters")'), true);
   assert.equal(appSource.includes('.from("archives")'), true);
+});
+
+test("投稿一覧再取得が後から完了しても、先に再取得した共鳴数を0で上書きしない", () => {
+  const currentPosts = [
+    { id: "post-1", text: "before", resonanceCount: 10 },
+    { id: "post-2", text: "before", resonanceCount: 3 },
+  ];
+  const refreshedPosts = [
+    { id: "post-1", text: "after", resonanceCount: 0 },
+    { id: "post-2", text: "after", resonanceCount: 0 },
+    { id: "post-3", text: "new", resonanceCount: 0 },
+  ];
+
+  assert.deepEqual(preservePostResonanceCounts(currentPosts, refreshedPosts), [
+    { id: "post-1", text: "after", resonanceCount: 10 },
+    { id: "post-2", text: "after", resonanceCount: 3 },
+    { id: "post-3", text: "new", resonanceCount: 0 },
+  ]);
+  assert.equal(appSource.includes("preservePostResonanceCounts(currentPosts, visiblePosts)"), true);
 });
 
 test("iPhone/PWA復帰は一定時間バックグラウンドだった場合だけ全データ再同期する", () => {
