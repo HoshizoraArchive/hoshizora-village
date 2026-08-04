@@ -61,15 +61,16 @@ test("My Universe uses the asterism navigation icon and keeps My Star Chart dist
   assert.equal(source.includes("My Star Chart"), true, "My Star Chart must remain available");
 });
 
-test("My Universe keeps its page heading and removes only the purple profile cover band", () => {
+test("My Universe keeps its heading, scopes the mobile full-bleed hero, and removes the purple cover band", () => {
   assert.match(mainSource, /import "\.\/myUniversePolish\.css";/);
   assert.match(source, /<PageIntro subtitle="わたしだけの宇宙" title="My Universe" \/>/);
   assert.match(source, /className="content-page my-universe-page mx-auto max-w-2xl"/);
   assert.match(source, /className="content-page public-profile-page mx-auto max-w-3xl"/);
-  assert.doesNotMatch(
+  assert.match(
     myUniverseCssSource,
-    /\.my-universe-page > \.page-intro|\.public-profile-page > \.content-flow > \.page-intro/,
+    /@media \(max-width: 639px\) \{[\s\S]*\.my-universe-page > \.page-intro \{[\s\S]*width: 100vw;/,
   );
+  assert.doesNotMatch(myUniverseCssSource, /\.public-profile-page > \.content-flow > \.page-intro/);
   assert.match(
     myUniverseCssSource,
     /\.my-universe-page \.profile-card-header > div:first-child,[\s\S]*display: none/,
