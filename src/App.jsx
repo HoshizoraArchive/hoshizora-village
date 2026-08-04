@@ -87,7 +87,11 @@ import {
   runObserveTimelineSingleFlight,
   shouldTriggerObservePullRefresh,
 } from "./observeTimelineRefresh";
-import { APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS, shouldRefreshAfterForeground } from "./appDataFreshness";
+import {
+  APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS,
+  preservePostResonanceCounts,
+  shouldRefreshAfterForeground,
+} from "./appDataFreshness";
 import {
   BLACK_HOLE_ERROR_MESSAGE,
   BLACK_HOLE_RESTORE_ERROR_MESSAGE,
@@ -4077,11 +4081,10 @@ function App() {
           logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
         }
 
-        setSavedPosts(
-          hydratedPosts.filter(
-            (post) => !isProfileBlocked(blockedProfileIdsRef.current, post.authorId),
-          ),
+        const visiblePosts = hydratedPosts.filter(
+          (post) => !isProfileBlocked(blockedProfileIdsRef.current, post.authorId),
         );
+        setSavedPosts((currentPosts) => preservePostResonanceCounts(currentPosts, visiblePosts));
         return true;
       } catch (error) {
         if (appMountedRef.current) {
