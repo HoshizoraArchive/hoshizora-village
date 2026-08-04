@@ -33,15 +33,15 @@
 }
 
 /*
- * My Universe の上部プロフィール領域だけを、モバイルではほぼ画面いっぱいに広げる。
+ * My Universe の上部プロフィール領域だけを、左右対称にほぼ画面いっぱいへ広げる。
+ * 画面中央基準ではなく、現在のコンテンツ位置からビューポート左端までの差分を
+ * margin-left で相殺することで、左右とも約 12px の安全余白に揃える。
  * 投稿一覧や下部ナビの幅には影響させない。
  */
 .my-universe-page .profile-surface {
-  position: relative;
-  left: 50%;
   width: calc(100vw - 24px);
   max-width: 52rem;
-  transform: translateX(-50%);
+  margin-left: calc(50% - 50vw + 12px);
 }
 
 .my-universe-page .profile-surface > .p-4.pt-0,
@@ -83,7 +83,8 @@
 
 @media (min-width: 640px) {
   .my-universe-page .profile-surface {
-    width: calc(100vw - 40px);
+    width: min(52rem, calc(100vw - 40px));
+    margin-left: calc(50% - 50vw + 20px);
   }
 
   .page-intro {
