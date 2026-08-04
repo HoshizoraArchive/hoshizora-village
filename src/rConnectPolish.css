@@ -1,0 +1,101 @@
+/*
+ * R.Connect cardless presentation.
+ *
+ * This file intentionally changes presentation only. The notification permission,
+ * device registration, re-registration, test delivery, notification actions, and
+ * disabled states remain owned by the existing React / push code.
+ *
+ * The scope identifies the current R.Connect glass panel by its direct
+ * normal-case eyebrow. Placeholder panels use an uppercase eyebrow, so this does
+ * not flatten unrelated screens.
+ */
+
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Keep the page identity readable directly on the village sky. */
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) > p,
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) > h2 {
+  text-shadow:
+    0 1px 8px rgb(0 5 20 / 0.7),
+    0 0 20px rgb(0 8 30 / 0.3);
+}
+
+/*
+ * Remove only the Smart Notification Test container.
+ * Its four operational buttons are deliberately not styled here so their
+ * affordance, hover/disabled states, and click behavior stay exactly as-is.
+ */
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) > section.mt-5 {
+  border: 0;
+  border-top: 1px solid rgb(210 232 255 / 0.09);
+  border-bottom: 1px solid rgb(210 232 255 / 0.07);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* Readability for explanatory and notification text without adding a panel. */
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) .text-slate-200 {
+  color: rgb(235 243 255 / 0.96) !important;
+  text-shadow: 0 1px 8px rgb(0 5 20 / 0.58);
+}
+
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) .text-slate-300 {
+  color: rgb(218 231 249 / 0.94) !important;
+  text-shadow: 0 1px 8px rgb(0 5 20 / 0.56);
+}
+
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) .text-slate-400 {
+  color: rgb(194 214 240 / 0.9) !important;
+  text-shadow: 0 1px 7px rgb(0 5 20 / 0.52);
+}
+
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) .text-slate-500 {
+  color: rgb(168 193 226 / 0.82) !important;
+  text-shadow: 0 1px 7px rgb(0 5 20 / 0.5);
+}
+
+/* Logged-out, loading/message, and empty states become text-only. */
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) > div.mt-5.rounded-2xl,
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) > div.mt-5.space-y-3 > p.rounded-2xl,
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)) > div.mt-5.space-y-3 > div.rounded-2xl {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* Notification records lose their card surface, not their controls. */
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case))
+  > div.mt-5.space-y-3
+  > div.space-y-3
+  > article {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* Use breathing room and a faint divider instead of a notification card. */
+:where(main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case))
+  > div.mt-5.space-y-3
+  > div.space-y-3
+  > article
+  + article {
+  margin-top: 1.35rem !important;
+  padding-top: 1.35rem;
+  border-top: 1px solid rgb(210 232 255 / 0.08);
+}
