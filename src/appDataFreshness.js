@@ -19,3 +19,21 @@ export function shouldRefreshAfterForeground({
 
   return true;
 }
+
+export function preservePostResonanceCounts(currentPosts = [], refreshedPosts = []) {
+  const currentById = new Map(currentPosts.map((post) => [post?.id, post]));
+
+  return refreshedPosts.map((post) => {
+    const currentPost = currentById.get(post?.id);
+    const currentCount = Number(currentPost?.resonanceCount);
+
+    if (!currentPost || !Number.isFinite(currentCount) || currentCount < 0) {
+      return post;
+    }
+
+    return {
+      ...post,
+      resonanceCount: currentCount,
+    };
+  });
+}
