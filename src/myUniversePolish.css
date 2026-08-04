@@ -33,11 +33,23 @@
 }
 
 /*
- * My Universe のプロフィールヒーローは、スマホでは画面端から画面端まで使う。
- * unifiedFeedPolish.css の .profile-surface { margin-inline: .75rem } と
- * Tailwind の p-4 による二重の左右余白を、この画面だけ解消する。
+ * My Universe の見出し〜プロフィールヒーローを、スマホではひと続きの
+ * フルブリード領域として扱う。app-main-content の px-3 / py-3 をこの画面だけ
+ * 外側へ逃がし、上端と左右端まで星空を大きく見せる。
  */
 @media (max-width: 639px) {
+  .my-universe-page > .page-intro {
+    box-sizing: border-box;
+    width: 100vw;
+    margin-top: -0.75rem;
+    margin-right: calc(50% - 50vw);
+    margin-bottom: 1.25rem;
+    margin-left: calc(50% - 50vw);
+    padding-top: calc(env(safe-area-inset-top) + 0.75rem);
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+
   .my-universe-page .profile-surface {
     width: 100vw;
     max-width: none;
