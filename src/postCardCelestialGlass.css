@@ -179,6 +179,12 @@
   filter: none;
 }
 
+/* カードレスでもキーボード操作時の現在位置は失わせない。 */
+.my-universe-page .post-card-panel.is-clickable:focus-visible {
+  outline: 2px solid rgb(125 223 255 / 0.58);
+  outline-offset: 4px;
+}
+
 .my-universe-page .post-card-panel::before,
 .my-universe-page .post-card-panel::after {
   display: none;
