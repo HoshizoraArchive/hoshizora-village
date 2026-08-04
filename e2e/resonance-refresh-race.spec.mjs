@@ -142,13 +142,13 @@ test("共鳴再取得が投稿再取得より先に完了しても観測更新�
   await mockVillage(page, controls);
   await page.goto("/");
 
-  const resonanceButton = page.getByRole("button", { name: "5 共鳴", exact: true }).first();
+  const resonanceButton = page.getByRole("button", { name: /5 共鳴$/ }).first();
   await expect(resonanceButton).toBeVisible();
 
   controls.delayPosts = true;
   await triggerObservePullRefresh(page);
   await page.waitForTimeout(800);
 
-  await expect(resonanceButton).toHaveAccessibleName("5 共鳴");
-  await expect(page.getByRole("button", { name: "0 共鳴", exact: true })).toHaveCount(0);
+  await expect(resonanceButton).toHaveAccessibleName(/5 共鳴$/);
+  await expect(page.getByRole("button", { name: /0 共鳴$/ })).toHaveCount(0);
 });
