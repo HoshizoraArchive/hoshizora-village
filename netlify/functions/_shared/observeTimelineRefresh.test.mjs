@@ -7,6 +7,7 @@ import {
   getObservePullGesture,
   isPublicPostNewer,
   isUnseenPublicTimelinePost,
+  runLatestQueuedOperation,
   runObserveTimelineSingleFlight,
   shouldTriggerObservePullRefresh,
 } from "../../../src/observeTimelineRefresh.js";
@@ -39,6 +40,11 @@ test("observe pull refresh waits for the vertical threshold and ignores horizont
   assert.equal(readyGesture.ready, true);
   assert.equal(shouldTriggerObservePullRefresh({ gesture: readyGesture }), true);
   assert.equal(shouldTriggerObservePullRefresh({ gesture: readyGesture, triggered: true }), false);
+  assert.equal(shouldTriggerObservePullRefresh({ gesture: readyGesture, refreshing: true }), false);
+  assert.equal(
+    shouldTriggerObservePullRefresh({ allowQueued: true, gesture: readyGesture, refreshing: true }),
+    true,
+  );
   assert.equal(horizontalGesture.distance, 0);
   assert.equal(horizontalGesture.ready, false);
 });
@@ -119,6 +125,30 @@ test("observe focus and visible returns check immediately while keeping one fres
   );
   assert.match(appSource, /const ensurePollingStarted = \(\) => \{[\s\S]*pollTimer === null/);
   assert.match(appSource, /runObserveTimelineSingleFlight\(publicPostsFreshnessCheckInFlightRef/);
+});
+
+test("observe full refresh coalesces overlap into one latest queued rerun", async () => {
+  let releaseFirst;
+  const calls = [];
+  const queueRef = { current: { pendingOperation: null, promise: null } };
+  const first = runLatestQueuedOperation(queueRef, async () => {
+    calls.push("first");
+    await new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    return false;
+  });
+  const overlapping = runLatestQueuedOperation(queueRef, async () => {
+    calls.push("latest");
+    return true;
+  });
+
+  assert.equal(first, overlapping);
+  assert.deepEqual(calls, ["first"]);
+  releaseFirst();
+  assert.equal(await overlapping, true);
+  assert.deepEqual(calls, ["first", "latest"]);
+  assert.equal(queueRef.current.promise, null);
 });
 
 test("observe refresh banner reloads without shifting readers until they choose it", () => {

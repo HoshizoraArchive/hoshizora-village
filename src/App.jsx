@@ -84,12 +84,14 @@ import {
   isInteractiveObserveTimelineTarget,
   isPublicPostNewer,
   isUnseenPublicTimelinePost,
+  runLatestQueuedOperation,
   runObserveTimelineSingleFlight,
   shouldTriggerObservePullRefresh,
 } from "./observeTimelineRefresh";
 import {
   APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS,
-  preservePostResonanceCounts,
+  createEntityRequestVersionStore,
+  reconcileRefreshedPosts,
   shouldRefreshAfterForeground,
 } from "./appDataFreshness";
 import {
@@ -1843,8 +1845,16 @@ function App() {
   const [timelinePullDistance, setTimelinePullDistance] = useState(0);
   const [timelineHasNewPosts, setTimelineHasNewPosts] = useState(false);
   const [serverDataRevision, setServerDataRevision] = useState(0);
+  const [resonanceDataRevision, setResonanceDataRevision] = useState(0);
+  const [starLetterDataRevision, setStarLetterDataRevision] = useState(0);
   const publicPostsRefreshInFlightRef = useRef(false);
+  const publicPostsRefreshQueueRef = useRef({ pendingOperation: null, promise: null });
   const publicPostsFreshnessCheckInFlightRef = useRef(false);
+  const postMutationVersionRef = useRef(0);
+  const resonanceMutationVersionRef = useRef(0);
+  const resonanceCountsByPostRef = useRef(new Map());
+  const resonanceRequestVersionsRef = useRef(createEntityRequestVersionStore());
+  const archiveRequestVersionRef = useRef(0);
   const publicTimelineKnownPostIdsRef = useRef(new Set());
   const publicTimelineTopPostRef = useRef(null);
   const isObserveTimelineActiveRef = useRef(false);
@@ -1926,6 +1936,9 @@ function App() {
   const [starLetterArchivingIds, setStarLetterArchivingIds] = useState(() => new Set());
   const [highlightedStarLetterId, setHighlightedStarLetterId] = useState(null);
   const starLetterRequestIdsRef = useRef(createOperationRequestIdStore());
+  const starLetterRequestVersionsRef = useRef(createEntityRequestVersionStore());
+  const starLetterMutationVersionRef = useRef(0);
+  const archivedStarLettersRequestVersionRef = useRef(0);
   const [feedbackType, setFeedbackType] = useState(FEEDBACK_TYPES[0]);
   const [feedbackBody, setFeedbackBody] = useState("");
   const [feedbackSaving, setFeedbackSaving] = useState(false);
@@ -1935,12 +1948,8 @@ function App() {
   const detailStarLetterId = route.name === "meteor" ? route.starLetterId ?? null : null;
   const publicProfileUsername = route.name === "starProfile" ? route.username : null;
   const meteorTagRouteName = route.name === "meteorTag" ? route.tagName : null;
-  const postIdsKey = savedPosts.map((post) => post.id).filter(Boolean).join("|");
   const ownPostIdsKey = ownPosts.map((post) => post.id).filter(Boolean).join("|");
-  const resonatedPostIdsKey = resonatedPosts.map((post) => post.id).filter(Boolean).join("|");
   const archivedPostIdsKey = archivedPosts.map((post) => post.id).filter(Boolean).join("|");
-  const publicProfilePostIdsKey = publicProfilePosts.map((post) => post.id).filter(Boolean).join("|");
-  const meteorTagPostIdsKey = meteorTagPosts.map((post) => post.id).filter(Boolean).join("|");
   const allPostIdsKey = [
     ...new Set(
       [...savedPosts, ...ownPosts, ...resonatedPosts, ...archivedPosts, ...publicProfilePosts, ...meteorTagPosts, detailPost]
@@ -2013,6 +2022,11 @@ function App() {
       }
     };
   }, [postCoverCropPreviewUrl]);
+
+  useEffect(() => {
+    starLetterRequestVersionsRef.current = createEntityRequestVersionStore();
+    resonanceRequestVersionsRef.current = createEntityRequestVersionStore();
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (!detailPostId || !detailStarLetterId) {
@@ -2450,13 +2464,17 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
-    const postIds = postIdsKey ? postIdsKey.split("|") : [];
+    const postIds = allPostIdsKey ? allPostIdsKey.split("|") : [];
 
     if (postIds.length === 0) {
       return () => {
         isMounted = false;
       };
     }
+
+    const requestTokens = resonanceRequestVersionsRef.current.begin(postIds);
+    const hasCurrentRequest = () =>
+      postIds.some((postId) => resonanceRequestVersionsRef.current.isCurrent(requestTokens, postId));
 
     async function readResonances() {
       setResonanceError("");
@@ -2471,6 +2489,10 @@ function App() {
       }
 
       if (error) {
+        if (!hasCurrentRequest()) {
+          return;
+        }
+
         setResonanceError(getUserFacingError(error, ERROR_OPERATION.RESONANCE_LOAD));
         return;
       }
@@ -2481,12 +2503,7 @@ function App() {
         countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
       }
 
-      setSavedPosts((currentPosts) =>
-        currentPosts.map((post) => ({
-          ...post,
-          resonanceCount: countsByPost.get(post.id) ?? 0,
-        })),
-      );
+      applyResonanceCountsEverywhere(postIds, countsByPost, requestTokens);
     }
 
     readResonances();
@@ -2494,248 +2511,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [postIdsKey, serverDataRevision]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const postIds = ownPostIdsKey ? ownPostIdsKey.split("|") : [];
-
-    if (postIds.length === 0) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function readOwnPostResonances() {
-      const { data, error } = await supabase
-        .from("resonances")
-        .select("id, post_id, profile_id")
-        .in("post_id", postIds);
-
-      if (!isMounted || error) {
-        return;
-      }
-
-      const countsByPost = new Map();
-
-      for (const resonance of data ?? []) {
-        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
-      }
-
-      setOwnPosts((currentPosts) =>
-        currentPosts.map((post) => ({
-          ...post,
-          resonanceCount: countsByPost.get(post.id) ?? 0,
-        })),
-      );
-    }
-
-    readOwnPostResonances();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [ownPostIdsKey, serverDataRevision]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const postIds = resonatedPostIdsKey ? resonatedPostIdsKey.split("|") : [];
-
-    if (postIds.length === 0) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function readResonatedPostResonances() {
-      const { data, error } = await supabase
-        .from("resonances")
-        .select("id, post_id, profile_id")
-        .in("post_id", postIds);
-
-      if (!isMounted || error) {
-        return;
-      }
-
-      const countsByPost = new Map();
-
-      for (const resonance of data ?? []) {
-        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
-      }
-
-      setResonatedPosts((currentPosts) =>
-        currentPosts.map((post) => ({
-          ...post,
-          resonanceCount: countsByPost.get(post.id) ?? 0,
-        })),
-      );
-    }
-
-    readResonatedPostResonances();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [resonatedPostIdsKey, serverDataRevision]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const postIds = archivedPostIdsKey ? archivedPostIdsKey.split("|") : [];
-
-    if (postIds.length === 0) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function readArchivedPostResonances() {
-      const { data, error } = await supabase
-        .from("resonances")
-        .select("id, post_id, profile_id")
-        .in("post_id", postIds);
-
-      if (!isMounted || error) {
-        return;
-      }
-
-      const countsByPost = new Map();
-
-      for (const resonance of data ?? []) {
-        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
-      }
-
-      setArchivedPosts((currentPosts) =>
-        currentPosts.map((post) => ({
-          ...post,
-          resonanceCount: countsByPost.get(post.id) ?? 0,
-        })),
-      );
-    }
-
-    readArchivedPostResonances();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [archivedPostIdsKey, serverDataRevision]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const postIds = publicProfilePostIdsKey ? publicProfilePostIdsKey.split("|") : [];
-
-    if (postIds.length === 0) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function readPublicProfilePostResonances() {
-      const { data, error } = await supabase
-        .from("resonances")
-        .select("id, post_id, profile_id")
-        .in("post_id", postIds);
-
-      if (!isMounted || error) {
-        return;
-      }
-
-      const countsByPost = new Map();
-
-      for (const resonance of data ?? []) {
-        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
-      }
-
-      setPublicProfilePosts((currentPosts) =>
-        currentPosts.map((post) => ({
-          ...post,
-          resonanceCount: countsByPost.get(post.id) ?? 0,
-        })),
-      );
-    }
-
-    readPublicProfilePostResonances();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [publicProfilePostIdsKey, serverDataRevision]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const postIds = meteorTagPostIdsKey ? meteorTagPostIdsKey.split("|") : [];
-
-    if (postIds.length === 0) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function readMeteorTagPostResonances() {
-      const { data, error } = await supabase
-        .from("resonances")
-        .select("id, post_id, profile_id")
-        .in("post_id", postIds);
-
-      if (!isMounted || error) {
-        return;
-      }
-
-      const countsByPost = new Map();
-
-      for (const resonance of data ?? []) {
-        countsByPost.set(resonance.post_id, (countsByPost.get(resonance.post_id) ?? 0) + 1);
-      }
-
-      setMeteorTagPosts((currentPosts) =>
-        currentPosts.map((post) => ({
-          ...post,
-          resonanceCount: countsByPost.get(post.id) ?? 0,
-        })),
-      );
-    }
-
-    readMeteorTagPostResonances();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [meteorTagPostIdsKey, serverDataRevision]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!detailPost?.id) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    async function readDetailPostResonances() {
-      const { count, error } = await supabase
-        .from("resonances")
-        .select("id", { count: "exact", head: true })
-        .eq("post_id", detailPost.id);
-
-      if (!isMounted || error) {
-        return;
-      }
-
-      setDetailPost((currentPost) =>
-        currentPost?.id === detailPost.id
-          ? {
-              ...currentPost,
-              resonanceCount: count ?? 0,
-            }
-          : currentPost,
-      );
-    }
-
-    readDetailPostResonances();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [detailPost?.id, serverDataRevision]);
+  }, [allPostIdsKey, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3059,6 +2835,8 @@ function App() {
       };
     }
 
+    const requestedPostMutationVersion = postMutationVersionRef.current;
+
     async function readDetailPost() {
       setDetailPostLoading(true);
       setDetailPostError("");
@@ -3068,6 +2846,11 @@ function App() {
       );
 
       if (!isMounted) {
+        return;
+      }
+
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setDetailPostLoading(false);
         return;
       }
 
@@ -3094,6 +2877,11 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setDetailPostLoading(false);
+        return;
+      }
+
       const knownPost =
         detailPost?.id === post.id
           ? detailPost
@@ -3111,11 +2899,22 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setDetailPostLoading(false);
+        return;
+      }
+
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
         logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
-      setDetailPost(hydratedPosts[0] ?? basePost);
+      const refreshedPost = hydratedPosts[0] ?? basePost;
+      setDetailPost((currentPost) =>
+        reconcilePostSnapshots(
+          currentPost?.id === refreshedPost.id ? [currentPost] : knownPost ? [knownPost] : [],
+          [refreshedPost],
+        )[0],
+      );
       setDetailPostLoading(false);
     }
 
@@ -3124,7 +2923,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [detailPostId, profileFrames]);
+  }, [detailPostId, profileFrames, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3139,6 +2938,9 @@ function App() {
         isMounted = false;
       };
     }
+
+    const requestedPostMutationVersion = postMutationVersionRef.current;
+    const preserveExistingProfile = publicProfile?.username === publicProfileUsername;
 
     async function readPublicProfile() {
       setPublicProfileLoading(true);
@@ -3156,10 +2958,17 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setPublicProfileLoading(false);
+        return;
+      }
+
       if (profileError) {
-        setPublicProfile(null);
-        setPublicProfileTags([]);
-        setPublicProfilePosts([]);
+        if (!preserveExistingProfile) {
+          setPublicProfile(null);
+          setPublicProfileTags([]);
+          setPublicProfilePosts([]);
+        }
         setPublicProfileLoading(false);
         setPublicProfileError(getUserFacingError(profileError, ERROR_OPERATION.PROFILE_LOAD));
         return;
@@ -3189,6 +2998,11 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setPublicProfileLoading(false);
+        return;
+      }
+
       const { data: postRows, error: postsError } = await runPostQuery((columns, supportsSoftDelete) => {
         let query = supabase
           .from("posts")
@@ -3209,10 +3023,17 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setPublicProfileLoading(false);
+        return;
+      }
+
       if (postsError) {
         setPublicProfile(nextPublicProfile);
         setPublicProfileTags(tagRows ?? []);
-        setPublicProfilePosts([]);
+        if (!preserveExistingProfile) {
+          setPublicProfilePosts([]);
+        }
         setPublicProfileLoading(false);
         setPublicProfileError(getUserFacingError(postsError, ERROR_OPERATION.POST_LOAD));
         return;
@@ -3225,13 +3046,18 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setPublicProfileLoading(false);
+        return;
+      }
+
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
         logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
       setPublicProfile(nextPublicProfile);
       setPublicProfileTags(tagRows ?? []);
-      setPublicProfilePosts(hydratedPosts);
+      setPublicProfilePosts((currentPosts) => reconcilePostSnapshots(currentPosts, hydratedPosts));
       setPublicProfileLoading(false);
     }
 
@@ -3240,7 +3066,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [publicProfileUsername, profileFrames]);
+  }, [publicProfileUsername, profileFrames, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3254,6 +3080,8 @@ function App() {
         isMounted = false;
       };
     }
+
+    const requestedPostMutationVersion = postMutationVersionRef.current;
 
     async function readMeteorTagPosts() {
       setMeteorTagLoading(true);
@@ -3383,11 +3211,16 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setMeteorTagLoading(false);
+        return;
+      }
+
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
         logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
-      setMeteorTagPosts(hydratedPosts);
+      setMeteorTagPosts((currentPosts) => reconcilePostSnapshots(currentPosts, hydratedPosts));
       setMeteorTagLoading(false);
       setMeteorTagError("");
     }
@@ -3412,6 +3245,10 @@ function App() {
       };
     }
 
+    const requestTokens = starLetterRequestVersionsRef.current.begin(postIds);
+    const hasCurrentRequest = () =>
+      postIds.some((postId) => starLetterRequestVersionsRef.current.isCurrent(requestTokens, postId));
+
     async function readStarLetters() {
       setStarLettersLoading(true);
       setStarLettersError("");
@@ -3429,6 +3266,10 @@ function App() {
       }
 
       if (error) {
+        if (!hasCurrentRequest()) {
+          return;
+        }
+
         setStarLettersLoading(false);
         setStarLettersError(getUserFacingError(error, ERROR_OPERATION.STAR_LETTER_LOAD));
         return;
@@ -3460,7 +3301,20 @@ function App() {
         nextLettersByPostId[letter.post_id] = [...(nextLettersByPostId[letter.post_id] ?? []), mappedLetter];
       }
 
-      setStarLettersByPostId(nextLettersByPostId);
+      setStarLettersByPostId((currentLettersByPostId) => {
+        const activePostIds = new Set(postIds);
+        const nextState = Object.fromEntries(
+          Object.entries(currentLettersByPostId).filter(([postId]) => activePostIds.has(postId)),
+        );
+
+        for (const postId of postIds) {
+          if (starLetterRequestVersionsRef.current.isCurrent(requestTokens, postId)) {
+            nextState[postId] = nextLettersByPostId[postId] ?? [];
+          }
+        }
+
+        return nextState;
+      });
       setStarLettersLoading(false);
     }
 
@@ -3483,6 +3337,8 @@ function App() {
         isMounted = false;
       };
     }
+
+    const requestedPostMutationVersion = postMutationVersionRef.current;
 
     async function readOwnPosts() {
       setOwnPostsLoading(true);
@@ -3516,11 +3372,15 @@ function App() {
         return;
       }
 
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        return;
+      }
+
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
         logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
-      setOwnPosts(hydratedPosts);
+      setOwnPosts((currentPosts) => reconcilePostSnapshots(currentPosts, hydratedPosts));
     }
 
     readOwnPosts();
@@ -3528,7 +3388,15 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profile?.display_name, profile?.username, profile?.avatar_url, profile?.active_frame_id, profileFrames]);
+  }, [
+    session?.user?.id,
+    profile?.display_name,
+    profile?.username,
+    profile?.avatar_url,
+    profile?.active_frame_id,
+    profileFrames,
+    serverDataRevision,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3546,6 +3414,9 @@ function App() {
       };
     }
 
+    const requestedResonanceMutationVersion = resonanceMutationVersionRef.current;
+    const requestedPostMutationVersion = postMutationVersionRef.current;
+
     async function readResonatedPosts() {
       setResonatedPostsLoading(true);
       setResonatedPostsError("");
@@ -3558,6 +3429,11 @@ function App() {
         .limit(30);
 
       if (!isMounted) {
+        return;
+      }
+
+      if (requestedResonanceMutationVersion !== resonanceMutationVersionRef.current) {
+        setResonatedPostsLoading(false);
         return;
       }
 
@@ -3586,6 +3462,11 @@ function App() {
       });
 
       if (!isMounted) {
+        return;
+      }
+
+      if (requestedResonanceMutationVersion !== resonanceMutationVersionRef.current) {
+        setResonatedPostsLoading(false);
         return;
       }
 
@@ -3645,11 +3526,21 @@ function App() {
         return;
       }
 
+      if (requestedResonanceMutationVersion !== resonanceMutationVersionRef.current) {
+        setResonatedPostsLoading(false);
+        return;
+      }
+
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setResonatedPostsLoading(false);
+        return;
+      }
+
       if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
         logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
-      setResonatedPosts(hydratedPosts);
+      setResonatedPosts((currentPosts) => reconcilePostSnapshots(currentPosts, hydratedPosts));
       setResonatedPostsLoading(false);
     }
 
@@ -3658,7 +3549,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [activeTab, session?.user?.id, profileFrames]);
+  }, [activeTab, session?.user?.id, profileFrames, resonanceDataRevision, serverDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3675,6 +3566,24 @@ function App() {
         isMounted = false;
       };
     }
+
+    const requestedPostMutationVersion = postMutationVersionRef.current;
+    const requestedStarLetterMutationVersion = starLetterMutationVersionRef.current;
+    const isCurrentMutationGeneration = () =>
+      requestedPostMutationVersion === postMutationVersionRef.current &&
+      requestedStarLetterMutationVersion === starLetterMutationVersionRef.current;
+    const shouldAbortRequest = () => {
+      if (!isMounted) {
+        return true;
+      }
+
+      if (!isCurrentMutationGeneration()) {
+        setSentStarLettersLoading(false);
+        return true;
+      }
+
+      return false;
+    };
 
     async function readSentStarLetters() {
       setSentStarLettersLoading(true);
@@ -3693,7 +3602,7 @@ function App() {
         return query.order("created_at", { ascending: false }).limit(50);
       });
 
-      if (!isMounted) {
+      if (shouldAbortRequest()) {
         return;
       }
 
@@ -3718,7 +3627,7 @@ function App() {
           return query;
         });
 
-        if (!isMounted) {
+        if (shouldAbortRequest()) {
           return;
         }
 
@@ -3741,7 +3650,7 @@ function App() {
             PROFILE_BASIC_SELECT_COLUMNS,
           );
 
-          if (!isMounted) {
+          if (shouldAbortRequest()) {
             return;
           }
 
@@ -3757,19 +3666,35 @@ function App() {
         }
       }
 
-      setSentStarLetters(
-        (letterRows ?? []).map((letter) => {
-          const sourcePostRow = postsById.get(letter.post_id);
-          const sourcePost = sourcePostRow
-            ? mapSavedPost(sourcePostRow, profilesById.get(sourcePostRow.author_id), profileFrames)
-            : null;
+      if (shouldAbortRequest()) {
+        return;
+      }
 
-          return {
-            ...mapStarLetter(letter, profile, profileFrames),
-            sourcePost,
-          };
-        }),
-      );
+      const nextLetters = (letterRows ?? []).map((letter) => {
+        const sourcePostRow = postsById.get(letter.post_id);
+        const sourcePost = sourcePostRow
+          ? mapSavedPost(sourcePostRow, profilesById.get(sourcePostRow.author_id), profileFrames)
+          : null;
+
+        return {
+          ...mapStarLetter(letter, profile, profileFrames),
+          sourcePost,
+        };
+      });
+      setSentStarLetters((currentLetters) => {
+        const currentSourcePosts = currentLetters.map((letter) => letter.sourcePost).filter(Boolean);
+        const refreshedSourcePosts = nextLetters.map((letter) => letter.sourcePost).filter(Boolean);
+        const reconciledSourcesById = new Map(
+          reconcilePostSnapshots(currentSourcePosts, refreshedSourcePosts).map((post) => [post.id, post]),
+        );
+
+        return nextLetters.map((letter) => ({
+          ...letter,
+          sourcePost: letter.sourcePost
+            ? reconciledSourcesById.get(letter.sourcePost.id) ?? letter.sourcePost
+            : null,
+        }));
+      });
       setSentStarLettersLoading(false);
     }
 
@@ -3786,6 +3711,8 @@ function App() {
     profile?.avatar_url,
     profile?.active_frame_id,
     profileFrames,
+    serverDataRevision,
+    starLetterDataRevision,
   ]);
 
   useEffect(() => {
@@ -3803,6 +3730,12 @@ function App() {
       };
     }
 
+    const requestVersion = archiveRequestVersionRef.current + 1;
+    archiveRequestVersionRef.current = requestVersion;
+    const requestedPostMutationVersion = postMutationVersionRef.current;
+    const isCurrentRequest = () =>
+      isMounted && requestVersion === archiveRequestVersionRef.current;
+
     async function readArchivedPosts() {
       setArchivesLoading(true);
       setArchivesError("");
@@ -3813,7 +3746,7 @@ function App() {
         .eq("profile_id", userId)
         .order("created_at", { ascending: false });
 
-      if (!isMounted) {
+      if (!isCurrentRequest()) {
         return;
       }
 
@@ -3841,7 +3774,7 @@ function App() {
         return query;
       });
 
-      if (!isMounted) {
+      if (!isCurrentRequest()) {
         return;
       }
 
@@ -3861,7 +3794,7 @@ function App() {
           PROFILE_BASIC_SELECT_COLUMNS,
         );
 
-        if (!isMounted) {
+        if (!isCurrentRequest()) {
           return;
         }
 
@@ -3876,7 +3809,7 @@ function App() {
         }
       }
 
-      if (!isMounted) {
+      if (!isCurrentRequest()) {
         return;
       }
 
@@ -3889,7 +3822,12 @@ function App() {
         .filter(Boolean);
       const { posts: hydratedArchives, error: assetsError } = await hydratePostsWithAssets(mappedArchives);
 
-      if (!isMounted) {
+      if (!isCurrentRequest()) {
+        return;
+      }
+
+      if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+        setArchivesLoading(false);
         return;
       }
 
@@ -3897,7 +3835,7 @@ function App() {
         logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
       }
 
-      setArchivedPosts(hydratedArchives);
+      setArchivedPosts((currentPosts) => reconcilePostSnapshots(currentPosts, hydratedArchives));
       setArchivesLoading(false);
     }
 
@@ -3914,7 +3852,7 @@ function App() {
     }
 
     void refreshArchivedStarLetters();
-  }, [activeTab, session?.user?.id, profileFrames]);
+  }, [activeTab, session?.user?.id, profileFrames, serverDataRevision, starLetterDataRevision]);
 
   useEffect(() => {
     let isMounted = true;
@@ -4011,11 +3949,8 @@ function App() {
   }, []);
 
   const refreshPublicPosts = useCallback(
-    async ({ initial = false } = {}) => {
-      if (publicPostsRefreshInFlightRef.current) {
-        return false;
-      }
-
+    ({ initial = false } = {}) => runLatestQueuedOperation(publicPostsRefreshQueueRef, async () => {
+      const requestedPostMutationVersion = postMutationVersionRef.current;
       publicPostsRefreshInFlightRef.current = true;
       const isInitialLoad = initial && publicTimelineKnownPostIdsRef.current.size === 0;
 
@@ -4077,6 +4012,10 @@ function App() {
           return false;
         }
 
+        if (requestedPostMutationVersion !== postMutationVersionRef.current) {
+          return false;
+        }
+
         if (assetsError && !isMissingPostMediaError(assetsError) && !isMissingMeteorTagsError(assetsError)) {
           logSafeError(ERROR_OPERATION.MEDIA_LOAD, assetsError);
         }
@@ -4084,7 +4023,7 @@ function App() {
         const visiblePosts = hydratedPosts.filter(
           (post) => !isProfileBlocked(blockedProfileIdsRef.current, post.authorId),
         );
-        setSavedPosts((currentPosts) => preservePostResonanceCounts(currentPosts, visiblePosts));
+        setSavedPosts((currentPosts) => reconcilePostSnapshots(currentPosts, visiblePosts));
         return true;
       } catch (error) {
         if (appMountedRef.current) {
@@ -4100,7 +4039,7 @@ function App() {
           setTimelineRefreshing(false);
         }
       }
-    },
+    }),
     [profileFrames],
   );
 
@@ -4338,7 +4277,14 @@ function App() {
     };
 
     const handleTouchEnd = () => {
-      if (shouldTriggerObservePullRefresh({ gesture, refreshing: publicPostsRefreshInFlightRef.current, triggered })) {
+      if (
+        shouldTriggerObservePullRefresh({
+          allowQueued: true,
+          gesture,
+          refreshing: publicPostsRefreshInFlightRef.current,
+          triggered,
+        })
+      ) {
         triggered = true;
         void refreshObserveTimeline();
       }
@@ -4439,10 +4385,13 @@ function App() {
       }
 
       const targetPost = hydratedPosts[0] ?? basePost;
-      setSavedPosts((currentPosts) => [
-        targetPost,
-        ...currentPosts.filter((currentPost) => currentPost.id !== targetPost.id),
-      ]);
+      setSavedPosts((currentPosts) => {
+        const reconciledTarget = reconcilePostSnapshots(currentPosts, [targetPost])[0] ?? targetPost;
+        return [
+          reconciledTarget,
+          ...currentPosts.filter((currentPost) => currentPost.id !== targetPost.id),
+        ];
+      });
     }
 
     readOnboardingTargetPost();
@@ -6478,6 +6427,7 @@ function App() {
         onboardingPostCompletionRef.current = false;
       }
 
+      postMutationVersionRef.current += 1;
       publicTimelineKnownPostIdsRef.current.add(newPost.id);
       publicTimelineTopPostRef.current = newPost;
       setSavedPosts((currentPosts) => [newPost, ...currentPosts.filter((post) => post.id !== newPost.id)]);
@@ -6527,11 +6477,74 @@ function App() {
     setPostUploadProgress("");
   }
 
+  function reconcilePostSnapshots(currentPosts, refreshedPosts) {
+    return reconcileRefreshedPosts(
+      currentPosts,
+      refreshedPosts,
+      resonanceCountsByPostRef.current,
+    );
+  }
+
+  function applyResonanceCountsEverywhere(postIds, countsByPost, requestTokens) {
+    const requestedPostIds = new Set(postIds);
+    const currentPostIds = postIds.filter((postId) =>
+      resonanceRequestVersionsRef.current.isCurrent(requestTokens, postId),
+    );
+
+    for (const postId of currentPostIds) {
+      resonanceCountsByPostRef.current.set(postId, countsByPost.get(postId) ?? 0);
+    }
+
+    const applyCounts = (posts) =>
+      posts.map((post) =>
+        requestedPostIds.has(post.id) &&
+        resonanceRequestVersionsRef.current.isCurrent(requestTokens, post.id)
+          ? {
+              ...post,
+              resonanceCount: countsByPost.get(post.id) ?? 0,
+            }
+          : post,
+      );
+
+    setSavedPosts(applyCounts);
+    setOwnPosts(applyCounts);
+    setResonatedPosts(applyCounts);
+    setArchivedPosts(applyCounts);
+    setPublicProfilePosts(applyCounts);
+    setMeteorTagPosts(applyCounts);
+    setSentStarLetters((currentLetters) =>
+      currentLetters.map((letter) =>
+        letter.sourcePost
+          ? {
+              ...letter,
+              sourcePost: applyCounts([letter.sourcePost])[0],
+            }
+          : letter,
+      ),
+    );
+    setArchivedStarLetters((currentLetters) =>
+      currentLetters.map((letter) =>
+        letter.sourcePost
+          ? {
+              ...letter,
+              sourcePost: applyCounts([letter.sourcePost])[0],
+            }
+          : letter,
+      ),
+    );
+    setDetailPost((currentPost) => (currentPost ? applyCounts([currentPost])[0] : currentPost));
+  }
+
   function updatePostEverywhere(postId, updater) {
     setSavedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setOwnPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setResonatedPosts((currentPosts) => currentPosts.map((post) => (post.id === postId ? updater(post) : post)));
     setSentStarLetters((currentLetters) =>
+      currentLetters.map((letter) =>
+        letter.sourcePost?.id === postId ? { ...letter, sourcePost: updater(letter.sourcePost) } : letter,
+      ),
+    );
+    setArchivedStarLetters((currentLetters) =>
       currentLetters.map((letter) =>
         letter.sourcePost?.id === postId ? { ...letter, sourcePost: updater(letter.sourcePost) } : letter,
       ),
@@ -6678,6 +6691,7 @@ function App() {
     }
 
     const nextBody = data?.body ?? body;
+    postMutationVersionRef.current += 1;
     updatePostEverywhere(post.id, (currentPost) => ({
       ...currentPost,
       tags,
@@ -6736,6 +6750,8 @@ function App() {
       return;
     }
 
+    postMutationVersionRef.current += 1;
+    resonanceCountsByPostRef.current.delete(post.id);
     removePostFromVisibleLists(post.id);
     setDetailPost((currentPost) =>
       currentPost?.id === post.id
@@ -6793,74 +6809,18 @@ function App() {
       return;
     }
 
-    setSavedPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
-            }
-          : post,
-      ),
-    );
-    setOwnPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
-            }
-          : post,
-      ),
-    );
-    setResonatedPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
-            }
-          : post,
-      ),
-    );
-    setArchivedPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
-            }
-          : post,
-      ),
-    );
-    setPublicProfilePosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
-            }
-          : post,
-      ),
-    );
-    setMeteorTagPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              resonanceCount: (Number(post.resonanceCount) || 0) + 1,
-            }
-          : post,
-      ),
-    );
-    setDetailPost((currentPost) =>
-      currentPost?.id === postId
-        ? {
-            ...currentPost,
-            resonanceCount: (Number(currentPost.resonanceCount) || 0) + 1,
-          }
-        : currentPost,
-    );
+    resonanceMutationVersionRef.current += 1;
+    resonanceRequestVersionsRef.current.invalidate(postId);
+    const currentCount = resonanceCountsByPostRef.current.has(postId)
+      ? resonanceCountsByPostRef.current.get(postId)
+      : targetPost.resonanceCount;
+    const nextCount = (Number(currentCount) || 0) + 1;
+    resonanceCountsByPostRef.current.set(postId, nextCount);
+    updatePostEverywhere(postId, (post) => ({
+      ...post,
+      resonanceCount: nextCount,
+    }));
+    setResonanceDataRevision((current) => current + 1);
     setResonanceMessage("共鳴を記録しました。");
   }
 
@@ -6905,6 +6865,8 @@ function App() {
         return;
       }
 
+      archiveRequestVersionRef.current += 1;
+      setArchivesLoading(false);
       setArchivedPosts((currentPosts) => currentPosts.filter((post) => post.id !== postId));
       setArchivesMessage("Archiveから外しました。");
       return;
@@ -6938,6 +6900,9 @@ function App() {
 
     if (error) {
       if (error.code === "23505") {
+        archiveRequestVersionRef.current += 1;
+        setArchivesLoading(false);
+        setServerDataRevision((current) => current + 1);
         setArchivesMessage("この流星便はすでにArchive済みです。");
         if (isOnboardingArchiveTarget) {
           void advanceInitialOnboarding("archive_saved", { targetId: postId });
@@ -6948,6 +6913,9 @@ function App() {
       setArchivesError(getUserFacingError(error, ERROR_OPERATION.ARCHIVE_SAVE));
       return;
     }
+
+    archiveRequestVersionRef.current += 1;
+    setArchivesLoading(false);
 
     const archivedTargetPost = {
       ...targetPost,
@@ -7004,8 +6972,13 @@ function App() {
 
   async function refreshStarLettersForPost(postId) {
     setStarLettersLoading(true);
+    const requestTokens = starLetterRequestVersionsRef.current.begin([postId]);
+    const isCurrentRequest = () =>
+      starLetterRequestVersionsRef.current.isCurrent(requestTokens, postId);
     const finish = (value) => {
-      setStarLettersLoading(false);
+      if (isCurrentRequest()) {
+        setStarLettersLoading(false);
+      }
       return value;
     };
     let data;
@@ -7013,7 +6986,15 @@ function App() {
 
     try {
       data = await getStarLetterThread(supabase, postId);
+
+      if (!isCurrentRequest()) {
+        return finish(false);
+      }
     } catch (error) {
+      if (!isCurrentRequest()) {
+        return finish(false);
+      }
+
       const message = `${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`.toLowerCase();
       const isMissingConversationRpc =
         error?.code === "42883" ||
@@ -7034,6 +7015,10 @@ function App() {
           .order("created_at", { ascending: true }),
       );
 
+      if (!isCurrentRequest()) {
+        return finish(false);
+      }
+
       if (legacyResult.error) {
         setStarLettersError(getUserFacingError(legacyResult.error, ERROR_OPERATION.STAR_LETTER_LOAD));
         return finish(false);
@@ -7051,6 +7036,10 @@ function App() {
         PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
         PROFILE_BASIC_SELECT_COLUMNS,
       );
+
+      if (!isCurrentRequest()) {
+        return finish(false);
+      }
 
       if (profileError) {
         setStarLettersError(getUserFacingError(profileError, ERROR_OPERATION.PROFILE_LOAD));
@@ -7070,12 +7059,21 @@ function App() {
       ),
     );
 
+    if (!isCurrentRequest()) {
+      return finish(false);
+    }
+
     setStarLettersByPostId((currentLetters) => ({
       ...currentLetters,
       [postId]: mappedLetters,
     }));
     setStarLettersError("");
     return finish(true);
+  }
+
+  function markStarLetterMutationCommitted() {
+    starLetterMutationVersionRef.current += 1;
+    setStarLetterDataRevision((current) => current + 1);
   }
 
   function handleToggleStarLetters(postId) {
@@ -7185,6 +7183,7 @@ function App() {
         body,
         clientRequestId: composer.clientRequestId,
       });
+      markStarLetterMutationCommitted();
       starLetterRequestIdsRef.current.clear(`reply:${composer.parentStarLetterId}`);
       setStarLetterReplyComposer(null);
       await refreshStarLettersForPost(composer.postId);
@@ -7212,6 +7211,7 @@ function App() {
 
     try {
       await addStarLetterResonance(supabase, { starLetterId: letter.id, clientRequestId });
+      markStarLetterMutationCommitted();
       starLetterRequestIdsRef.current.clear(requestKey);
       await refreshStarLettersForPost(letter.postId);
     } catch (error) {
@@ -7227,7 +7227,14 @@ function App() {
   }
 
   async function refreshArchivedStarLetters() {
+    const requestVersion = archivedStarLettersRequestVersionRef.current + 1;
+    archivedStarLettersRequestVersionRef.current = requestVersion;
+    const requestedStarLetterMutationVersion = starLetterMutationVersionRef.current;
     const userId = session?.user?.id;
+    const isCurrentRequest = () =>
+      requestVersion === archivedStarLettersRequestVersionRef.current &&
+      requestedStarLetterMutationVersion === starLetterMutationVersionRef.current &&
+      activeSessionUserIdRef.current === userId;
 
     if (!userId) {
       setArchivedStarLetters([]);
@@ -7246,8 +7253,11 @@ function App() {
       .order("created_at", { ascending: false })
       .limit(100);
 
+    if (!isCurrentRequest()) {
+      return false;
+    }
+
     if (archiveError) {
-      setArchivedStarLetters([]);
       setArchivedStarLettersLoading(false);
       setArchivedStarLettersError(getUserFacingError(archiveError, ERROR_OPERATION.ARCHIVE_LOAD));
       return false;
@@ -7268,8 +7278,11 @@ function App() {
       .select("id, post_id, author_id, parent_star_letter_id, body, created_at, updated_at, edited_at, deleted_at")
       .in("id", starLetterIds);
 
+    if (!isCurrentRequest()) {
+      return false;
+    }
+
     if (letterError) {
-      setArchivedStarLetters([]);
       setArchivedStarLettersLoading(false);
       setArchivedStarLettersError(getUserFacingError(letterError, ERROR_OPERATION.STAR_LETTER_LOAD));
       return false;
@@ -7285,8 +7298,11 @@ function App() {
       return query;
     });
 
+    if (!isCurrentRequest()) {
+      return false;
+    }
+
     if (postsError) {
-      setArchivedStarLetters([]);
       setArchivedStarLettersLoading(false);
       setArchivedStarLettersError(getUserFacingError(postsError, ERROR_OPERATION.POST_LOAD));
       return false;
@@ -7308,8 +7324,11 @@ function App() {
         PROFILE_BASIC_SELECT_COLUMNS,
       );
 
+      if (!isCurrentRequest()) {
+        return false;
+      }
+
       if (profileRowsError) {
-        setArchivedStarLetters([]);
         setArchivedStarLettersLoading(false);
         setArchivedStarLettersError(getUserFacingError(profileRowsError, ERROR_OPERATION.PROFILE_LOAD));
         return false;
@@ -7353,7 +7372,24 @@ function App() {
       })
       .filter(Boolean);
 
-    setArchivedStarLetters(nextItems);
+    if (!isCurrentRequest()) {
+      return false;
+    }
+
+    setArchivedStarLetters((currentItems) => {
+      const currentSourcePosts = currentItems.map((item) => item.sourcePost).filter(Boolean);
+      const refreshedSourcePosts = nextItems.map((item) => item.sourcePost).filter(Boolean);
+      const reconciledSourcesById = new Map(
+        reconcilePostSnapshots(currentSourcePosts, refreshedSourcePosts).map((post) => [post.id, post]),
+      );
+
+      return nextItems.map((item) => ({
+        ...item,
+        sourcePost: item.sourcePost
+          ? reconciledSourcesById.get(item.sourcePost.id) ?? item.sourcePost
+          : null,
+      }));
+    });
     setArchivedStarLettersLoading(false);
     return true;
   }
@@ -7371,14 +7407,14 @@ function App() {
 
     try {
       await setStarLetterArchived(supabase, { starLetterId: letter.id, archived: !letter.isArchived });
+      markStarLetterMutationCommitted();
+      archivedStarLettersRequestVersionRef.current += 1;
+      setArchivedStarLettersLoading(false);
 
       if (letter.isArchived) {
         setArchivedStarLetters((currentItems) => currentItems.filter((item) => item.id !== letter.id));
         setStarLettersMessage("星文のArchiveを解除しました。");
       } else {
-        if (activeTab === "archive") {
-          await refreshArchivedStarLetters();
-        }
         setStarLettersMessage("星文をArchiveしました。");
       }
 
@@ -7457,6 +7493,7 @@ function App() {
       return;
     }
 
+    markStarLetterMutationCommitted();
     setStarLetterDrafts((currentDrafts) => ({
       ...currentDrafts,
       [postId]: "",
@@ -7510,6 +7547,7 @@ function App() {
         }
       }
 
+      markStarLetterMutationCommitted();
       await refreshStarLettersForPost(letter.postId);
       handleCancelStarLetterEdit(letter.id);
       setStarLettersMessage("星文を保存しました。");
@@ -7558,6 +7596,7 @@ function App() {
         }
       }
 
+      markStarLetterMutationCommitted();
       await refreshStarLettersForPost(letter.postId);
       setStarLetterEditDrafts((currentDrafts) => {
         const nextDrafts = { ...currentDrafts };

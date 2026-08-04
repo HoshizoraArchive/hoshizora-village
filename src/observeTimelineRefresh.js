@@ -29,8 +29,13 @@ export function getObservePullGesture({
   };
 }
 
-export function shouldTriggerObservePullRefresh({ gesture, refreshing = false, triggered = false }) {
-  return Boolean(gesture?.ready && !refreshing && !triggered);
+export function shouldTriggerObservePullRefresh({
+  allowQueued = false,
+  gesture,
+  refreshing = false,
+  triggered = false,
+}) {
+  return Boolean(gesture?.ready && (!refreshing || allowQueued) && !triggered);
 }
 
 export function isInteractiveObserveTimelineTarget(target) {
@@ -49,6 +54,38 @@ export async function runObserveTimelineSingleFlight(inFlightRef, operation) {
   } finally {
     inFlightRef.current = false;
   }
+}
+
+export function runLatestQueuedOperation(queueRef, operation) {
+  const queue = queueRef.current ?? { pendingOperation: null, promise: null };
+  queueRef.current = queue;
+
+  if (queue.promise) {
+    queue.pendingOperation = operation;
+    return queue.promise;
+  }
+
+  const run = async () => {
+    let result = false;
+    let nextOperation = operation;
+
+    while (nextOperation) {
+      const currentOperation = nextOperation;
+      queue.pendingOperation = null;
+      result = await currentOperation();
+      nextOperation = queue.pendingOperation;
+    }
+
+    return result;
+  };
+  const trackedPromise = run().finally(() => {
+    if (queue.promise === trackedPromise) {
+      queue.promise = null;
+    }
+  });
+
+  queue.promise = trackedPromise;
+  return trackedPromise;
 }
 
 export function isUnseenPublicTimelinePost(post, knownPostIds) {
