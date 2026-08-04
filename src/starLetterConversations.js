@@ -49,6 +49,22 @@ function normalizeCount(value) {
   return count;
 }
 
+function normalizeRevision(value) {
+  if (typeof value === "bigint" && value >= 0n) {
+    return value.toString();
+  }
+
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return String(value);
+  }
+
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    return value;
+  }
+
+  throw new RangeError("Star letter revision is invalid.");
+}
+
 async function runRpc(client, name, args, allowedOutcomes) {
   assertClient(client);
   const { data, error } = await client.rpc(name, args);
@@ -69,24 +85,43 @@ async function runRpc(client, name, args, allowedOutcomes) {
 }
 
 export async function getStarLetterThread(client, postId) {
+  return (await getStarLetterThreadSnapshot(client, postId)).letters;
+}
+
+export async function getStarLetterThreadSnapshot(client, postId) {
   assertClient(client);
   assertUuid(postId, "postId");
 
-  const { data, error } = await client.rpc("get_star_letter_thread", {
-    p_post_id: postId,
+  const { data, error } = await client.rpc("get_star_thread_snapshots_v1", {
+    p_post_ids: [postId],
   });
 
   if (error) {
     throw error;
   }
 
-  return (data ?? []).map((row) => ({
-    ...row,
-    is_deleted: Boolean(row.is_deleted),
-    is_archived: Boolean(row.is_archived),
-    total_resonance_count: normalizeCount(row.total_resonance_count),
-    viewer_resonance_count: normalizeCount(row.viewer_resonance_count),
-  }));
+  const snapshot = (data ?? []).find((row) => row.post_id === postId);
+
+  if (!snapshot) {
+    const notFoundError = new Error("Star-letter thread is unavailable.");
+    notFoundError.code = "STAR_LETTER_THREAD_NOT_FOUND";
+    throw notFoundError;
+  }
+
+  return {
+    letters: (snapshot.letters ?? []).map((row) => ({
+      ...row,
+      is_deleted: Boolean(row.is_deleted),
+      is_archived: Boolean(row.is_archived),
+      total_resonance_count: normalizeCount(row.total_resonance_count),
+      viewer_resonance_count: normalizeCount(row.viewer_resonance_count),
+    })),
+    postId,
+    revisionEpoch: snapshot.revision_epoch,
+    threadRevision: normalizeRevision(snapshot.thread_revision),
+    viewerRevision: normalizeRevision(snapshot.viewer_revision),
+    viewerContextRevision: normalizeRevision(snapshot.viewer_context_revision),
+  };
 }
 
 export async function createStarLetterReply(client, {
@@ -97,7 +132,7 @@ export async function createStarLetterReply(client, {
   assertUuid(parentStarLetterId, "parentStarLetterId");
   assertUuid(clientRequestId, "clientRequestId");
 
-  return runRpc(client, "create_star_letter_reply", {
+  return runRpc(client, "create_star_letter_reply_v2", {
     p_parent_star_letter_id: parentStarLetterId,
     p_body: normalizeBody(body),
     p_client_request_id: clientRequestId,
@@ -110,7 +145,7 @@ export async function updateStarLetter(client, {
 }) {
   assertUuid(starLetterId, "starLetterId");
 
-  return runRpc(client, "update_star_letter", {
+  return runRpc(client, "update_star_letter_v2", {
     p_star_letter_id: starLetterId,
     p_body: normalizeBody(body),
   }, SUCCESS_OUTCOMES.update);
@@ -119,7 +154,7 @@ export async function updateStarLetter(client, {
 export async function deleteStarLetter(client, starLetterId) {
   assertUuid(starLetterId, "starLetterId");
 
-  return runRpc(client, "delete_star_letter", {
+  return runRpc(client, "delete_star_letter_v2", {
     p_star_letter_id: starLetterId,
   }, SUCCESS_OUTCOMES.delete);
 }
@@ -132,7 +167,7 @@ export async function addStarLetterResonance(client, {
   assertUuid(starLetterId, "starLetterId");
   assertUuid(clientRequestId, "clientRequestId");
 
-  return runRpc(client, "add_star_letter_resonance", {
+  return runRpc(client, "add_star_letter_resonance_v2", {
     p_star_letter_id: starLetterId,
     p_client_request_id: clientRequestId,
     p_resonance_type: resonanceType,
@@ -149,7 +184,7 @@ export async function setStarLetterArchived(client, {
     throw new TypeError("archived must be a boolean.");
   }
 
-  return runRpc(client, "set_star_letter_archive", {
+  return runRpc(client, "set_star_letter_archive_v2", {
     p_star_letter_id: starLetterId,
     p_archived: archived,
   }, SUCCESS_OUTCOMES.archive);

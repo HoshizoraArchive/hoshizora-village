@@ -63,7 +63,9 @@ test("block and restore mutations use only the authenticated RPC contracts", asy
       return {
         data: [
           {
-            outcome: name === "block_profile" ? "blocked" : "unblocked",
+            outcome: name === "block_profile_v2" ? "blocked" : "unblocked",
+            revision_epoch: "11111111-1111-4111-8111-111111111111",
+            viewer_context_revision: "2",
           },
         ],
         error: null,
@@ -76,11 +78,11 @@ test("block and restore mutations use only the authenticated RPC contracts", asy
   assert.deepEqual(calls, [
     {
       args: { p_target_profile_id: "profile-b" },
-      name: "block_profile",
+      name: "block_profile_v2",
     },
     {
       args: { p_target_profile_id: "profile-b" },
-      name: "unblock_profile",
+      name: "unblock_profile_v2",
     },
   ]);
 });

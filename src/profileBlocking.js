@@ -265,7 +265,7 @@ function getRpcRow(data) {
 }
 
 export async function blockProfile(client, targetProfileId) {
-  const { data, error } = await client.rpc("block_profile", {
+  const { data, error } = await client.rpc("block_profile_v2", {
     p_target_profile_id: targetProfileId,
   });
 
@@ -283,7 +283,7 @@ export async function blockProfile(client, targetProfileId) {
 }
 
 export async function unblockProfile(client, targetProfileId) {
-  const { data, error } = await client.rpc("unblock_profile", {
+  const { data, error } = await client.rpc("unblock_profile_v2", {
     p_target_profile_id: targetProfileId,
   });
 

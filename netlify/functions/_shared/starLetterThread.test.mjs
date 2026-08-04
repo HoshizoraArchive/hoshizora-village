@@ -62,11 +62,12 @@ test("only star-letter notifications with a target letter use the conversation r
   assert.equal(isStarLetterThreadNotification({ type: "star_letter" }), false);
 });
 
-test("thread UI uses the existing conversation RPC layer and target URL without changing the legacy root composer", () => {
+test("thread UI uses revision-bearing conversation RPCs and the target URL", () => {
   const source = readFileSync("src/App.jsx", "utf8");
 
   for (const token of [
-    "getStarLetterThread(supabase, postId)",
+    "getStarLetterThreadSnapshot(supabase, postId)",
+    "createRootStarLetter(supabase",
     "createStarLetterReply(supabase",
     "addStarLetterResonance(supabase",
     "setStarLetterArchived(supabase",
