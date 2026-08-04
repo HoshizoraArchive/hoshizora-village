@@ -4313,7 +4313,7 @@ function App() {
 
       const { data, error } = notificationResult;
 
-      if (!isCurrentRequest()) {
+      if (!isMounted) {
         return;
       }
 

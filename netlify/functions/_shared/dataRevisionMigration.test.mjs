@@ -59,7 +59,10 @@ test("viewer-dependent reads return a compound version even for zero and false p
   assert.match(normalizedSql, /viewer_context_revision/);
   assert.match(normalizedSql, /thread_revision text, viewer_revision text, viewer_context_revision text/);
   assert.match(normalizedSql, /media_rows jsonb, tag_rows jsonb/);
-  assert.match(normalizedSql, /limit 100/);
+  assert.match(
+    normalizedSql,
+    /\(row_number\(\) over \(order by candidate_ids\.post_id\) - 1\) \/ 100/,
+  );
   assert.match(normalizedSql, /cross join lateral public\.get_post_snapshots_v1\(snapshot_batches\.post_ids\)/);
 
   for (const rpc of ["block_profile_v2", "unblock_profile_v2"]) {

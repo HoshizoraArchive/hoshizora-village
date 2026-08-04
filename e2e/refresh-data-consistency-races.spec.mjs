@@ -173,11 +173,13 @@ async function mockVillage(page, overrides = {}) {
       delayArchiveMutation: false,
       delayedArchiveReads: 0,
       delayedArchiveMutations: 0,
+      delayedNotificationReads: 0,
       delayedPostSnapshots: 0,
       delayedResonanceReads: 0,
       discoveredResonanceCount: null,
       delayArchiveReads: false,
       delayGlobalStarLetters: false,
+      delayNotificationReads: false,
       delayResonanceReads: false,
       delayResonanceMutation: false,
       failResonanceReads: false,
@@ -193,6 +195,7 @@ async function mockVillage(page, overrides = {}) {
       meteorTagRow: null,
       omitOwnPostDiscovery: false,
       nextEngagementSnapshot: null,
+      notificationReadResolvers: [],
       postBody: "再同期race確認用の流星便",
       postDeleted: false,
       resonanceCount: 5,
@@ -217,6 +220,12 @@ async function mockVillage(page, overrides = {}) {
   );
   controls.activeSession = session;
   controls.loginSession = loginSession;
+  controls.releaseNotificationReads = () => {
+    controls.delayNotificationReads = false;
+    for (const resolve of controls.notificationReadResolvers.splice(0)) {
+      resolve();
+    }
+  };
 
   await page.addInitScript(({ storedSession }) => {
     window.localStorage.setItem("sb-127-auth-token", JSON.stringify(storedSession));
@@ -251,6 +260,32 @@ async function mockVillage(page, overrides = {}) {
         controls.activeSession = controls.loginSession;
       }
       await fulfillJson(route, controls.activeSession ?? { message: "not authenticated" }, controls.activeSession ? 200 : 401);
+      return;
+    }
+
+    if (url.includes("/rest/v1/notifications")) {
+      const recipientFilter = new URL(url).searchParams.get("recipient_id") ?? "";
+      const recipientId = recipientFilter.replace(/^eq\./, "") || TEST_USER_ID;
+
+      if (recipientId === TEST_USER_ID && controls.delayNotificationReads) {
+        controls.delayedNotificationReads += 1;
+        await new Promise((resolve) => controls.notificationReadResolvers.push(resolve));
+      }
+
+      await fulfillJson(route, [{
+        id: recipientId === TEST_USER_B_ID
+          ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+          : "aaaaaaaa-bbbb-4bbb-8bbb-aaaaaaaaaaaa",
+        recipient_id: recipientId,
+        actor_id: null,
+        post_id: null,
+        star_letter_id: null,
+        content_report_id: null,
+        type: "system",
+        message: recipientId === TEST_USER_B_ID ? "Bユーザーの通知" : "Aユーザーの通知",
+        is_read: false,
+        created_at: "2026-08-04T00:00:00.000Z",
+      }]);
       return;
     }
 
@@ -1138,4 +1173,34 @@ test("増減・真の0・取得失敗を収束させ同一postを全viewで一�
   await navigation.getByRole("button", { name: "My Universe", exact: true }).click();
   await page.getByRole("tab", { name: /^共鳴/ }).click();
   await expectResonanceCount(page, 1);
+});
+
+
+test("R.Connectはsession切替後の旧通知応答を捨てruntime errorを出さない", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  const controls = await mockVillage(page, {
+    delayNotificationReads: true,
+    resonanceCount: 0,
+    threadLetters: [],
+  });
+  await page.goto("/");
+  await expect.poll(() => controls.delayedNotificationReads).toBeGreaterThan(0);
+
+  const navigation = page.getByRole("navigation", { name: "星空Village bottom navigation" });
+  await navigation.getByRole("button", { name: "My Universe", exact: true }).click();
+  await page.getByRole("button", { name: "⚙", exact: true }).click();
+  await page.getByRole("button", { name: "ログアウト", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "村へ帰る", exact: true })).toBeVisible();
+  await page.getByPlaceholder("you@example.com").fill("refresh-race-b@example.com");
+  await page.getByPlaceholder("6文字以上").fill("password-b");
+  await page.getByRole("button", { name: "村へ帰る", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Bユーザー", exact: true })).toBeVisible();
+
+  await navigation.getByRole("button", { name: "R.Connect", exact: true }).click();
+  await expect(page.getByText("Bユーザーの通知", { exact: true })).toBeVisible();
+  controls.releaseNotificationReads();
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Aユーザーの通知", { exact: true })).toHaveCount(0);
+  expect(pageErrors.filter((message) => message.includes("isCurrentRequest"))).toEqual([]);
 });

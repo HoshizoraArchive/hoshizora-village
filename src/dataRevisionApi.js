@@ -71,9 +71,32 @@ export async function readStarThreadSnapshots(client, postIds, options = {}) {
 }
 
 export async function readArchivedPostSnapshots(client, knownPostIds = [], options = {}) {
-  return (await runRpc(client, "get_archived_post_snapshots_v1", {
-    p_known_post_ids: uniqueIds(knownPostIds),
-  }, options)) ?? [];
+  const ids = uniqueIds(knownPostIds);
+  const batches = [];
+
+  if (ids.length === 0) {
+    batches.push([]);
+  } else {
+    for (let index = 0; index < ids.length; index += REVISION_READ_BATCH_SIZE) {
+      batches.push(ids.slice(index, index + REVISION_READ_BATCH_SIZE));
+    }
+  }
+
+  const snapshotsByPostId = new Map();
+
+  for (const batch of batches) {
+    const rows = (await runRpc(client, "get_archived_post_snapshots_v1", {
+      p_known_post_ids: batch,
+    }, options)) ?? [];
+
+    for (const snapshot of rows) {
+      if (snapshot?.post_id && !snapshotsByPostId.has(snapshot.post_id)) {
+        snapshotsByPostId.set(snapshot.post_id, snapshot);
+      }
+    }
+  }
+
+  return [...snapshotsByPostId.values()];
 }
 
 export async function addPostResonance(client, postId, options = {}) {

@@ -888,7 +888,6 @@ begin
       from public.archives a
       where a.profile_id = v_viewer_id
       order by a.created_at desc, a.id
-      limit 100
     ) current_archives
     union
     select known_id
