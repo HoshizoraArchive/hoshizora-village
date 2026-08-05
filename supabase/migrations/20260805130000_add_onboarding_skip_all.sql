@@ -31,7 +31,7 @@ begin
   select pg_get_functiondef('public.advance_initial_onboarding(text,text,uuid)'::regprocedure)
   into v_function_definition;
 
-  if strpos(v_function_definition, "p_action = 'skip_all'") > 0 then
+  if strpos(v_function_definition, $needle$p_action = 'skip_all'$needle$) > 0 then
     return;
   end if;
 
