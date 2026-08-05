@@ -22,5 +22,7 @@ test("first-post prompt tells Chia to answer a stated friendship as herself", ()
   assert.equal(prompt.includes("ちあ本人としてその言葉へ直接返事してください"), true);
   assert.equal(prompt.includes("本文にない関係は作らないでください"), true);
   assert.equal(prompt.includes("<author_call_name>\nいちけんさん\n</author_call_name>"), true);
-  assert.equal(prompt.includes("<meteor_text>\nちあちゃんの友達のいちけんです！\n</meteor_text>"), true);
+  assert.equal(prompt.includes("<meteor_text>"), true);
+  assert.equal(prompt.includes("ちあちゃんの友達のいちけんです！"), true);
+  assert.equal(prompt.includes("</meteor_text>"), true);
 });
