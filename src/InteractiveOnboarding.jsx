@@ -12,6 +12,13 @@ import {
   shouldOfferNotificationSkip,
   tryPlayWelcomeVideo,
 } from "./onboarding";
+import {
+  ONBOARDING_SKIP_ERROR_MESSAGE,
+  ONBOARDING_SKIP_HELPER,
+  ONBOARDING_SKIP_LABEL,
+  ONBOARDING_SKIP_LOADING_LABEL,
+  requestSkipAllOnboarding,
+} from "./onboardingSkipExperience";
 
 const PROFILE_DYNAMIC_TARGET = "profile-guide-active";
 const PROFILE_USERNAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/;
@@ -25,7 +32,29 @@ const PROFILE_GUIDE_PREVIOUS_STEP = Object.freeze({
   save: "star_chart",
 });
 
-function WelcomeVideo({ error, onComplete }) {
+function OnboardingSkipAllControl({ busy, error, onSkipAll }) {
+  return (
+    <div className="mt-2 border-t border-white/10 pt-2">
+      <button
+        aria-label="ちあの入村案内をすべてスキップ"
+        className="min-h-9 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-[11px] font-black text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={busy}
+        onClick={() => void onSkipAll()}
+        type="button"
+      >
+        {busy ? ONBOARDING_SKIP_LOADING_LABEL : ONBOARDING_SKIP_LABEL}
+      </button>
+      <p className="mt-1 text-center text-[9px] font-bold leading-4 text-slate-500">
+        {ONBOARDING_SKIP_HELPER}
+      </p>
+      {error ? (
+        <p className="mt-1 text-center text-[10px] font-bold leading-4 text-sakura">{error}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function WelcomeVideo({ error, onComplete, onSkipAll, skipAllBusy, skipAllError }) {
   const dialogRef = useRef(null);
   const completionStartedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
@@ -192,6 +221,11 @@ function WelcomeVideo({ error, onComplete }) {
         >
           映像をスキップして案内へ進む
         </button>
+        <OnboardingSkipAllControl
+          busy={skipAllBusy}
+          error={skipAllError}
+          onSkipAll={onSkipAll}
+        />
       </section>
     </div>
   );
@@ -430,6 +464,7 @@ export default function InteractiveOnboarding({
   const generatedUsernameRef = useRef("");
   const installPromptRef = useRef(null);
   const profileGuideStepRef = useRef("entry");
+  const skipAllInFlightRef = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
   const [homeScreenHelpMode, setHomeScreenHelpMode] = useState("");
   const [homeScreenInstallComplete, setHomeScreenInstallComplete] = useState(false);
@@ -437,6 +472,40 @@ export default function InteractiveOnboarding({
   const [profileAvatarReady, setProfileAvatarReady] = useState(false);
   const [profileGuideError, setProfileGuideError] = useState("");
   const [profileGuideStep, setProfileGuideStep] = useState("entry");
+  const [skipAllBusy, setSkipAllBusy] = useState(false);
+  const [skipAllError, setSkipAllError] = useState("");
+
+  const handleSkipAllOnboarding = useCallback(async () => {
+    if (skipAllInFlightRef.current || busy) {
+      return false;
+    }
+
+    skipAllInFlightRef.current = true;
+    setSkipAllBusy(true);
+    setSkipAllError("");
+
+    try {
+      const result = await requestSkipAllOnboarding();
+
+      if (result.outcome === "cancelled") {
+        return false;
+      }
+
+      if (result.outcome !== "succeeded") {
+        setSkipAllError(ONBOARDING_SKIP_ERROR_MESSAGE);
+        return false;
+      }
+
+      window.location.reload();
+      return true;
+    } catch {
+      setSkipAllError(ONBOARDING_SKIP_ERROR_MESSAGE);
+      return false;
+    } finally {
+      skipAllInFlightRef.current = false;
+      setSkipAllBusy(false);
+    }
+  }, [busy]);
 
   useEffect(() => {
     profileGuideStepRef.current = profileGuideStep;
@@ -472,6 +541,7 @@ export default function InteractiveOnboarding({
     setHomeScreenHelpMode("");
     setPlacement("bottom");
     setProfileGuideError("");
+    setSkipAllError("");
 
     if (progress?.current_step !== "profile_setup") {
       generatedUsernameRef.current = "";
@@ -717,6 +787,9 @@ export default function InteractiveOnboarding({
       <WelcomeVideo
         error={error}
         onComplete={(status) => onAdvance("welcome_completed", { status })}
+        onSkipAll={handleSkipAllOnboarding}
+        skipAllBusy={skipAllBusy || busy}
+        skipAllError={skipAllError}
       />
     );
   }
@@ -997,6 +1070,11 @@ export default function InteractiveOnboarding({
               {needsIosHomeScreen ? "通知はあとで設定する" : "通知の案内をスキップして流星便へ進む"}
             </button>
           ) : null}
+          <OnboardingSkipAllControl
+            busy={skipAllBusy || busy}
+            error={skipAllError}
+            onSkipAll={handleSkipAllOnboarding}
+          />
         </aside>
       </div>
     </div>
