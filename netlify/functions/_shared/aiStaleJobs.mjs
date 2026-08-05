@@ -109,7 +109,10 @@ export async function recoverStaleFirstPostWelcomeJobs({
         supabase,
         profileId: latest.post.author_id,
       });
-      const firstPostFallbackStarLetterBody = buildFirstPostWelcomeFallback(authorProfile);
+      const firstPostFallbackStarLetterBody = buildFirstPostWelcomeFallback(
+        authorProfile,
+        latest.post,
+      );
       const completion = await complete({
         supabase,
         jobId: job.id,
@@ -148,9 +151,9 @@ export async function recoverStaleFirstPostWelcomeJobs({
       }
 
       // Do not let the generic stale reaper cancel a first-post welcome when
-      // its deterministic fallback could not be safely finalized. Keeping the
-      // job processing allows the next scheduled recovery to try again without
-      // ever resending Gemini generation.
+      // its contextual deterministic fallback could not be safely finalized.
+      // Keeping the job processing allows the next scheduled recovery to try
+      // again without ever resending Gemini generation.
       throw error;
     }
   }
