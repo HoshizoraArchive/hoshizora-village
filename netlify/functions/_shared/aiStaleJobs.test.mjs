@@ -138,7 +138,7 @@ test("stale first-post welcome completes deterministic fallback without resendin
   assert.equal(completed[0].isFirstPostFallback, true);
   assert.equal(completed[0].observation.shouldPost, false);
   assert.equal(completed[0].usage.totalTokens, 0);
-  assert.match(completed[0].firstPostFallbackStarLetterBody, /^テスター、最初の流星便を受け取ったよ。/);
+  assert.match(completed[0].firstPostFallbackStarLetterBody, /^テスターさん、最初の流星便を受け取ったよ。/);
 });
 
 test("first-post rescue failure stops generic stale cancellation so a later recovery can retry", async () => {
