@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+// Preview regeneration retry marker only; no production behavior changes.
 const appSource = readFileSync("src/App.jsx", "utf8");
 const mainSource = readFileSync("src/main.jsx", "utf8");
 const cssSource = readFileSync("src/rConnectPolish.css", "utf8");
