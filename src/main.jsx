@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./pwaInstallPromptBridge.js";
 import "./onboardingProfileNameAutoAdvance.js";
 import "./onboardingProfileFollowthrough.js";
+import "./onboardingSkipExperience.js";
 import App from "./App.jsx";
 import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
