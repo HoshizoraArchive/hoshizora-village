@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "./pwaInstallPromptBridge.js";
 import "./onboardingProfileNameAutoAdvance.js";
+import "./onboardingProfileGuideSync.js";
 import "./onboardingProfileFollowthrough.js";
 import "./onboardingSkipExperience.js";
 import App from "./App.jsx";
