@@ -1,6 +1,7 @@
 const PROFILE_GUIDE_SELECTOR =
   '.onboarding-guide[data-onboarding-step="profile_setup"][data-profile-guide-step]';
 const PROFILE_DIALOGUE_SELECTOR = ".onboarding-dialogue";
+const ONBOARDING_SKIP_ROOT_SELECTOR = "#hoshizora-onboarding-skip-all";
 const GUIDE_CONTROL_SUPPRESS_MS = 350;
 const AUTO_ADVANCE_DELAY_MS = 40;
 
@@ -46,6 +47,17 @@ function getActiveProfileGuide() {
   return document.querySelector(PROFILE_GUIDE_SELECTOR);
 }
 
+function isGuideControlTarget(target) {
+  if (typeof Element === "undefined" || !(target instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(PROFILE_DIALOGUE_SELECTOR) ||
+      target.closest(ONBOARDING_SKIP_ROOT_SELECTOR),
+  );
+}
+
 function findGuideActionButton(guide, label) {
   return (
     [...(guide?.querySelectorAll("button") ?? [])].find(
@@ -61,6 +73,11 @@ function clearPendingAdvance() {
 
   window.clearTimeout(pendingAdvanceTimerId);
   pendingAdvanceTimerId = null;
+}
+
+function suppressGuideAutoAdvance() {
+  suppressAutoAdvanceUntil = Date.now() + GUIDE_CONTROL_SUPPRESS_MS;
+  clearPendingAdvance();
 }
 
 function scheduleProfileGuideAdvance(input, expectedStep) {
@@ -115,26 +132,27 @@ function handleProfileFieldFocusOut(event) {
     return;
   }
 
+  // Keyboard users can move focus directly from an input to a guide control
+  // without a pointerdown event. Treat that exactly like an intentional tap so
+  // blur-driven auto advance never steals the explicit Back / Next / collapse /
+  // skip action.
+  if (isGuideControlTarget(event.relatedTarget)) {
+    suppressGuideAutoAdvance();
+    return;
+  }
+
   scheduleProfileGuideAdvance(input, currentStep);
 }
 
 function handleGuidePointerDown(event) {
-  const target = event.target;
-
-  if (
-    typeof Element === "undefined" ||
-    !(target instanceof Element) ||
-    !target.closest(PROFILE_DIALOGUE_SELECTOR) ||
-    !getActiveProfileGuide()
-  ) {
+  if (!isGuideControlTarget(event.target) || !getActiveProfileGuide()) {
     return;
   }
 
-  // When the user intentionally taps Back / Next / collapse / skip inside the
-  // Chia dialogue, let that control own the transition. This prevents a blur of
-  // the text field from racing the explicit button action.
-  suppressAutoAdvanceUntil = Date.now() + GUIDE_CONTROL_SUPPRESS_MS;
-  clearPendingAdvance();
+  // When the user intentionally taps Back / Next / collapse / skip, let that
+  // control own the transition. This prevents a blur of the text field from
+  // racing the explicit button action, including the global "skip all" control.
+  suppressGuideAutoAdvance();
 }
 
 function handleVisibilityChange() {
