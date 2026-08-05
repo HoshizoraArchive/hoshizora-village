@@ -22,6 +22,12 @@ test("入村案内の全体スキップ導線をクライアント起動時に�
   assert.match(skipSource, /ちあの案内を見る/);
 });
 
+test("全体スキップは画面上部を占有せず、ちあの案内カード内へ配置する", () => {
+  assert.match(skipSource, /\.onboarding-dialogue, \.onboarding-welcome section/);
+  assert.match(skipSource, /host\.append\(root\)/);
+  assert.doesNotMatch(skipSource, /fixed left-1\/2 top-/);
+});
+
 test("全体スキップは確認後にDBの専用actionを呼び、成功時だけ再読込する", () => {
   assert.match(skipSource, /window\.confirm\(/);
   assert.match(skipSource, /p_action: "skip_all"/);
