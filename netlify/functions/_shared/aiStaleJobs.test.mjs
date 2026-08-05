@@ -99,7 +99,7 @@ test("a full first-post rescue batch defers the generic stale reaper", async () 
   assert.deepEqual(rpcCalls, []);
 });
 
-test("stale first-post welcome completes deterministic fallback without resending provider", async () => {
+test("stale first-post welcome completes contextual fallback without resending provider", async () => {
   const completed = [];
   const failed = [];
   const supabase = {};
@@ -108,6 +108,8 @@ test("stale first-post welcome completes deterministic fallback without resendin
     post: {
       id: "post-1",
       author_id: "author-1",
+      type: "text",
+      body: "ちあちゃんの友達です！",
     },
     mediaRows: [],
     mediaSummary: {
@@ -169,7 +171,10 @@ test("stale first-post welcome completes deterministic fallback without resendin
   assert.equal(completed[0].isFirstPostFallback, true);
   assert.equal(completed[0].observation.shouldPost, false);
   assert.equal(completed[0].usage.totalTokens, 0);
-  assert.match(completed[0].firstPostFallbackStarLetterBody, /^テスターさん、最初の流星便を受け取ったよ。/);
+  assert.equal(
+    completed[0].firstPostFallbackStarLetterBody,
+    "テスターさん、来てくれたんだ！ちあの友達って言ってくれてありがちあ。星空Villageでもよろしくね。",
+  );
 });
 
 test("unexpected first-post completion outcomes stay retryable instead of falling into stale cancellation", async () => {
@@ -177,6 +182,8 @@ test("unexpected first-post completion outcomes stay retryable instead of fallin
     post: {
       id: "post-1",
       author_id: "author-1",
+      type: "text",
+      body: "はじめまして！",
     },
     mediaRows: [],
     mediaSummary: {
