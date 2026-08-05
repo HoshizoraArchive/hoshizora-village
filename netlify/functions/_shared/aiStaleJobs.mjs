@@ -126,7 +126,12 @@ export async function recoverStaleFirstPostWelcomeJobs({
 
       if (["completed", "already_succeeded", "cancelled"].includes(completion?.outcome)) {
         settledCount += 1;
+        continue;
       }
+
+      // An unknown completion outcome must not fall through into the generic
+      // stale reaper. Keep the welcome eligible for a later safe recovery.
+      throw new Error("stale_first_post_welcome_completion_unexpected");
     } catch (error) {
       if (isPostNoLongerRecoverable(error)) {
         await fail({
@@ -172,12 +177,6 @@ export async function recoverStaleProcessingJobs({
     staleBefore,
     limit,
   });
-  const recoveredCount = await recoverStaleAiObservationJobs({
-    supabase,
-    staleBefore,
-    publicErrorCode: AI_ERROR.WORKER_STALE[0],
-    limit,
-  });
 
   if (rescuedFirstPostCount > 0) {
     logAiEvent("warn", "ai_observation_stale_first_post_welcomes_rescued", {
@@ -188,6 +187,21 @@ export async function recoverStaleProcessingJobs({
       recoveredCount: rescuedFirstPostCount,
     });
   }
+
+  // When the specialized rescue filled the whole batch, more stale welcomes
+  // may still exist just beyond the query limit. Skip the generic reaper for
+  // this cycle so it cannot cancel those remaining first-post welcomes. The
+  // next five-minute sweep will rescue the next batch first.
+  if (rescuedFirstPostCount >= limit) {
+    return rescuedFirstPostCount;
+  }
+
+  const recoveredCount = await recoverStaleAiObservationJobs({
+    supabase,
+    staleBefore,
+    publicErrorCode: AI_ERROR.WORKER_STALE[0],
+    limit,
+  });
 
   if (recoveredCount > 0) {
     logAiEvent("warn", "ai_observation_stale_jobs_recovered", {
