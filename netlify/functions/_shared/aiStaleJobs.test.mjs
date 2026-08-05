@@ -68,6 +68,37 @@ test("stale processing recovery rescues first-post welcomes before generic stale
   }]);
 });
 
+test("a full first-post rescue batch defers the generic stale reaper", async () => {
+  const rpcCalls = [];
+  const originalWarn = console.warn;
+  const supabase = {
+    rpc(name, args) {
+      rpcCalls.push({ name, args });
+      return Promise.resolve({ data: [{ recovered_count: 9 }], error: null });
+    },
+  };
+
+  let recoveredCount;
+
+  try {
+    console.warn = () => {};
+    recoveredCount = await recoverStaleProcessingJobs({
+      supabase,
+      config: { observationTimeoutMs: 120_000 },
+      requestId: "request",
+      operation: "test",
+      now: Date.parse("2026-08-05T12:00:00.000Z"),
+      limit: 3,
+      recoverFirstPostWelcomes: async () => 3,
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(recoveredCount, 3);
+  assert.deepEqual(rpcCalls, []);
+});
+
 test("stale first-post welcome completes deterministic fallback without resending provider", async () => {
   const completed = [];
   const failed = [];
@@ -139,6 +170,45 @@ test("stale first-post welcome completes deterministic fallback without resendin
   assert.equal(completed[0].observation.shouldPost, false);
   assert.equal(completed[0].usage.totalTokens, 0);
   assert.match(completed[0].firstPostFallbackStarLetterBody, /^テスターさん、最初の流星便を受け取ったよ。/);
+});
+
+test("unexpected first-post completion outcomes stay retryable instead of falling into stale cancellation", async () => {
+  const latest = {
+    post: {
+      id: "post-1",
+      author_id: "author-1",
+    },
+    mediaRows: [],
+    mediaSummary: {
+      inputKind: "text",
+      inputSizeBytes: 12,
+      inputDurationSeconds: null,
+    },
+  };
+
+  await assert.rejects(
+    recoverStaleFirstPostWelcomeJobs({
+      supabase: {},
+      config: { hoshizoraChiaProfileId: "chia-1" },
+      staleBefore: "2026-08-05T11:25:00.000Z",
+      limit: 5,
+      listJobs: async () => [{
+        id: "job-1",
+        post_id: "post-1",
+        request_fingerprint: "fingerprint-1",
+      }],
+      validatePost: async () => latest,
+      loadAuthor: async () => ({
+        id: "author-1",
+        username: "tester",
+        display_name: "テスター",
+      }),
+      createFingerprint: () => "fingerprint-1",
+      complete: async () => ({ outcome: "unexpected_state" }),
+      fail: async () => ({ outcome: "failed" }),
+    }),
+    /stale_first_post_welcome_completion_unexpected/,
+  );
 });
 
 test("first-post rescue failure stops generic stale cancellation so a later recovery can retry", async () => {
