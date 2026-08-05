@@ -1,27 +1,45 @@
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-function runNpm(args) {
-  return spawnSync("npm", args, {
+function run(command, args) {
+  return spawnSync(command, args, {
     encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
+    maxBuffer: 20 * 1024 * 1024,
   });
 }
 
-test("temporary dependency audit emits advisory and dependency-path details", () => {
-  const audit = runNpm(["audit", "--json"]);
-  console.log("DEPENDENCY_AUDIT_JSON_BEGIN");
-  console.log(audit.stdout || "{}");
-  if (audit.stderr) console.log(audit.stderr);
-  console.log("DEPENDENCY_AUDIT_JSON_END");
-  if (audit.error) throw audit.error;
+function logResult(label, result) {
+  console.log(`${label}_BEGIN`);
+  console.log(result.stdout || "");
+  if (result.stderr) console.log(result.stderr);
+  console.log(`${label}_END`);
+  if (result.error) throw result.error;
+}
 
-  for (const dependency of ["postcss", "protobufjs"]) {
-    const tree = runNpm(["ls", dependency, "--all", "--json"]);
-    console.log(`DEPENDENCY_TREE_${dependency.toUpperCase()}_BEGIN`);
-    console.log(tree.stdout || "{}");
-    if (tree.stderr) console.log(tree.stderr);
-    console.log(`DEPENDENCY_TREE_${dependency.toUpperCase()}_END`);
-    if (tree.error) throw tree.error;
+test("temporary dependency audit computes the minimal lockfile security fix", () => {
+  const before = run("npm", ["audit", "--json"]);
+  logResult("DEPENDENCY_AUDIT_BEFORE_JSON", before);
+
+  const fix = run("npm", ["audit", "fix", "--package-lock-only", "--ignore-scripts"]);
+  logResult("DEPENDENCY_AUDIT_FIX", fix);
+  if (fix.status !== 0) {
+    throw new Error(`npm audit fix --package-lock-only failed with status ${fix.status}`);
+  }
+
+  const diff = run("git", ["diff", "--", "package-lock.json"]);
+  logResult("DEPENDENCY_LOCKFILE_DIFF", diff);
+  if (diff.status !== 0) {
+    throw new Error(`git diff failed with status ${diff.status}`);
+  }
+
+  const after = run("npm", ["audit", "--package-lock-only", "--json"]);
+  logResult("DEPENDENCY_AUDIT_AFTER_JSON", after);
+  if (after.status !== 0) {
+    throw new Error(`security-fixed lockfile still has npm audit findings (status ${after.status})`);
+  }
+
+  for (const dependency of ["postcss", "protobufjs", "nanoid"]) {
+    const tree = run("npm", ["ls", dependency, "--all", "--json"]);
+    logResult(`DEPENDENCY_TREE_${dependency.toUpperCase()}`, tree);
   }
 });
