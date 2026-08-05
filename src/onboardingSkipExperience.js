@@ -2,6 +2,7 @@ import { supabase } from "./lib/supabaseClient";
 
 const SKIP_ROOT_ID = "hoshizora-onboarding-skip-all";
 const ONBOARDING_SURFACE_SELECTOR = ".onboarding-welcome, .onboarding-guide";
+const ONBOARDING_INLINE_HOST_SELECTOR = ".onboarding-dialogue, .onboarding-welcome section";
 const COLLAPSED_GUIDE_LABEL = "ちあの案内を見る";
 const SKIP_LABEL = "案内をすべてスキップ";
 const SKIP_LOADING_LABEL = "案内を終了中...";
@@ -32,6 +33,10 @@ export function isSuccessfulOnboardingSkipResult(data) {
 
 function getSkipRoot() {
   return document.getElementById(SKIP_ROOT_ID);
+}
+
+function getSkipHost() {
+  return document.querySelector(ONBOARDING_INLINE_HOST_SELECTOR);
 }
 
 function setSkipError(message = "") {
@@ -109,38 +114,44 @@ function ensureSkipRoot() {
   root = document.createElement("div");
   root.id = SKIP_ROOT_ID;
   root.hidden = true;
-  root.className =
-    "fixed left-1/2 top-[max(0.65rem,env(safe-area-inset-top))] z-[110] w-[min(92vw,22rem)] -translate-x-1/2 rounded-2xl border border-white/15 bg-night-950/95 p-2 shadow-[0_18px_55px_rgba(3,7,18,0.42)] backdrop-blur-xl";
+  root.className = "mt-2 border-t border-white/10 pt-2";
 
   const button = document.createElement("button");
   button.type = "button";
   button.className =
-    "min-h-10 w-full rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-black text-slate-100 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60";
+    "min-h-9 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-[11px] font-black text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-60";
   button.textContent = SKIP_LABEL;
   button.setAttribute("aria-label", "ちあの入村案内をすべてスキップ");
   button.addEventListener("click", () => void skipAllOnboarding());
 
   const helper = document.createElement("p");
-  helper.className = "mt-1.5 text-center text-[10px] font-bold leading-4 text-slate-400";
+  helper.className = "mt-1 text-center text-[9px] font-bold leading-4 text-slate-500";
   helper.textContent = "あとから「はじめての入村案内」で見返せます";
 
   const error = document.createElement("p");
   error.hidden = true;
   error.setAttribute("data-onboarding-skip-all-error", "true");
-  error.className = "mt-1.5 text-center text-[10px] font-bold leading-4 text-sakura";
+  error.className = "mt-1 text-center text-[10px] font-bold leading-4 text-sakura";
 
   root.append(button, helper, error);
-  document.body.append(root);
   return root;
 }
 
 function synchronizeSkipVisibility() {
   const root = ensureSkipRoot();
-  root.hidden = !hasActiveOnboardingSurface(document);
+  const host = getSkipHost();
+  const active = hasActiveOnboardingSurface(document);
 
-  if (root.hidden) {
-    setSkipError("");
+  if (active && host) {
+    if (root.parentElement !== host) {
+      host.append(root);
+    }
+    root.hidden = false;
+    return;
   }
+
+  root.hidden = true;
+  setSkipError("");
 }
 
 function scheduleSkipVisibilitySync() {
