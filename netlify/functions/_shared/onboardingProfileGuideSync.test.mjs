@@ -29,7 +29,7 @@ test("入力を終えたプロフィール項目だけ、既存の案内ボタ�
   }
 });
 
-test("ちあの戻る・次へ・小さく等を押した時は自動同期と競合しない", () => {
+test("ちあの戻る・次へ・小さく・全体スキップ等を押した時は自動同期と競合しない", () => {
   assert.equal(
     shouldAutoAdvanceProfileGuide({ step: "bio", value: "入力済み", suppressed: true }),
     false,
@@ -39,8 +39,21 @@ test("ちあの戻る・次へ・小さく等を押した時は自動同期と�
     'document.addEventListener("pointerdown", handleGuidePointerDown, true)',
     "GUIDE_CONTROL_SUPPRESS_MS",
     "clearPendingAdvance()",
+    'const ONBOARDING_SKIP_ROOT_SELECTOR = "#hoshizora-onboarding-skip-all"',
+    "target.closest(ONBOARDING_SKIP_ROOT_SELECTOR)",
+    "suppressGuideAutoAdvance()",
   ]) {
     assert.equal(bridgeSource.includes(token), true, `missing race guard: ${token}`);
+  }
+});
+
+test("キーボードで入力欄から案内操作へ移動してもblur自動進行を奪わない", () => {
+  for (const token of [
+    "event.relatedTarget",
+    "isGuideControlTarget(event.relatedTarget)",
+    "Keyboard users can move focus directly",
+  ]) {
+    assert.equal(bridgeSource.includes(token), true, `missing keyboard focus guard: ${token}`);
   }
 });
 
