@@ -99,6 +99,33 @@ export function getUsageTokens(interaction) {
   };
 }
 
+export function getGenerateContentUsageTokens(response) {
+  const usage = response?.usageMetadata;
+  const inputTokens = readRequiredUsageInteger(usage, "promptTokenCount");
+  const visibleOutputTokens = readRequiredUsageInteger(usage, "candidatesTokenCount");
+  const thoughtTokens = readOptionalUsageInteger(usage, "thoughtsTokenCount");
+  const cachedTokens = readOptionalUsageInteger(usage, "cachedContentTokenCount");
+  const toolUseTokens = readOptionalUsageInteger(usage, "toolUsePromptTokenCount");
+  const totalTokens = readRequiredUsageInteger(usage, "totalTokenCount");
+  const outputTokens = addUsageIntegers(visibleOutputTokens, thoughtTokens);
+  const minimumTotalTokens = addUsageIntegers(
+    inputTokens,
+    visibleOutputTokens,
+    thoughtTokens,
+    toolUseTokens,
+  );
+
+  if (totalTokens < minimumTotalTokens || cachedTokens > inputTokens) {
+    throw aiHttpError(422, AI_ERROR.AI_OUTPUT_INVALID);
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
+
 export function bufferMatchesMimeType(buffer, mimeType) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) {
     return false;
@@ -158,6 +185,97 @@ function mapProviderError(error) {
   }
 
   return aiHttpError(503, AI_ERROR.INTERNAL);
+}
+
+function toGenerateContentJsonSchema(value) {
+  if (Array.isArray(value)) {
+    return value.map(toGenerateContentJsonSchema);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const result = {};
+
+  for (const [key, child] of Object.entries(value)) {
+    // GenerateContent's JSON Schema subset does not document string length
+    // constraints. Runtime validation below still enforces them after parsing.
+    if (key === "minLength" || key === "maxLength") {
+      continue;
+    }
+    result[key] = toGenerateContentJsonSchema(child);
+  }
+
+  return result;
+}
+
+async function runFirstPostTextGenerateContent({
+  client,
+  config,
+  post,
+  mediaRows,
+  observationContext,
+  authorProfile,
+  signal,
+}) {
+  const prompt = buildObservationPrompt({
+    post,
+    mediaRows,
+    observationContext,
+    authorProfile,
+    isFirstPostWelcome: true,
+  });
+  const createResponse = (requestSignal) => client.models.generateContent({
+    model: config.model,
+    contents: prompt,
+    config: {
+      systemInstruction: SYSTEM_INSTRUCTION,
+      responseMimeType: "application/json",
+      responseJsonSchema: toGenerateContentJsonSchema(AI_OBSERVATION_OUTPUT_JSON_SCHEMA),
+      abortSignal: requestSignal,
+      httpOptions: {
+        timeout: config.observationTimeoutMs,
+        retryOptions: {
+          attempts: 1,
+        },
+      },
+    },
+  });
+
+  try {
+    const response = signal
+      ? await createResponse(signal)
+      : await withTimeout(createResponse, config.observationTimeoutMs);
+    const parsed = parseAiObservationOutput(response?.text, {
+      expectedMediaType: post.type,
+    });
+
+    if (!parsed.ok) {
+      throw aiHttpError(422, AI_ERROR.AI_OUTPUT_INVALID);
+    }
+
+    const usage = getGenerateContentUsageTokens(response);
+    const actualCostMicroUsd = estimateGeminiCostMicroUsd({
+      model: config.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+
+    return {
+      output: parsed.value,
+      usage: {
+        ...usage,
+        actualCostMicroUsd,
+      },
+    };
+  } catch (error) {
+    if (error instanceof AiHttpError) {
+      throw error;
+    }
+
+    throw mapProviderError(error);
+  }
 }
 
 async function waitForGeminiFileActive({ client, file, timeoutMs }) {
@@ -356,6 +474,18 @@ export async function runGeminiObservation({
   isFirstPostWelcome,
   signal,
 }) {
+  if (isFirstPostWelcome === true && post.type === "text" && storageRequirements.length === 0) {
+    return runFirstPostTextGenerateContent({
+      client,
+      config,
+      post,
+      mediaRows,
+      observationContext,
+      authorProfile,
+      signal,
+    });
+  }
+
   const mediaUpload = await uploadMediaFiles({
     client,
     supabase,
