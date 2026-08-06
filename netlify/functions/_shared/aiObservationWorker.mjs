@@ -255,7 +255,7 @@ export async function runAiObservationJob({
     }
 
     const authorProfile = await loadAuthorProfile({ supabase, profileId: post.author_id });
-    const firstPostFallbackStarLetterBody = buildFirstPostWelcomeFallback(authorProfile);
+    const firstPostFallbackStarLetterBody = buildFirstPostWelcomeFallback(authorProfile, post);
 
     let normalizedObservation;
     let isFirstPostFallback = false;
