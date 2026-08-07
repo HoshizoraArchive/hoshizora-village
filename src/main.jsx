@@ -9,6 +9,7 @@ import App from "./App.jsx";
 import "./authSessionDisplay.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
+import "./reconnectNotificationPlatformCopy.js";
 import "./myStarChartPreviewExperience.js";
 import "./starLetterProfileNavigation.js";
 import "./onboardingFirstPostExample.js";
