@@ -11249,10 +11249,13 @@ function PushNotificationTestCard({ onboarding, session }) {
 function RConnectScreen({ notifications }) {
   return (
     <main className="mx-auto max-w-3xl">
-      <section className="glass-panel p-5 sm:p-6">
-        <p className="text-xs font-bold normal-case text-comet">Re:Connect</p>
-        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">Re:Connect</h2>
-        <p className="mt-4 text-sm leading-7 text-slate-300">共鳴・星文・観測通知がここに届きます。</p>
+      <section className="glass-panel reconnect-panel p-5 sm:p-6">
+        <section className="page-intro reconnect-intro">
+          <h1>
+            Re:Connect<span className="reconnect-meaning">（共鳴で繋がる）</span>
+          </h1>
+          <p>共鳴・星文・観測通知がここに届きます。</p>
+        </section>
         <PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />
 
         {!notifications.session ? (
