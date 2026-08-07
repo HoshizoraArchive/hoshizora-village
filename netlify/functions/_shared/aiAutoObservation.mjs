@@ -25,13 +25,13 @@ export function getAutomaticChiaObservationEligibility({
     };
   }
 
-  if (post?.type !== "text") {
+  if (!["text", "youtube"].includes(post?.type)) {
     return { eligible: false, reason: "unsupported_type" };
   }
 
   return {
     eligible: true,
-    reason: "public_text_author",
+    reason: post.type === "youtube" ? "public_youtube_author" : "public_text_author",
     observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
   };
 }
