@@ -1,3 +1,4 @@
+-- Rename only the user-visible R.Connect label to Re:Connect; internal rconnect identifiers stay unchanged.
 begin;
 
 update public.guide_entries
