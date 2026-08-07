@@ -10,7 +10,7 @@
  * not flatten unrelated screens.
  */
 
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) {
+main.mx-auto.max-w-3xl > section.reconnect-panel {
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -20,11 +20,33 @@ main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) {
 }
 
 /* Keep the page identity readable directly on the village sky. */
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > p,
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > h2 {
+main.mx-auto.max-w-3xl > section.reconnect-panel > p,
+main.mx-auto.max-w-3xl > section.reconnect-panel > h2 {
   text-shadow:
     0 1px 8px rgb(0 5 20 / 0.7),
     0 0 20px rgb(0 8 30 / 0.3);
+}
+
+
+/* Match the Archive page hierarchy: one clear aqua title, then one explanation line. */
+main.mx-auto.max-w-3xl > section.reconnect-panel > .reconnect-intro {
+  margin-bottom: 0;
+  text-shadow:
+    0 1px 8px rgb(0 5 20 / 0.7),
+    0 0 20px rgb(0 8 30 / 0.3);
+}
+
+main.mx-auto.max-w-3xl > section.reconnect-panel > .reconnect-intro h1 {
+  color: rgb(125 223 255);
+}
+
+main.mx-auto.max-w-3xl > section.reconnect-panel > .reconnect-intro .reconnect-meaning {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-size: 0.5em;
+  line-height: 1.25;
+  vertical-align: 0.12em;
+  white-space: nowrap;
 }
 
 /*
@@ -32,7 +54,7 @@ main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > h2 {
  * Its four operational buttons are deliberately not styled here so their
  * affordance, hover/disabled states, and click behavior stay exactly as-is.
  */
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > section.mt-5 {
+main.mx-auto.max-w-3xl > section.reconnect-panel > section.mt-5 {
   border: 0;
   border-top: 1px solid rgb(210 232 255 / 0.09);
   border-bottom: 1px solid rgb(210 232 255 / 0.07);
@@ -44,30 +66,30 @@ main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > section.mt-5
 }
 
 /* Readability for explanatory and notification text without adding a panel. */
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) .text-slate-200 {
+main.mx-auto.max-w-3xl > section.reconnect-panel .text-slate-200 {
   color: rgb(235 243 255 / 0.96) !important;
   text-shadow: 0 1px 8px rgb(0 5 20 / 0.58);
 }
 
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) .text-slate-300 {
+main.mx-auto.max-w-3xl > section.reconnect-panel .text-slate-300 {
   color: rgb(218 231 249 / 0.94) !important;
   text-shadow: 0 1px 8px rgb(0 5 20 / 0.56);
 }
 
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) .text-slate-400 {
+main.mx-auto.max-w-3xl > section.reconnect-panel .text-slate-400 {
   color: rgb(194 214 240 / 0.9) !important;
   text-shadow: 0 1px 7px rgb(0 5 20 / 0.52);
 }
 
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) .text-slate-500 {
+main.mx-auto.max-w-3xl > section.reconnect-panel .text-slate-500 {
   color: rgb(168 193 226 / 0.82) !important;
   text-shadow: 0 1px 7px rgb(0 5 20 / 0.5);
 }
 
 /* Logged-out, loading/message, and empty states become text-only. */
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > div.mt-5.rounded-2xl,
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > div.mt-5.space-y-3 > p.rounded-2xl,
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > div.mt-5.space-y-3 > div.rounded-2xl {
+main.mx-auto.max-w-3xl > section.reconnect-panel > div.mt-5.rounded-2xl,
+main.mx-auto.max-w-3xl > section.reconnect-panel > div.mt-5.space-y-3 > p.rounded-2xl,
+main.mx-auto.max-w-3xl > section.reconnect-panel > div.mt-5.space-y-3 > div.rounded-2xl {
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -77,7 +99,7 @@ main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > div.mt-5.spa
 }
 
 /* Notification records lose their card surface, not their controls. */
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)
+main.mx-auto.max-w-3xl > section.reconnect-panel
   > div.mt-5.space-y-3
   > div.space-y-3
   > article {
@@ -90,7 +112,7 @@ main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)
 }
 
 /* Use breathing room and a faint divider instead of a notification card. */
-main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)
+main.mx-auto.max-w-3xl > section.reconnect-panel
   > div.mt-5.space-y-3
   > div.space-y-3
   > article
