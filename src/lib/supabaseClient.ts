@@ -47,7 +47,7 @@ function formatNotificationMessage(
     return `${actorName}さんがあなたの流星便をArchiveしました。`;
   }
 
-  return notification.message || `${actorName}さんからR.Connectが届きました。`;
+  return notification.message || `${actorName}さんからRe:Connectが届きました。`;
 }
 
 async function withActorNotificationMessages(response: any) {

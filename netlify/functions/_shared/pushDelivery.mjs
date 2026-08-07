@@ -77,7 +77,7 @@ function normalizeNotificationMessage(notification) {
     }
   }
 
-  return FALLBACK_BODY_BY_TYPE[notification?.type] ?? "R.Connectに新しい通知があります。";
+  return FALLBACK_BODY_BY_TYPE[notification?.type] ?? "Re:Connectに新しい通知があります。";
 }
 
 export function buildPushPayload(notification) {

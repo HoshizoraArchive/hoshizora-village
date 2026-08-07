@@ -1,4 +1,4 @@
--- Queue and dispatch state for R.Connect Web Push delivery.
+-- Queue and dispatch state for Re:Connect Web Push delivery.
 -- This migration does not send Push notifications directly; Netlify scheduled
 -- Functions claim queued jobs with service_role and deliver them server-side.
 
@@ -39,7 +39,7 @@ create table if not exists public.push_notification_jobs (
 );
 
 comment on table public.push_notification_jobs is
-'R.Connect通知を登録済み端末へWeb Push配信するためのserver-side queue。browser roleからは直接操作させない。';
+'Re:Connect通知を登録済み端末へWeb Push配信するためのserver-side queue。browser roleからは直接操作させない。';
 comment on column public.push_notification_jobs.notification_id is
 'Push配信対象のpublic.notifications行。1通知につき最大1job。';
 comment on column public.push_notification_jobs.recipient_id is

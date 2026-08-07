@@ -1,11 +1,11 @@
 /*
- * R.Connect cardless presentation.
+ * Re:Connect cardless presentation.
  *
  * This file intentionally changes presentation only. The notification permission,
  * device registration, re-registration, test delivery, notification actions, and
  * disabled states remain owned by the existing React / push code.
  *
- * The scope identifies the current R.Connect glass panel by its direct
+ * The scope identifies the current Re:Connect glass panel by its direct
  * normal-case eyebrow. Placeholder panels use an uppercase eyebrow, so this does
  * not flatten unrelated screens.
  */

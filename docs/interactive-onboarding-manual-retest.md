@@ -14,7 +14,7 @@ The following behavior was added after the first iPhone Safari walkthrough:
 - Operation guidance uses a compact dialogue, automatically moves opposite the highlighted target, and can be collapsed.
 - Archive confirmation highlights the archived post while placing the compact guide away from it.
 - iPhone Safari explains Share → Add to Home Screen instead of instructing the user to press disabled notification controls.
-- iPhone users may defer notification setup and continue; launching the installed PWA resumes the persisted R.Connect step when it has not been skipped.
+- iPhone users may defer notification setup and continue; launching the installed PWA resumes the persisted Re:Connect step when it has not been skipped.
 
 ## Manual retest account
 

@@ -26,7 +26,7 @@ const preflightSql = readFileSync("docs/interactive-onboarding-preflight.sql", "
 const verificationSql = readFileSync("docs/interactive-onboarding-verification.sql", "utf8");
 const miniChia = readFileSync("public/images/onboarding/mini-chia.png");
 
-test("Issue #97の台詞とR.Connectが流星便より前の順序を維持する", () => {
+test("Issue #97の台詞とRe:Connectが流星便より前の順序を維持する", () => {
   const expectedDialogue = {
     mini_chia_intro: ["おはちあ！ また会ったね！", "ここからは、ちあが星空Villageをいろいろ案内するよ！"],
     profile_setup: ["まずは「My Universe」へ行こう！", "この編集ボタンを押して、あなたの名前と姿を教えてね！"],
@@ -48,7 +48,7 @@ test("Issue #97の台詞とR.Connectが流星便より前の順序を維持す�
       "気に入った流星便は、いつでもここから見返せるの✨️",
     ],
     rconnect_intro: [
-      "次は「R.Connect」！",
+      "次は「Re:Connect」！",
       "ここは、星空ほしくんが流星便を放流した時に、みんなから届いた共鳴や星文を確認できる場所だよ！",
     ],
     notification_permission: ["まずは「通知を許可」を押してね！"],

@@ -12,10 +12,10 @@ alter table public.profiles
   add column if not exists notify_authors_when_i_resonate boolean not null default true;
 
 comment on column public.profiles.notify_authors_when_i_archive is
-  '自分が誰かの流星便をArchiveした時、相手にR.Connect通知を送るかどうか。デフォルトON。';
+  '自分が誰かの流星便をArchiveした時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
 
 comment on column public.profiles.notify_authors_when_i_resonate is
-  '自分が誰かの流星便に共鳴した時、相手にR.Connect通知を送るかどうか。デフォルトON。';
+  '自分が誰かの流星便に共鳴した時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
 
 do $$
 declare
@@ -41,7 +41,7 @@ alter table public.notifications
   add constraint notifications_type_check check (type in ('resonance', 'archive'));
 
 comment on table public.notifications is
-  'R.Connect通知。共鳴、Archiveなどの通知を保存する。MVPでは共鳴通知とArchive通知を扱う。';
+  'Re:Connect通知。共鳴、Archiveなどの通知を保存する。MVPでは共鳴通知とArchive通知を扱う。';
 
 comment on column public.notifications.type is
   '通知タイプ。MVPでは resonance と archive を許可する。';

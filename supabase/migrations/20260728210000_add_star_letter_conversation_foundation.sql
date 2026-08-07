@@ -110,7 +110,7 @@ alter table public.notifications
   ));
 
 comment on column public.notifications.star_letter_id is
-  '星文通知の対象。R.Connectから流星便と星文を特定するために保持する。';
+  '星文通知の対象。Re:Connectから流星便と星文を特定するために保持する。';
 comment on column public.notifications.type is
   '通知タイプ。resonance、archive、star_letter、star_letter_reply、star_letter_resonanceを許可する。';
 
