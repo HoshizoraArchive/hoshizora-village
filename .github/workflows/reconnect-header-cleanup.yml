@@ -1,0 +1,74 @@
+name: ReConnect header cleanup
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/reconnect-header-cleanup
+          fetch-depth: 0
+
+      - name: Apply focused Re:Connect header cleanup
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/App.jsx')
+          text = app.read_text(encoding='utf-8')
+          old = '''      <section className="glass-panel p-5 sm:p-6">\n        <p className="text-xs font-bold normal-case text-comet">Re:Connect</p>\n        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">Re:Connect</h2>\n        <p className="mt-4 text-sm leading-7 text-slate-300">共鳴・星文・観測通知がここに届きます。</p>\n        <PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />'''
+          new = '''      <section className="glass-panel reconnect-panel p-5 sm:p-6">\n        <section className="page-intro reconnect-intro">\n          <h1>\n            Re:Connect<span className="reconnect-meaning">（共鳴で繋がる）</span>\n          </h1>\n          <p>共鳴・星文・観測通知がここに届きます。</p>\n        </section>\n        <PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />'''
+
+          if old in text:
+              app.write_text(text.replace(old, new, 1), encoding='utf-8')
+          elif new not in text:
+              raise SystemExit('Expected Re:Connect header block not found; refusing broad edit.')
+
+          css = Path('src/rConnectPolish.css')
+          css_text = css.read_text(encoding='utf-8')
+          css_text = css_text.replace('main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case)', 'main.mx-auto.max-w-3xl > section.reconnect-panel')
+          css_text = css_text.replace('main.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > p,\nmain.mx-auto.max-w-3xl > section.glass-panel:has(> p.normal-case) > h2', 'main.mx-auto.max-w-3xl > section.reconnect-panel > .reconnect-intro')
+
+          marker = '/* Remove only the Smart Notification Test container. */'
+          extra = '''\n/* Match the Archive page hierarchy: one clear aqua title, then one explanation line. */\nmain.mx-auto.max-w-3xl > section.reconnect-panel > .reconnect-intro {\n  margin-bottom: 0;\n  text-shadow:\n    0 1px 8px rgb(0 5 20 / 0.7),\n    0 0 20px rgb(0 8 30 / 0.3);\n}\n\nmain.mx-auto.max-w-3xl > section.reconnect-panel > .reconnect-intro h1 {\n  color: rgb(125 223 255);\n}\n\nmain.mx-auto.max-w-3xl > section.reconnect-panel > .reconnect-intro .reconnect-meaning {\n  display: inline-block;\n  margin-left: 0.35rem;\n  font-size: 0.5em;\n  line-height: 1.25;\n  vertical-align: 0.12em;\n  white-space: nowrap;\n}\n\n'''
+          if extra.strip() not in css_text:
+              insert_at = css_text.find('/*\n * Remove only the Smart Notification Test container.')
+              if insert_at == -1:
+                  raise SystemExit('Expected Re:Connect CSS marker not found; refusing broad edit.')
+              css_text = css_text[:insert_at] + extra + css_text[insert_at:]
+          css.write_text(css_text, encoding='utf-8')
+          PY
+
+      - name: Guard scope
+        shell: bash
+        run: |
+          grep -q 'className="glass-panel reconnect-panel p-5 sm:p-6"' src/App.jsx
+          grep -q 'Re:Connect<span className="reconnect-meaning">（共鳴で繋がる）</span>' src/App.jsx
+          grep -q 'className="page-intro reconnect-intro"' src/App.jsx
+          grep -q 'function RConnectScreen' src/App.jsx
+          grep -q 'rconnect_intro' src/onboarding.js
+          git diff --check
+
+      - name: Commit focused UI change
+        shell: bash
+        run: |
+          if git diff --quiet -- src/App.jsx src/rConnectPolish.css; then
+            echo 'Header cleanup already applied.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/App.jsx src/rConnectPolish.css
+          git commit -m 'Polish Re:Connect page header'
+          git push origin HEAD:codex/reconnect-header-cleanup
