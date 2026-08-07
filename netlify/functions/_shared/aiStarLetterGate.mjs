@@ -8,6 +8,12 @@ function deterministicPercent(seed) {
   return value % 100;
 }
 
+function hasYoutubeMediaObservation(observation) {
+  return (observation?.observedPoints ?? []).some((point) =>
+    ["visual", "audio", "lyric"].includes(point?.kind),
+  );
+}
+
 export function shouldAllowAutoStarLetter({
   observation,
   observationContext,
@@ -30,6 +36,13 @@ export function shouldAllowAutoStarLetter({
 
   if (!observation?.shouldPost || !observation.starLetter) {
     return { allowed: false, reason: "model_declined" };
+  }
+
+  if (
+    observationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST &&
+    hasYoutubeMediaObservation(observation)
+  ) {
+    return { allowed: true, reason: "youtube_observed" };
   }
 
   const autoConfig = config?.autoObservation ?? {};
