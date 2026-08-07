@@ -1,9 +1,10 @@
 name: ReConnect rename apply
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/rename-reconnect
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -69,7 +70,7 @@ jobs:
           comment on column public.profiles.notify_authors_when_i_archive is
           '自分が誰かの流星便をArchiveした時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
           comment on column public.profiles.notify_authors_when_i_resonate is
-          '自分が誰かの流星便に共鳴した時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
+          '自分が誰かの流星便に共鳴しても相手にRe:Connect通知を送るかどうか。デフォルトON。';
           comment on table public.push_subscriptions is
           'Re:ConnectスマホPush通知用の端末購読情報。Netlify Functionのservice_role経由でのみ登録する。';
           comment on table public.push_notification_jobs is
