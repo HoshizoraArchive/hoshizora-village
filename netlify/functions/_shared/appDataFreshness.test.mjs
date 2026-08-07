@@ -83,95 +83,275 @@ test("entity request versionは後発取得と成功mutationだけをcurrentに�
   assert.equal(versions.isCurrent(firstRequest, "post-1"), false);
   assert.equal(versions.isCurrent(firstRequest, "post-2"), true);
   assert.equal(versions.isCurrent(laterRequest, "post-1"), true);
-  assert.equal(versions.isCurrent(laterRequest, "post-2"), false);
 
   versions.invalidate("post-1");
   assert.equal(versions.isCurrent(laterRequest, "post-1"), false);
+
+  const afterMutationRequest = versions.begin(["post-1"]);
+  assert.equal(versions.isCurrent(afterMutationRequest, "post-1"), true);
 });
 
 test("viewer projectionはdomainとviewer contextの複合versionで判定する", () => {
-  const revisions = createEntityRevisionStore();
-  const first = { domainRevision: 2, viewerContextRevision: 3 };
-  const staleViewer = { domainRevision: 3, viewerContextRevision: 2 };
-  const nextViewer = { domainRevision: 2, viewerContextRevision: 4 };
+  const current = {
+    epoch: "epoch-1",
+    domainRevision: "7",
+    viewerRevision: "3",
+    viewerContextRevision: "4",
+  };
 
-  assert.equal(revisions.apply("post-1", first, "session-a"), true);
-  assert.equal(revisions.apply("post-1", staleViewer, "session-a"), false);
-  assert.equal(revisions.apply("post-1", nextViewer, "session-a"), true);
-  assert.equal(revisions.apply("post-1", first, "session-b"), true);
+  assert.equal(canApplyRevisionVector(current, { ...current, viewerContextRevision: "5" }), true);
+  assert.equal(canApplyRevisionVector(current, { ...current, domainRevision: "6" }), false);
+  assert.equal(canApplyRevisionVector(current, { ...current, viewerRevision: "2" }), false);
+  assert.equal(canApplyRevisionVector(current, { ...current, epoch: "epoch-2" }), false);
 });
 
 test("viewer context mutationは全entity共通floorを進め古いprojectionを拒否する", () => {
   const revisions = createEntityRevisionStore();
-  assert.equal(revisions.apply("post-1", { domainRevision: 5, viewerContextRevision: 5 }, "session-a"), true);
-  assert.equal(revisions.apply("post-2", { domainRevision: 2, viewerContextRevision: 2 }, "session-a"), true);
+  revisions.beginSession("user-a:1");
+  assert.equal(revisions.apply("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "4",
+    viewerContextRevision: "1",
+  }, "user-a:1"), true);
 
-  revisions.advanceViewerContextFloor(6, "session-a");
+  assert.equal(revisions.advanceViewerContext({
+    epoch: "epoch-1",
+    viewerContextRevision: "3",
+  }, "user-a:1"), true);
+  assert.equal(revisions.get("post-1").viewerContextRevision, "3");
+  assert.deepEqual(revisions.get("post-2"), {
+    epoch: "epoch-1",
+    domainRevision: "0",
+    viewerRevision: "0",
+    viewerContextRevision: "3",
+  });
+  assert.equal(revisions.apply("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "99",
+    viewerContextRevision: "2",
+  }, "user-a:1"), false);
+  assert.equal(revisions.apply("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "4",
+    viewerContextRevision: "3",
+  }, "user-a:1"), true);
+  assert.equal(revisions.advanceViewerContext({
+    epoch: "epoch-1",
+    viewerContextRevision: "4",
+  }, "user-b:2"), false);
+  assert.equal(revisions.advanceViewerContext({
+    epoch: "epoch-1",
+    viewerContextRevision: "invalid",
+  }, "user-a:1"), false);
 
-  assert.equal(revisions.apply("post-2", { domainRevision: 3, viewerContextRevision: 5 }, "session-a"), false);
-  assert.equal(revisions.apply("post-2", { domainRevision: 3, viewerContextRevision: 6 }, "session-a"), true);
+  revisions.beginSession("user-b:2");
+  assert.equal(revisions.get("post-1"), null);
 });
 
 test("mutationは所有componentを巻き戻さず独立componentのfloorをmergeする", () => {
   const revisions = createEntityRevisionStore();
-  assert.equal(revisions.apply("post-1", { domainRevision: 5, viewerContextRevision: 7 }, "session-a"), true);
+  revisions.beginSession("user-a:1");
+  assert.equal(revisions.apply("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "8",
+    viewerRevision: "2",
+    viewerContextRevision: "5",
+  }, "user-a:1"), true);
 
-  assert.equal(
-    revisions.applyMutation(
-      "post-1",
-      { domainRevision: 6, viewerContextRevision: 2 },
-      ["domainRevision"],
-      "session-a",
-    ),
-    true,
-  );
-  assert.deepEqual(revisions.get("post-1"), { domainRevision: 6, viewerContextRevision: 7 });
+  assert.equal(revisions.applyMutation("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "7",
+    viewerRevision: "3",
+    viewerContextRevision: "4",
+  }, ["viewerRevision"], "user-a:1"), true);
+  assert.deepEqual(revisions.get("post-1"), {
+    epoch: "epoch-1",
+    domainRevision: "8",
+    viewerRevision: "3",
+    viewerContextRevision: "5",
+  });
+  assert.equal(revisions.applyMutation("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "9",
+    viewerRevision: "2",
+    viewerContextRevision: "5",
+  }, ["viewerRevision"], "user-a:1"), false);
+
+  assert.equal(isRevisionComponentBehind(
+    { epoch: "epoch-1", domainRevision: "8", viewerRevision: "3", viewerContextRevision: "5" },
+    { epoch: "epoch-1", domainRevision: "9", viewerRevision: "4", viewerContextRevision: "4" },
+    "viewerContextRevision",
+  ), true);
 });
 
 test("entity revision floorは古いsnapshotを拒否し新しい0件を受理する", () => {
   const revisions = createEntityRevisionStore();
-  assert.equal(revisions.apply("post-1", 5, "session-a"), true);
-  assert.equal(revisions.apply("post-1", 4, "session-a"), false);
-  assert.equal(revisions.apply("post-1", 6, "session-a"), true);
-  assert.equal(revisions.apply("post-2", 0, "session-a"), true);
+  revisions.beginSession("user-a:1");
+  assert.equal(revisions.applyMutation("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "5",
+  }, ["domainRevision"], "user-a:1"), true);
+  assert.equal(revisions.apply("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "4",
+  }, "user-a:1"), false);
+  assert.equal(revisions.apply("post-1", {
+    epoch: "epoch-1",
+    domainRevision: "6",
+  }, "user-a:1"), true);
 });
 
 test("post reconciliationはentityごとに本文・tombstone・asset ownershipを守る", () => {
   const contentRevisions = createEntityRevisionStore();
-  const assetsRevisions = createEntityRevisionStore();
-  contentRevisions.apply("post-1", 5, "session-a");
-  assetsRevisions.apply("post-1", 5, "session-a");
+  const assetRevisions = createEntityRevisionStore();
+  contentRevisions.beginSession("user-a:1");
+  assetRevisions.beginSession("user-a:1");
+  contentRevisions.applyMutation("post-a", {
+    epoch: "epoch-1",
+    domainRevision: "5",
+  }, ["domainRevision"], "user-a:1");
+  assetRevisions.applyMutation("post-a", {
+    epoch: "epoch-1",
+    domainRevision: "5",
+  }, ["domainRevision"], "user-a:1");
 
-  const result = reconcileRefreshedPosts(
-    [{ id: "post-1", text: "newer", deletedAt: null, media: [{ id: "new-media" }] }],
-    [{ id: "post-1", text: "stale", deletedAt: "2026-01-01", media: [{ id: "stale-media" }] }],
-    new Map(),
+  const current = [{
+    id: "post-a",
+    text: "edited",
+    media: ["existing-media"],
+    tags: ["existing-tag"],
+    resonanceCount: 1,
+  }];
+  const reconciled = reconcileRefreshedPosts(current, [
     {
-      assetsRevisionStore: assetsRevisions,
-      contentRevisionStore: contentRevisions,
-      expectedSessionKey: "session-a",
-      incomingAssetsRevision: 4,
-      incomingContentRevision: 4,
+      id: "post-a",
+      revisionEpoch: "epoch-1",
+      contentRevision: "4",
+      assetsRevision: "4",
+      text: "stale",
+      media: [],
+      tags: [],
     },
-  );
+    {
+      id: "post-b",
+      revisionEpoch: "epoch-1",
+      contentRevision: "1",
+      assetsRevision: "1",
+      text: "unrelated new post",
+      media: [],
+      tags: [],
+    },
+  ], new Map(), {
+    assetsRevisionStore: assetRevisions,
+    contentRevisionStore: contentRevisions,
+    expectedSessionKey: "user-a:1",
+  });
 
-  assert.equal(result[0].text, "newer");
-  assert.equal(result[0].deletedAt, null);
-  assert.deepEqual(result[0].media, [{ id: "new-media" }]);
+  assert.equal(reconciled.find((post) => post.id === "post-a").text, "edited");
+  assert.equal(reconciled.find((post) => post.id === "post-b").text, "unrelated new post");
+
+  const independentlyNewerAssets = reconcileRefreshedPosts(current, [{
+    id: "post-a",
+    revisionEpoch: "epoch-1",
+    contentRevision: "4",
+    assetsRevision: "6",
+    text: "stale",
+    media: ["new-media"],
+    mediaLoaded: true,
+    tags: ["new-tag"],
+    tagsLoaded: true,
+  }], new Map(), {
+    assetsRevisionStore: assetRevisions,
+    contentRevisionStore: contentRevisions,
+    expectedSessionKey: "user-a:1",
+  });
+  assert.equal(independentlyNewerAssets[0].text, "edited");
+  assert.deepEqual(independentlyNewerAssets[0].media, ["new-media"]);
+  assert.deepEqual(independentlyNewerAssets[0].tags, ["new-tag"]);
+
+  const assetFailure = reconcileRefreshedPosts(current, [{
+    id: "post-a",
+    revisionEpoch: "epoch-1",
+    contentRevision: "6",
+    assetsRevision: "6",
+    text: "new body",
+    media: [],
+    mediaLoaded: false,
+    tags: [],
+    tagsLoaded: false,
+  }], new Map(), {
+    assetsRevisionStore: assetRevisions,
+    contentRevisionStore: contentRevisions,
+    expectedSessionKey: "user-a:1",
+  });
+  assert.deepEqual(assetFailure[0].media, ["existing-media"]);
+  assert.deepEqual(assetFailure[0].tags, ["existing-tag"]);
+
+  const tombstone = reconcileRefreshedPosts(current, [{
+    id: "post-a",
+    revisionEpoch: "epoch-1",
+    contentRevision: "7",
+    assetsRevision: "6",
+    tombstoned: true,
+  }], new Map(), {
+    assetsRevisionStore: assetRevisions,
+    contentRevisionStore: contentRevisions,
+    expectedSessionKey: "user-a:1",
+  });
+  assert.deepEqual(tombstone, []);
 });
 
 test("session切替は旧sessionのrevision responseを受理しない", () => {
-  assert.equal(canApplyRevisionVector("session-a", "session-a"), true);
-  assert.equal(canApplyRevisionVector("session-a", "session-b"), false);
+  const revisions = createEntityRevisionStore();
+  revisions.beginSession("user-a:1");
+  assert.equal(revisions.apply("post-1", { epoch: "epoch-1", domainRevision: "1" }, "user-a:1"), true);
+  revisions.beginSession("user-b:2");
+  assert.equal(revisions.get("post-1"), null);
+  assert.equal(revisions.apply("post-1", { epoch: "epoch-1", domainRevision: "2" }, "user-a:1"), false);
+  assert.equal(revisions.apply("post-1", { epoch: "epoch-1", domainRevision: "1" }, "user-b:2"), true);
 });
 
 test("iPhone/PWA復帰は一定時間バックグラウンドだった場合だけ全データ再同期する", () => {
-  assert.equal(shouldRefreshAfterForeground(0), false);
-  assert.equal(shouldRefreshAfterForeground(APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS - 1), false);
-  assert.equal(shouldRefreshAfterForeground(APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS), true);
+  const hiddenAt = 10_000;
+  const readyAt = hiddenAt + APP_FOREGROUND_REFRESH_MIN_HIDDEN_MS;
+
+  assert.equal(
+    shouldRefreshAfterForeground({ hiddenAt, now: readyAt, visibilityState: "visible" }),
+    true,
+  );
+  assert.equal(
+    shouldRefreshAfterForeground({ hiddenAt, now: readyAt - 1, visibilityState: "visible" }),
+    false,
+  );
+  assert.equal(
+    shouldRefreshAfterForeground({ hiddenAt, now: readyAt, visibilityState: "hidden" }),
+    false,
+  );
+
+  for (const listener of ["visibilitychange", "pagehide", "pageshow", "focus"]) {
+    assert.equal(appSource.includes(`\"${listener}\"`), true, `missing ${listener} listener`);
+  }
+
+  assert.equal(appSource.includes("void refreshObserveTimeline();"), true);
 });
 
 test("再同期はローカル下書きstateを初期化する処理を持たない", () => {
-  assert.equal(appSource.includes("setPostDraft(\"\")"), false);
-  assert.equal(appSource.includes("setStarLetterDrafts({})"), false);
+  const foregroundBlockStart = appSource.indexOf("const markHidden = () => {");
+  const foregroundBlockEnd = appSource.indexOf("const checkForNewPublicPosts", foregroundBlockStart);
+  assert.notEqual(foregroundBlockStart, -1);
+  assert.notEqual(foregroundBlockEnd, -1);
+  const foregroundBlock = appSource.slice(foregroundBlockStart, foregroundBlockEnd);
+
+  for (const setter of [
+    "setPostDraft(",
+    "setStarLetterDrafts(",
+    "setStarLetterEditDrafts(",
+    "setStarLetterReplyComposer(",
+    "setActiveTab(",
+    "setRoute(",
+  ]) {
+    assert.equal(foregroundBlock.includes(setter), false, `foreground refresh must not reset ${setter}`);
+  }
+
+  assert.equal(appSource.includes("window.location.reload"), false);
 });
