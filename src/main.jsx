@@ -31,6 +31,7 @@ import "./archivePolish.css";
 import "./rConnectPolish.css";
 import "./myStarChartPreview.css";
 import "./starLetterProfileNavigation.css";
+import "./openingMemorialFrameFit.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
