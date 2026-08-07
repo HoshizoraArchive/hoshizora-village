@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Opening Memorial Frame Preview</title>
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: #fff; background: radial-gradient(circle at 70% 20%, #304986 0, #111c4a 35%, #050b25 75%); }
+    main { width: min(92vw, 760px); margin: 0 auto; padding: 32px 0 64px; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { color: #b9c5e8; margin: 0 0 28px; line-height: 1.6; }
+    .grid { display: grid; gap: 18px; }
+    .card { border: 1px solid rgba(255,255,255,.16); border-radius: 24px; padding: 22px; background: rgba(14,25,63,.68); backdrop-filter: blur(12px); }
+    .row { display: flex; align-items: center; gap: 18px; min-height: 116px; }
+    .meta strong { display:block; font-size: 18px; }
+    .meta span { display:block; margin-top: 4px; color:#9faed4; font-size:13px; }
+    .avatar { position: relative; flex: none; border-radius: 24px; background: radial-gradient(circle at 35% 25%, #6d7899 0, #222841 40%, #111522 100%); overflow: visible; }
+    .avatar::before { content:"Ash"; position:absolute; inset:0; display:grid; place-items:center; border-radius:inherit; overflow:hidden; color:#fff; font-weight:800; background:linear-gradient(145deg,#353e62,#151a2e 60%,#544061); }
+    .avatar img { position:absolute; left:50%; top:50%; width:118%; height:118%; max-width:none; transform:translate(-50%,-50%); pointer-events:none; }
+    .profile { width:80px; height:80px; }
+    .post { width:56px; height:56px; border-radius:16px; }
+    .reconnect { width:48px; height:48px; border-radius:16px; }
+    .letter { width:44px; height:44px; border-radius:16px; }
+    .sizes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; align-items:end; }
+    .sample { text-align:center; color:#aebce1; font-size:11px; }
+    .sample .avatar { margin:0 auto 14px; }
+    @media (max-width: 560px) { .sizes { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Opening Memorial / First Resident</h1>
+    <p>本番反映前の見た目確認用。既存の操作・投稿・通知ロジックには触れず、Opening Memorialフレームだけの表示サイズを比較します。</p>
+
+    <div class="grid">
+      <section class="card">
+        <div class="row">
+          <div class="avatar profile"><img src="/profile-frames/opening-memorial.png" alt="" /></div>
+          <div class="meta"><strong>Ash</strong><span>@Fate_to_Ash</span><span>My Universe / 公開プロフィール想定</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="sizes">
+          <div class="sample"><div class="avatar profile"><img src="/profile-frames/opening-memorial.png" alt="" /></div>Profile 80px</div>
+          <div class="sample"><div class="avatar post"><img src="/profile-frames/opening-memorial.png" alt="" /></div>Post 56px</div>
+          <div class="sample"><div class="avatar reconnect"><img src="/profile-frames/opening-memorial.png" alt="" /></div>Row 48px</div>
+          <div class="sample"><div class="avatar letter"><img src="/profile-frames/opening-memorial.png" alt="" /></div>Star Letter 44px</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
