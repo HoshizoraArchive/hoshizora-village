@@ -1,0 +1,24 @@
+name: ReConnect rename scan
+
+on:
+  push:
+    branches:
+      - codex/rename-reconnect
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find exact R.Connect strings
+        shell: bash
+        run: |
+          echo '=== Exact R.Connect occurrences ==='
+          git grep -nF 'R.Connect' -- . || true
+          echo '=== Internal onboarding identifiers (must remain untouched) ==='
+          git grep -nE 'rconnect_intro|id: .rconnect.|RConnectScreen' -- src || true
