@@ -1,0 +1,474 @@
+name: Patch embedded YouTube observation
+
+on:
+  push:
+    branches:
+      - fix/observe-embedded-youtube
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/observe-embedded-youtube
+
+      - name: Patch AI observation pipeline
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path_str, old, new):
+              path = Path(path_str)
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path_str}: expected anchor once, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "netlify/functions/_shared/aiObservationData.mjs",
+              '''import {
+            getStorageRequirements,
+            validatePostMedia,
+            validatePublicPost,
+            validateStorageMetadata,
+          } from "./aiValidation.mjs";'''.replace("          ", ""),
+              '''import {
+            extractYoutubeVideoId,
+            getStorageRequirements,
+            validatePostMedia,
+            validatePublicPost,
+            validateStorageMetadata,
+          } from "./aiValidation.mjs";'''.replace("          ", ""),
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiObservationData.mjs",
+              '''const POST_MEDIA_SELECT_COLUMNS =
+            "id, post_id, uploader_id, media_type, storage_path, thumbnail_storage_path, duration_seconds, sort_order, mime_type, size_bytes";'''.replace("          ", ""),
+              '''const POST_MEDIA_SELECT_COLUMNS =
+            "id, post_id, uploader_id, media_type, storage_path, thumbnail_storage_path, duration_seconds, sort_order, mime_type, size_bytes";
+          const EMBEDDED_URL_PATTERN = /https?:\\/\\/[^\\s<>"'`]+/giu;
+          const TRAILING_URL_PUNCTUATION_PATTERN = /[)\\]}>.,!?;:、。！？）」』】》〉]+$/u;
+
+          export function findEmbeddedYoutubeVideo(body) {
+            if (typeof body !== "string") {
+              return null;
+            }
+
+            for (const match of body.matchAll(EMBEDDED_URL_PATTERN)) {
+              const url = match[0].replace(TRAILING_URL_PUNCTUATION_PATTERN, "");
+              const videoId = extractYoutubeVideoId(url);
+
+              if (videoId) {
+                return { url, videoId };
+              }
+            }
+
+            return null;
+          }
+
+          export function promoteEmbeddedYoutubePost(post) {
+            if (!post || post.type !== "text") {
+              return post;
+            }
+
+            const embeddedYoutube = findEmbeddedYoutubeVideo(post.body);
+
+            if (!embeddedYoutube) {
+              return post;
+            }
+
+            return {
+              ...post,
+              type: "youtube",
+              youtube_url: embeddedYoutube.url,
+              youtube_video_id: embeddedYoutube.videoId,
+            };
+          }'''.replace("          ", ""),
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiObservationData.mjs",
+              '''  validatePublicPost(post);
+
+  const { data: mediaRows, error: mediaError } = await supabase''',
+              '''  validatePublicPost(post);
+  const observationPost = promoteEmbeddedYoutubePost(post);
+
+  const { data: mediaRows, error: mediaError } = await supabase''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiObservationData.mjs",
+              '''  return {
+    post,
+    mediaRows: mediaRows ?? [],
+  };''',
+              '''  return {
+    post: observationPost,
+    mediaRows: mediaRows ?? [],
+  };''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiAutoObservation.mjs",
+              '''  if (post?.type !== "text") {
+    return { eligible: false, reason: "unsupported_type" };
+  }
+
+  return {
+    eligible: true,
+    reason: "public_text_author",
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  };''',
+              '''  if (!["text", "youtube"].includes(post?.type)) {
+    return { eligible: false, reason: "unsupported_type" };
+  }
+
+  return {
+    eligible: true,
+    reason: post.type === "youtube" ? "public_youtube_author" : "public_text_author",
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  };''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiAutoObservation.test.mjs",
+              '''test("later non-text posts remain outside ordinary automatic observation", () => {
+  for (const type of ["image", "video", "youtube"]) {''',
+              '''test("later image and uploaded-video posts remain outside ordinary automatic observation", () => {
+  for (const type of ["image", "video"]) {''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiAutoObservation.test.mjs",
+              '''test("automatic Chia observation skips non-author requests", () => {''',
+              '''test("later YouTube observations are eligible for automatic Chia observation", () => {
+  assert.deepEqual(
+    getAutomaticChiaObservationEligibility({
+      userId: USER_ID,
+      post: textPost({ type: "youtube" }),
+      profile: profile(),
+      isFirstPostWelcome: false,
+    }),
+    {
+      eligible: true,
+      reason: "public_youtube_author",
+      observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    },
+  );
+});
+
+test("automatic Chia observation skips non-author requests", () => {''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiPrompt.mjs",
+              '''const FIRST_POST_WELCOME_GUIDE = `''',
+              '''const AUTO_YOUTUBE_STAR_LETTER_GUIDE = `
+内部文脈: このジョブは、流星便本文に貼られたYouTube作品をちあが自動観測するためのものです。
+URL文字列や投稿文だけで判断せず、入力されたYouTube動画そのものの映像・音声を実際に観測してください。
+動画を実際に観測でき、映像・音・歌声・歌詞・展開など少なくとも1つの具体的な根拠を記録できた場合は should_post=true とし、その観測内容に基づく星文を必ず返してください。
+動画の内容を実際に観測できない場合は推測せず、should_post=false、star_letter=null にしてください。
+`.trim();
+
+const FIRST_POST_WELCOME_GUIDE = `''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiPrompt.mjs",
+              '''    normalizedObservationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST && post.type === "text"
+      ? AUTO_TEXT_STAR_LETTER_GUIDE
+      : null,
+    isFirstPostWelcome ? FIRST_POST_WELCOME_GUIDE : null,''',
+              '''    normalizedObservationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST && post.type === "text"
+      ? AUTO_TEXT_STAR_LETTER_GUIDE
+      : null,
+    normalizedObservationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST && post.type === "youtube"
+      ? AUTO_YOUTUBE_STAR_LETTER_GUIDE
+      : null,
+    isFirstPostWelcome ? FIRST_POST_WELCOME_GUIDE : null,''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiPrompt.mjs",
+              '''export {
+  AUTO_TEXT_STAR_LETTER_GUIDE,''',
+              '''export {
+  AUTO_TEXT_STAR_LETTER_GUIDE,
+  AUTO_YOUTUBE_STAR_LETTER_GUIDE,''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiStarLetterGate.mjs",
+              '''  config,
+  isFirstPostWelcome = false,
+}) {''',
+              '''  config,
+  isFirstPostWelcome = false,
+  isYoutubeObservation = false,
+}) {''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiStarLetterGate.mjs",
+              '''  if (isFirstPostWelcome) {
+    return { allowed: true, reason: "first_post_welcome" };
+  }
+
+  if (!observation?.shouldPost || !observation.starLetter) {''',
+              '''  if (isFirstPostWelcome) {
+    return { allowed: true, reason: "first_post_welcome" };
+  }
+
+  if (isYoutubeObservation) {
+    return observation?.shouldPost && observation.starLetter
+      ? { allowed: true, reason: "youtube_observed" }
+      : { allowed: false, reason: "model_declined" };
+  }
+
+  if (!observation?.shouldPost || !observation.starLetter) {''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiStarLetterGate.mjs",
+              '''  firstPostWelcomeFallback = null,
+  isFirstPostWelcome = false,
+}) {''',
+              '''  firstPostWelcomeFallback = null,
+  isFirstPostWelcome = false,
+  isYoutubeObservation = false,
+}) {''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiStarLetterGate.mjs",
+              '''    config,
+    isFirstPostWelcome,
+  });''',
+              '''    config,
+    isFirstPostWelcome,
+    isYoutubeObservation,
+  });''',
+          )
+
+          replace_once(
+              "netlify/functions/_shared/aiObservationWorker.mjs",
+              '''        firstPostWelcomeFallback: firstPostFallbackStarLetterBody,
+        isFirstPostWelcome: firstPostWelcome.isFirstPostWelcome,
+      });''',
+              '''        firstPostWelcomeFallback: firstPostFallbackStarLetterBody,
+        isFirstPostWelcome: firstPostWelcome.isFirstPostWelcome,
+        isYoutubeObservation: post.type === "youtube",
+      });''',
+          )
+
+          Path("netlify/functions/_shared/aiEmbeddedYoutubeObservation.test.mjs").write_text(r'''import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  findEmbeddedYoutubeVideo,
+  promoteEmbeddedYoutubePost,
+} from "./aiObservationData.mjs";
+
+const BASE_POST = {
+  id: "22222222-2222-4222-8222-222222222222",
+  author_id: "33333333-3333-4333-8333-333333333333",
+  type: "text",
+  visibility: "public",
+  deleted_at: null,
+  updated_at: "2026-08-07T10:34:28.244Z",
+};
+
+test("embedded youtu.be link is promoted to a YouTube observation input", () => {
+  const body = "『不条理な命の巡環』です！良かったら聴いてね♪\nhttps://youtu.be/DebSQ5_BzEE?si=example";
+  const embedded = findEmbeddedYoutubeVideo(body);
+  const promoted = promoteEmbeddedYoutubePost({ ...BASE_POST, body });
+
+  assert.deepEqual(embedded, {
+    url: "https://youtu.be/DebSQ5_BzEE?si=example",
+    videoId: "DebSQ5_BzEE",
+  });
+  assert.equal(promoted.type, "youtube");
+  assert.equal(promoted.youtube_url, embedded.url);
+  assert.equal(promoted.youtube_video_id, embedded.videoId);
+  assert.equal(promoted.body, body);
+});
+
+test("YouTube URLs with trailing Japanese punctuation are normalized before observation", () => {
+  const embedded = findEmbeddedYoutubeVideo("聴いてね https://www.youtube.com/watch?v=DebSQ5_BzEE）。");
+
+  assert.deepEqual(embedded, {
+    url: "https://www.youtube.com/watch?v=DebSQ5_BzEE",
+    videoId: "DebSQ5_BzEE",
+  });
+});
+
+test("non-YouTube links keep the post as text", () => {
+  const post = { ...BASE_POST, body: "作品はこちら https://example.com/movie" };
+
+  assert.equal(findEmbeddedYoutubeVideo(post.body), null);
+  assert.equal(promoteEmbeddedYoutubePost(post), post);
+});
+''', encoding="utf-8")
+
+          Path("netlify/functions/_shared/aiYoutubeStarLetterGate.test.mjs").write_text(r'''import assert from "node:assert/strict";
+import test from "node:test";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
+import { applyAutoStarLetterGate } from "./aiStarLetterGate.mjs";
+
+const BASE_OBSERVATION = {
+  shouldPost: true,
+  starLetter: "サビで声がほどける瞬間、映像の暗さまで一緒に揺れて見えたよ。",
+  confidence: 0.4,
+};
+
+test("observed YouTube works bypass random probability and confidence suppression", () => {
+  const result = applyAutoStarLetterGate({
+    observation: BASE_OBSERVATION,
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    jobId: "job-youtube",
+    requestFingerprint: "fingerprint-youtube",
+    config: {
+      autoObservation: {
+        starLetterProbabilityPercent: 0,
+        starLetterMinConfidencePercent: 100,
+      },
+    },
+    isYoutubeObservation: true,
+  });
+
+  assert.equal(result.shouldPost, true);
+  assert.equal(result.starLetter, BASE_OBSERVATION.starLetter);
+  assert.equal(result.starLetterGateReason, "youtube_observed");
+});
+
+test("YouTube observation never fabricates a star letter when Gemini could not observe the video", () => {
+  const result = applyAutoStarLetterGate({
+    observation: { ...BASE_OBSERVATION, shouldPost: false, starLetter: null },
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    jobId: "job-youtube",
+    requestFingerprint: "fingerprint-youtube",
+    config: undefined,
+    isYoutubeObservation: true,
+  });
+
+  assert.equal(result.shouldPost, false);
+  assert.equal(result.starLetter, null);
+  assert.equal(result.starLetterGateReason, "model_declined");
+});
+''', encoding="utf-8")
+
+          Path("netlify/functions/_shared/aiYoutubePrompt.test.mjs").write_text(r'''import assert from "node:assert/strict";
+import test from "node:test";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
+import { buildObservationPrompt } from "./aiPrompt.mjs";
+
+test("automatic YouTube prompt requires observation of the actual video before writing a star letter", () => {
+  const prompt = buildObservationPrompt({
+    post: {
+      type: "youtube",
+      body: "新曲です https://youtu.be/DebSQ5_BzEE",
+      youtube_video_id: "DebSQ5_BzEE",
+    },
+    mediaRows: [],
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    authorProfile: { display_name: "Ash", username: "Fate_to_Ash" },
+  });
+
+  assert.match(prompt, /YouTube動画そのものの映像・音声を実際に観測/);
+  assert.match(prompt, /具体的な根拠を記録できた場合は should_post=true/);
+  assert.match(prompt, /観測できない場合は推測せず/);
+  assert.equal(prompt.includes("星文は毎回返しません"), false);
+});
+''', encoding="utf-8")
+
+          Path("netlify/functions/_shared/aiYoutubeGeminiInput.test.mjs").write_text(r'''import assert from "node:assert/strict";
+import test from "node:test";
+import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
+import { runGeminiObservation } from "./aiGemini.mjs";
+
+function youtubeOutput() {
+  return JSON.stringify({
+    media_type: "youtube",
+    text_observation: "投稿本文では新曲として紹介されている。",
+    visual_observation: "暗い背景の中で人物のシルエットが切り替わる映像を観測した。",
+    audio_observation: "強いビートの上でボーカルが伸びるサビを観測した。",
+    lyric_observation: null,
+    key_moments: [],
+    confidence: 0.91,
+    should_post: true,
+    star_letter: "サビで声が伸びる瞬間、暗い映像の奥から光がほどけるみたいに見えたよ。",
+  });
+}
+
+test("Gemini receives the embedded YouTube URL as video input, not only as post text", async () => {
+  const calls = [];
+  await runGeminiObservation({
+    client: {
+      interactions: {
+        create(request, options) {
+          calls.push({ request, options });
+          return Promise.resolve({
+            output_text: youtubeOutput(),
+            usage: {
+              total_input_tokens: 600,
+              total_output_tokens: 80,
+              total_tokens: 680,
+            },
+          });
+        },
+      },
+      files: {
+        delete() {
+          return Promise.resolve({});
+        },
+      },
+    },
+    config: {
+      model: "gemini-3.5-flash",
+      observationTimeoutMs: 1000,
+    },
+    post: {
+      id: "22222222-2222-4222-8222-222222222222",
+      type: "youtube",
+      body: "新曲です https://youtu.be/DebSQ5_BzEE",
+      youtube_url: "https://youtu.be/DebSQ5_BzEE",
+      youtube_video_id: "DebSQ5_BzEE",
+    },
+    mediaRows: [],
+    storageRequirements: [],
+    supabase: {},
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    authorProfile: { display_name: "Ash", username: "Fate_to_Ash" },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].request.input[1], {
+    type: "video",
+    uri: "https://youtu.be/DebSQ5_BzEE",
+  });
+  assert.match(calls[0].request.input[0].text, /YouTube動画そのものの映像・音声を実際に観測/);
+  assert.equal(calls[0].options.retries.strategy, "none");
+});
+''', encoding="utf-8")
+
+      - name: Verify changes
+        run: |
+          git diff --check
+          npm test
+          npm run build
+
+      - name: Commit patch and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-embedded-youtube-observation.yml
+          git add netlify/functions/_shared
+          git commit -m "fix: YouTubeリンクを実動画として自動観測"
+          git push origin HEAD:fix/observe-embedded-youtube
