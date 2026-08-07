@@ -1,5 +1,6 @@
 import { AI_ERROR, aiHttpError } from "./aiErrors.mjs";
 import {
+  extractYoutubeVideoId,
   getStorageRequirements,
   validatePostMedia,
   validatePublicPost,
@@ -10,6 +11,44 @@ const POST_SELECT_COLUMNS =
   "id, author_id, type, body, media_url, youtube_url, youtube_video_id, duration_seconds, visibility, deleted_at, updated_at";
 const POST_MEDIA_SELECT_COLUMNS =
   "id, post_id, uploader_id, media_type, storage_path, thumbnail_storage_path, duration_seconds, sort_order, mime_type, size_bytes";
+const EMBEDDED_URL_PATTERN = /https?:\/\/[^\s<>"'`]+/giu;
+const TRAILING_URL_PUNCTUATION_PATTERN = /[)\]}>.,!?;:、。！？）」』】》〉]+$/u;
+
+export function findEmbeddedYoutubeVideo(body) {
+  if (typeof body !== "string") {
+    return null;
+  }
+
+  for (const match of body.matchAll(EMBEDDED_URL_PATTERN)) {
+    const url = match[0].replace(TRAILING_URL_PUNCTUATION_PATTERN, "");
+    const videoId = extractYoutubeVideoId(url);
+
+    if (videoId) {
+      return { url, videoId };
+    }
+  }
+
+  return null;
+}
+
+export function promoteEmbeddedYoutubePost(post) {
+  if (!post || post.type !== "text") {
+    return post;
+  }
+
+  const embeddedYoutube = findEmbeddedYoutubeVideo(post.body);
+
+  if (!embeddedYoutube) {
+    return post;
+  }
+
+  return {
+    ...post,
+    type: "youtube",
+    youtube_url: embeddedYoutube.url,
+    youtube_video_id: embeddedYoutube.videoId,
+  };
+}
 
 function splitStoragePath(storagePath) {
   const parts = storagePath.split("/").filter(Boolean);
@@ -33,6 +72,7 @@ export async function loadPostAndMedia(supabase, postId) {
   }
 
   validatePublicPost(post);
+  const observationPost = promoteEmbeddedYoutubePost(post);
 
   const { data: mediaRows, error: mediaError } = await supabase
     .from("post_media")
@@ -45,7 +85,7 @@ export async function loadPostAndMedia(supabase, postId) {
   }
 
   return {
-    post,
+    post: observationPost,
     mediaRows: mediaRows ?? [],
   };
 }
