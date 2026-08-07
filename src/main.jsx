@@ -7,6 +7,7 @@ import "./onboardingProfileFollowthrough.js";
 import "./onboardingSkipExperience.js";
 import App from "./App.jsx";
 import "./authSessionDisplay.js";
+import "./appOpenTracking.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./reconnectNotificationPlatformCopy.js";
