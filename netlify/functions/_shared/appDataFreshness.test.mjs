@@ -40,7 +40,10 @@ test("共鳴・星文・Archive・各post viewは同じrevisionで再取得す�
   assert.equal(appSource.includes("readPostEngagementSnapshots(supabase, postIds)"), true);
   assert.equal(appSource.includes("readStarThreadSnapshots(supabase, postIds)"), true);
   assert.equal(appSource.includes("readArchivedPostSnapshots(supabase, knownPostIds)"), true);
-  assert.equal(appSource.includes("applyResonanceCountsEverywhere(postIds, countsByPost, requestTokens)"), true);
+  assert.match(
+    appSource,
+    /applyResonanceCountsEverywhere\(\s*acceptedPostIds,\s*countsByPost,\s*viewerResonatedPostIdsFromSnapshot,\s*requestTokens,\s*\);/,
+  );
   assert.equal(appSource.includes("markStarLetterMutationCommitted("), true);
   assert.equal(appSource.includes("postMutationVersionRef"), false);
   assert.equal(appSource.includes("starLetterMutationVersionRef"), false);

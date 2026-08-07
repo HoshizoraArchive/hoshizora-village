@@ -2037,6 +2037,7 @@ function App() {
   const [resonanceSavingPostId, setResonanceSavingPostId] = useState(null);
   const [resonanceMessage, setResonanceMessage] = useState("");
   const [resonanceError, setResonanceError] = useState("");
+  const [viewerResonatedPostIds, setViewerResonatedPostIds] = useState(() => new Set());
   const [archivedPosts, setArchivedPosts] = useState([]);
   const [archivesLoading, setArchivesLoading] = useState(false);
   const [archivesError, setArchivesError] = useState("");
@@ -2210,6 +2211,7 @@ function App() {
     setResonanceSavingPostId(null);
     setResonanceMessage("");
     setResonanceError("");
+    setViewerResonatedPostIds(new Set());
     setArchiveSavingPostId(null);
     setArchivesMessage("");
     setArchivesError("");
@@ -2780,6 +2782,7 @@ function App() {
       }
 
       const countsByPost = new Map();
+      const viewerResonatedPostIdsFromSnapshot = new Set();
       const acceptedPostIds = [];
 
       for (const snapshot of snapshots ?? []) {
@@ -2796,9 +2799,17 @@ function App() {
 
         acceptedPostIds.push(snapshot.post_id);
         countsByPost.set(snapshot.post_id, Number(snapshot.resonance_count ?? 0));
+        if (Number(snapshot.viewer_resonance_count ?? 0) > 0) {
+          viewerResonatedPostIdsFromSnapshot.add(snapshot.post_id);
+        }
       }
 
-      applyResonanceCountsEverywhere(acceptedPostIds, countsByPost, requestTokens);
+      applyResonanceCountsEverywhere(
+        acceptedPostIds,
+        countsByPost,
+        viewerResonatedPostIdsFromSnapshot,
+        requestTokens,
+      );
     }
 
     readResonances();
@@ -7067,7 +7078,12 @@ function App() {
     );
   }
 
-  function applyResonanceCountsEverywhere(postIds, countsByPost, requestTokens) {
+  function applyResonanceCountsEverywhere(
+    postIds,
+    countsByPost,
+    viewerResonatedPostIdsFromSnapshot,
+    requestTokens,
+  ) {
     const requestedPostIds = new Set(postIds);
     const currentPostIds = postIds.filter((postId) =>
       resonanceRequestVersionsRef.current.isCurrent(requestTokens, postId),
@@ -7076,6 +7092,20 @@ function App() {
     for (const postId of currentPostIds) {
       resonanceCountsByPostRef.current.set(postId, countsByPost.get(postId) ?? 0);
     }
+
+    setViewerResonatedPostIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+
+      for (const postId of currentPostIds) {
+        if (viewerResonatedPostIdsFromSnapshot.has(postId)) {
+          nextIds.add(postId);
+        } else {
+          nextIds.delete(postId);
+        }
+      }
+
+      return nextIds;
+    });
 
     const applyCounts = (posts) =>
       posts.map((post) =>
@@ -7462,6 +7492,9 @@ function App() {
     }
 
     setResonanceSavingPostId(null);
+    if (Number(result.viewer_resonance_count ?? 0) > 0 || result.outcome === "created") {
+      setViewerResonatedPostIds((currentIds) => new Set(currentIds).add(postId));
+    }
     resonanceRequestVersionsRef.current.invalidate(postId);
     const incomingVersion = getEngagementVersion(result, "resonance");
     const viewerContextIsBehind = isRevisionComponentBehind(
@@ -9112,6 +9145,7 @@ function App() {
     error: resonanceError,
     message: resonanceMessage,
     onResonate: handleResonance,
+    resonatedPostIds: viewerResonatedPostIds,
     savingPostId: resonanceSavingPostId,
   };
   const archiveState = {
@@ -14976,6 +15010,7 @@ function PostCard({
   const authorMenuButtonRef = useRef(null);
   const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;
   const isResonanceSaving = resonance?.savingPostId === post.id;
+  const hasViewerResonated = resonance?.resonatedPostIds?.has(post.id) === true;
   const isArchiveSaving = archive?.savingPostId === post.id;
   const isArchived = archive?.archivedPostIds?.includes(post.id);
   const isOwnPost = postActions?.session?.user?.id === post.authorId;
@@ -15274,10 +15309,12 @@ function PostCard({
         )}
         <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-400">
           <ActionButton
+            active={hasViewerResonated}
             disabled={isResonanceSaving || !resonance?.onResonate}
-            icon="♡"
+            icon={hasViewerResonated ? "♥" : "♡"}
             label={isResonanceSaving ? "共鳴中..." : resonanceLabel}
             onClick={() => resonance?.onResonate?.(post.id)}
+            variant="resonance"
           />
           <ActionButton
             active={isStarLettersOpen}
@@ -15525,6 +15562,12 @@ function PageIntro({ subtitle, title }) {
 }
 
 function getActionButtonTone(variant = "default", active = false) {
+  if (variant === "resonance") {
+    return active
+      ? "border-sakura/55 bg-sakura/15 text-sakura shadow-[0_0_18px_rgba(255,120,168,0.16)]"
+      : "border-white/10 bg-white/5 hover:border-sakura/30 hover:bg-sakura/10 hover:text-white";
+  }
+
   if (variant === "edit") {
     return active
       ? "border-amber-200/60 bg-amber-300/20 text-amber-50 shadow-[0_0_18px_rgba(251,191,36,0.18)]"
@@ -15567,7 +15610,7 @@ function ActionButton({
       onClick={handleClick}
       type="button"
     >
-      <span className="text-comet">{icon}</span>
+      <span className={variant === "resonance" && active ? "text-sakura" : "text-comet"}>{icon}</span>
       <span>{label}</span>
     </button>
   );
