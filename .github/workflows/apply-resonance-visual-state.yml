@@ -1,0 +1,115 @@
+name: Apply resonance visual state
+
+on:
+  push:
+    branches:
+      - codex/resonance-pressed-visual-state
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/resonance-pressed-visual-state
+          fetch-depth: 0
+
+      - name: Apply focused visual-state change
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/App.jsx')
+          text = app.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  '''  const [resonanceSavingPostId, setResonanceSavingPostId] = useState(null);\n  const [resonanceMessage, setResonanceMessage] = useState(\"\");\n  const [resonanceError, setResonanceError] = useState(\"\");''',
+                  '''  const [resonanceSavingPostId, setResonanceSavingPostId] = useState(null);\n  const [resonanceMessage, setResonanceMessage] = useState(\"\");\n  const [resonanceError, setResonanceError] = useState(\"\");\n  const [viewerResonatedPostIds, setViewerResonatedPostIds] = useState(() => new Set());''',
+              ),
+              (
+                  '''    setResonanceSavingPostId(null);\n    setResonanceMessage(\"\");\n    setResonanceError(\"\");\n    setArchiveSavingPostId(null);''',
+                  '''    setResonanceSavingPostId(null);\n    setResonanceMessage(\"\");\n    setResonanceError(\"\");\n    setViewerResonatedPostIds(new Set());\n    setArchiveSavingPostId(null);''',
+              ),
+              (
+                  '''      const countsByPost = new Map();\n      const acceptedPostIds = [];''',
+                  '''      const countsByPost = new Map();\n      const viewerResonatedPostIdsFromSnapshot = new Set();\n      const acceptedPostIds = [];''',
+              ),
+              (
+                  '''        acceptedPostIds.push(snapshot.post_id);\n        countsByPost.set(snapshot.post_id, Number(snapshot.resonance_count ?? 0));\n      }\n\n      applyResonanceCountsEverywhere(acceptedPostIds, countsByPost, requestTokens);''',
+                  '''        acceptedPostIds.push(snapshot.post_id);\n        countsByPost.set(snapshot.post_id, Number(snapshot.resonance_count ?? 0));\n        if (Number(snapshot.viewer_resonance_count ?? 0) > 0) {\n          viewerResonatedPostIdsFromSnapshot.add(snapshot.post_id);\n        }\n      }\n\n      applyResonanceCountsEverywhere(\n        acceptedPostIds,\n        countsByPost,\n        viewerResonatedPostIdsFromSnapshot,\n        requestTokens,\n      );''',
+              ),
+              (
+                  '''  function applyResonanceCountsEverywhere(postIds, countsByPost, requestTokens) {''',
+                  '''  function applyResonanceCountsEverywhere(\n    postIds,\n    countsByPost,\n    viewerResonatedPostIdsFromSnapshot,\n    requestTokens,\n  ) {''',
+              ),
+              (
+                  '''    for (const postId of currentPostIds) {\n      resonanceCountsByPostRef.current.set(postId, countsByPost.get(postId) ?? 0);\n    }\n\n    const applyCounts = (posts) =>''',
+                  '''    for (const postId of currentPostIds) {\n      resonanceCountsByPostRef.current.set(postId, countsByPost.get(postId) ?? 0);\n    }\n\n    setViewerResonatedPostIds((currentIds) => {\n      const nextIds = new Set(currentIds);\n\n      for (const postId of currentPostIds) {\n        if (viewerResonatedPostIdsFromSnapshot.has(postId)) {\n          nextIds.add(postId);\n        } else {\n          nextIds.delete(postId);\n        }\n      }\n\n      return nextIds;\n    });\n\n    const applyCounts = (posts) =>''',
+              ),
+              (
+                  '''    setResonanceSavingPostId(null);\n    resonanceRequestVersionsRef.current.invalidate(postId);''',
+                  '''    setResonanceSavingPostId(null);\n    if (Number(result.viewer_resonance_count ?? 0) > 0 || result.outcome === \"created\") {\n      setViewerResonatedPostIds((currentIds) => new Set(currentIds).add(postId));\n    }\n    resonanceRequestVersionsRef.current.invalidate(postId);''',
+              ),
+              (
+                  '''  const resonance = {\n    error: resonanceError,\n    message: resonanceMessage,\n    onResonate: handleResonance,\n    savingPostId: resonanceSavingPostId,\n  };''',
+                  '''  const resonance = {\n    error: resonanceError,\n    message: resonanceMessage,\n    onResonate: handleResonance,\n    resonatedPostIds: viewerResonatedPostIds,\n    savingPostId: resonanceSavingPostId,\n  };''',
+              ),
+              (
+                  '''  const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;\n  const isResonanceSaving = resonance?.savingPostId === post.id;''',
+                  '''  const resonanceCount = Number.isFinite(post.resonanceCount) ? post.resonanceCount : 0;\n  const isResonanceSaving = resonance?.savingPostId === post.id;\n  const hasViewerResonated = resonance?.resonatedPostIds?.has(post.id) === true;''',
+              ),
+              (
+                  '''          <ActionButton\n            disabled={isResonanceSaving || !resonance?.onResonate}\n            icon=\"♡\"\n            label={isResonanceSaving ? \"共鳴中...\" : resonanceLabel}\n            onClick={() => resonance?.onResonate?.(post.id)}\n          />''',
+                  '''          <ActionButton\n            active={hasViewerResonated}\n            disabled={isResonanceSaving || !resonance?.onResonate}\n            icon={hasViewerResonated ? \"♥\" : \"♡\"}\n            label={isResonanceSaving ? \"共鳴中...\" : resonanceLabel}\n            onClick={() => resonance?.onResonate?.(post.id)}\n            variant=\"resonance\"\n          />''',
+              ),
+              (
+                  '''function getActionButtonTone(variant = \"default\", active = false) {\n  if (variant === \"edit\") {''',
+                  '''function getActionButtonTone(variant = \"default\", active = false) {\n  if (variant === \"resonance\") {\n    return active\n      ? \"border-sakura/55 bg-sakura/15 text-sakura shadow-[0_0_18px_rgba(255,120,168,0.16)]\"\n      : \"border-white/10 bg-white/5 hover:border-sakura/30 hover:bg-sakura/10 hover:text-white\";\n  }\n\n  if (variant === \"edit\") {''',
+              ),
+              (
+                  '''      <span className=\"text-comet\">{icon}</span>\n      <span>{label}</span>''',
+                  '''      <span className={variant === \"resonance\" && active ? \"text-sakura\" : \"text-comet\"}>{icon}</span>\n      <span>{label}</span>''',
+              ),
+          ]
+
+          for old, new in replacements:
+              if new in text:
+                  continue
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, found {count}: {old[:90]!r}')
+              text = text.replace(old, new, 1)
+
+          app.write_text(text, encoding='utf-8')
+
+          test_path = Path('netlify/functions/_shared/postResonanceVisualState.test.mjs')
+          test_path.write_text('''import assert from "node:assert/strict";\nimport { readFileSync } from "node:fs";\nimport test from "node:test";\n\nconst appSource = readFileSync("src/App.jsx", "utf8");\nconst dataApiSource = readFileSync("src/dataRevisionApi.js", "utf8");\n\ntest("post resonance visual state uses the existing viewer-specific engagement projection", () => {\n  assert.match(appSource, /viewer_resonance_count \\?\\? 0/);\n  assert.match(appSource, /viewerResonatedPostIdsFromSnapshot\\.add\\(snapshot\\.post_id\\)/);\n  assert.match(appSource, /resonatedPostIds: viewerResonatedPostIds/);\n  assert.match(appSource, /setViewerResonatedPostIds\\(new Set\\(\\)\\)/);\n});\n\ntest("successful resonance becomes visibly active without changing the repeated-resonance action", () => {\n  assert.match(appSource, /setViewerResonatedPostIds\\(\\(currentIds\\) => new Set\\(currentIds\\)\\.add\\(postId\\)\\)/);\n  assert.match(appSource, /active=\\{hasViewerResonated\\}/);\n  assert.match(appSource, /icon=\\{hasViewerResonated \\? "♥" : "♡"\\}/);\n  assert.match(appSource, /variant="resonance"/);\n  assert.match(appSource, /disabled=\\{isResonanceSaving \\|\\| !resonance\\?\\.onResonate\\}/);\n  assert.match(appSource, /onClick=\\{\\(\\) => resonance\\?\\.onResonate\\?\\.\\(post\\.id\\)\\}/);\n  assert.match(dataApiSource, /"add_post_resonance_v1"/);\n  assert.doesNotMatch(appSource, /removePostResonance/);\n});\n\ntest("resonated post styling is pink while the untouched state remains the existing neutral action", () => {\n  assert.match(appSource, /variant === "resonance"/);\n  assert.match(appSource, /border-sakura\\/55 bg-sakura\\/15 text-sakura/);\n  assert.match(appSource, /variant === "resonance" && active \\? "text-sakura" : "text-comet"/);\n});\n''', encoding='utf-8')
+          PY
+
+      - name: Guard focused scope
+        shell: bash
+        run: |
+          grep -q 'viewerResonatedPostIds' src/App.jsx
+          grep -q 'viewer_resonance_count' src/App.jsx
+          grep -q 'variant="resonance"' src/App.jsx
+          grep -q 'add_post_resonance_v1' src/dataRevisionApi.js
+          git diff --check
+
+      - name: Commit focused product and regression-test changes
+        shell: bash
+        run: |
+          if git diff --quiet -- src/App.jsx netlify/functions/_shared/postResonanceVisualState.test.mjs; then
+            echo 'Focused resonance visual-state change already applied.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/App.jsx netlify/functions/_shared/postResonanceVisualState.test.mjs
+          git commit -m 'Show previously resonated posts in pink'
+          git push origin HEAD:codex/resonance-pressed-visual-state
