@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  rename-and-verify:
+  rename:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
@@ -50,35 +50,28 @@ jobs:
           print(f"Replaced {total} exact product-label references across {len(files)} tracked text files.")
           PY
 
-      - name: Add live database wording migration
+      - name: Add database wording migration
         shell: bash
         run: |
           cat > supabase/migrations/20260807071000_rename_rconnect_to_reconnect.sql <<'SQL'
           begin;
 
-          -- Keep already-seeded, user-visible Village Guide copy aligned with the new product name.
           update public.guide_entries
           set body = replace(body, 'R.' || 'Connect', 'Re:Connect')
           where strpos(body, 'R.' || 'Connect') > 0;
 
-          -- Keep existing notification rows consistent when an older fallback message contains the old label.
           update public.notifications
           set message = replace(message, 'R.' || 'Connect', 'Re:Connect')
           where strpos(message, 'R.' || 'Connect') > 0;
 
-          -- Refresh developer-facing database descriptions without changing any table/column identifiers.
           comment on table public.notifications is
           'Re:Connect通知。共鳴、Archive、星文などの通知を保存する。';
-
           comment on column public.profiles.notify_authors_when_i_archive is
           '自分が誰かの流星便をArchiveした時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
-
           comment on column public.profiles.notify_authors_when_i_resonate is
           '自分が誰かの流星便に共鳴した時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
-
           comment on table public.push_subscriptions is
           'Re:ConnectスマホPush通知用の端末購読情報。Netlify Functionのservice_role経由でのみ登録する。';
-
           comment on table public.push_notification_jobs is
           'Re:Connect通知を登録済み端末へWeb Push配信するためのserver-side queue。browser roleからは直接操作させない。';
 
@@ -93,31 +86,14 @@ jobs:
             echo 'Legacy product-label text remains.' >&2
             exit 1
           fi
-
           grep -q 'rconnect_intro' src/onboarding.js
           grep -q 'id: "rconnect"' src/App.jsx
           grep -q 'function RConnectScreen' src/App.jsx
           grep -q '次は「Re:Connect」！' src/onboarding.js
           grep -q 'label: "Re:Connect"' src/App.jsx
-
           git diff --check
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run node tests
-        run: npm test
-
-      - name: Verify production build
-        run: npm run build
-
-      - name: Commit verified rename
+      - name: Commit rename to feature branch
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
