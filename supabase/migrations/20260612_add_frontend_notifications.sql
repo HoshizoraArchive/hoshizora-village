@@ -30,7 +30,7 @@ alter table public.notifications
   add constraint notifications_type_check check (type in ('resonance', 'archive', 'star_letter'));
 
 comment on table public.notifications is
-  'R.Connect通知。共鳴、Archive、星文などの通知を保存する。';
+  'Re:Connect通知。共鳴、Archive、星文などの通知を保存する。';
 
 comment on column public.notifications.type is
   '通知タイプ。MVPでは resonance、archive、star_letter を許可する。';

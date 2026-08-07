@@ -20,7 +20,7 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "星空Village";
   const payloadData = payload.data && typeof payload.data === "object" ? payload.data : {};
   const options = {
-    body: payload.body || "R.Connectに新しい通知があります。",
+    body: payload.body || "Re:Connectに新しい通知があります。",
     icon: payload.icon || "/images/icons/hoshizora-village-icon-192.png",
     badge: payload.badge || "/images/icons/favicon-32.png",
     data: {

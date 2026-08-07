@@ -236,8 +236,8 @@ create table if not exists public.profiles (
 comment on table public.profiles is 'ユーザープロフィール。表示名、自己紹介、アイコン、わたしの星座を保存する。';
 comment on column public.profiles.constellation_note is 'わたしの星座を説明する自由記述。';
 comment on column public.profiles.active_frame_id is '現在装着中のプロフィールアイコンフレーム。nullならフレームなし。';
-comment on column public.profiles.notify_authors_when_i_archive is '自分が誰かの流星便をArchiveした時、相手にR.Connect通知を送るかどうか。デフォルトON。';
-comment on column public.profiles.notify_authors_when_i_resonate is '自分が誰かの流星便に共鳴した時、相手にR.Connect通知を送るかどうか。デフォルトON。';
+comment on column public.profiles.notify_authors_when_i_archive is '自分が誰かの流星便をArchiveした時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
+comment on column public.profiles.notify_authors_when_i_resonate is '自分が誰かの流星便に共鳴した時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
 
 -- legal_consents: Terms and Privacy Policy acceptance records.
 create table if not exists public.legal_consents (
@@ -515,7 +515,7 @@ create table if not exists public.resonances (
 comment on table public.resonances is '共鳴。いいねではなく、心が反応した印。MVPでは同じユーザーが同じ流星便に何度でも共鳴できる。';
 comment on column public.resonances.resonance_type is '共鳴の種類。将来、1投稿1ユーザー1共鳴にする場合は unique(post_id, profile_id) を追加する。';
 
--- notifications: R.Connect notification records.
+-- notifications: Re:Connect notification records.
 -- Frontend users can read only their own notifications and update only is_read.
 -- Notification rows are created by trusted database triggers, not by direct client inserts.
 create table if not exists public.notifications (
@@ -529,13 +529,13 @@ create table if not exists public.notifications (
   created_at timestamptz not null default now()
 );
 
-comment on table public.notifications is 'R.Connect通知。共鳴、Archive、星文などの通知を保存する。';
+comment on table public.notifications is 'Re:Connect通知。共鳴、Archive、星文などの通知を保存する。';
 comment on column public.notifications.recipient_id is '通知を受け取るユーザー。本人だけが閲覧できる。';
 comment on column public.notifications.actor_id is '通知のきっかけを作ったユーザー。削除された場合はnullになる。';
 comment on column public.notifications.type is '通知タイプ。MVPでは resonance、archive、star_letter を許可する。';
 comment on column public.notifications.is_read is '既読状態。本人だけが更新できる。';
 
--- push_subscriptions: R.Connect mobile Push subscription registrations.
+-- push_subscriptions: Re:Connect mobile Push subscription registrations.
 -- Registered by authenticated Netlify Functions with service_role only.
 create table if not exists public.push_subscriptions (
   id uuid primary key default gen_random_uuid(),
@@ -571,7 +571,7 @@ create table if not exists public.push_subscriptions (
 );
 
 comment on table public.push_subscriptions is
-'R.ConnectスマホPush通知用の端末購読情報。Netlify Functionのservice_role経由でのみ登録する。';
+'Re:ConnectスマホPush通知用の端末購読情報。Netlify Functionのservice_role経由でのみ登録する。';
 comment on column public.push_subscriptions.profile_id is
 '購読端末を登録したプロフィール。ブラウザから直接insert/updateさせず、認証済みNetlify Functionが検証済みaccess tokenから設定する。';
 comment on column public.push_subscriptions.endpoint is
@@ -579,7 +579,7 @@ comment on column public.push_subscriptions.endpoint is
 comment on column public.push_subscriptions.disabled_at is
 '送信失敗時に購読を無効化するための時刻。';
 
--- push_notification_jobs: queued mobile Push deliveries for R.Connect.
+-- push_notification_jobs: queued mobile Push deliveries for Re:Connect.
 -- Created from public.notifications inserts and claimed by service_role only.
 create table if not exists public.push_notification_jobs (
   id uuid primary key default gen_random_uuid(),
@@ -616,7 +616,7 @@ create table if not exists public.push_notification_jobs (
 );
 
 comment on table public.push_notification_jobs is
-'R.Connect通知を登録済み端末へWeb Push配信するためのserver-side queue。browser roleからは直接操作させない。';
+'Re:Connect通知を登録済み端末へWeb Push配信するためのserver-side queue。browser roleからは直接操作させない。';
 comment on column public.push_notification_jobs.notification_id is
 'Push配信対象のpublic.notifications行。1通知につき最大1job。';
 comment on column public.push_notification_jobs.recipient_id is
@@ -1503,7 +1503,7 @@ create trigger star_letters_create_notification
 after insert on public.star_letters
 for each row execute function app_private.create_star_letter_notification();
 
--- Queue Web Push delivery for every R.Connect notification row.
+-- Queue Web Push delivery for every Re:Connect notification row.
 create or replace function app_private.enqueue_push_notification_job()
 returns trigger
 language plpgsql
@@ -3350,7 +3350,7 @@ from (
     ('first_steps_profile', 'first_steps', 'list_item', 'My Const.で、名前・自己紹介・プロフィール画像を設定する', 10),
     ('first_steps_post', 'first_steps', 'list_item', '中央の＋から、最初の流星便を放流する', 20),
     ('first_steps_observe', 'first_steps', 'list_item', '観測で誰かの流星便を見つけ、共鳴・星文・Archiveを使う', 30),
-    ('first_steps_rconnect', 'first_steps', 'list_item', 'R.Connectで届いた反応を確認し、必要ならPush通知を登録する', 40),
+    ('first_steps_rconnect', 'first_steps', 'list_item', 'Re:Connectで届いた反応を確認し、必要ならPush通知を登録する', 40),
     ('account_auth', 'available_account_profile', 'list_item', '会員登録 / ログイン / ログアウト', 10),
     ('account_legal', 'available_account_profile', 'list_item', '利用規約・プライバシーポリシーの確認と同意', 20),
     ('account_profile_edit', 'available_account_profile', 'list_item', 'プロフィール作成 / 編集', 30),
@@ -3369,8 +3369,8 @@ from (
     ('connect_resonance', 'available_observation_connection', 'list_item', '共鳴', 10),
     ('connect_star_letter', 'available_observation_connection', 'list_item', '星文の投稿 / 編集 / 削除', 20),
     ('connect_archive', 'available_observation_connection', 'list_item', 'Archive保存 / 解除 / 一覧表示', 30),
-    ('connect_notifications', 'available_observation_connection', 'list_item', 'R.Connect通知（共鳴・Archive・星文・観測）', 40),
-    ('connect_read_state', 'available_observation_connection', 'list_item', 'R.Connectの未読 / 既読管理', 50),
+    ('connect_notifications', 'available_observation_connection', 'list_item', 'Re:Connect通知（共鳴・Archive・星文・観測）', 40),
+    ('connect_read_state', 'available_observation_connection', 'list_item', 'Re:Connectの未読 / 既読管理', 50),
     ('connect_notification_links', 'available_observation_connection', 'list_item', '通知から流星便やプロフィールへ移動', 60),
     ('connect_notification_settings', 'available_observation_connection', 'list_item', '共鳴 / Archive通知のON・OFF設定', 70),
     ('connect_push', 'available_observation_connection', 'list_item', 'iPhone / AndroidへのPush通知', 80),
@@ -3378,7 +3378,7 @@ from (
     ('chia_auto_observation', 'available_chia_ai_resident', 'list_item', '公開テキスト流星便を、少し時間を空けて自動観測', 10),
     ('chia_resonance', 'available_chia_ai_resident', 'list_item', '観測した流星便への、ちあからの共鳴', 20),
     ('chia_star_letter', 'available_chia_ai_resident', 'list_item', 'ちあから、ときどき届く星文', 30),
-    ('chia_notifications', 'available_chia_ai_resident', 'list_item', 'R.Connect / Pushで観測結果を通知', 40),
+    ('chia_notifications', 'available_chia_ai_resident', 'list_item', 'Re:Connect / Pushで観測結果を通知', 40),
     ('mobile_pwa', 'available_mobile_support', 'list_item', 'ホーム画面へ追加してPWAとして利用', 10),
     ('mobile_updates', 'available_mobile_support', 'list_item', '新しい本番更新の検知 / 再読み込み案内', 20),
     ('mobile_feedback', 'available_mobile_support', 'list_item', '星の目安箱からフィードバック送信', 30),
@@ -3394,7 +3394,7 @@ from (
     ('beta_posting', 'beta_testing', 'list_item', 'テキスト・星影・星映・YouTubeの流星便を投稿しやすいか', 20),
     ('beta_navigation', 'beta_testing', 'list_item', '流星タグや共有URLから目的の流星便へ移動できるか', 30),
     ('beta_actions', 'beta_testing', 'list_item', '共鳴 / Archive / 星文の違いが伝わるか', 40),
-    ('beta_notifications', 'beta_testing', 'list_item', 'R.ConnectとPush通知が分かりやすいか', 50),
+    ('beta_notifications', 'beta_testing', 'list_item', 'Re:ConnectとPush通知が分かりやすいか', 50),
     ('beta_chia', 'beta_testing', 'list_item', '星空ちあの観測や星文が自然に届くか', 60),
     ('beta_mobile', 'beta_testing', 'list_item', 'スマホで重い・押しにくい・読みにくい場所がないか', 70),
     ('beta_requests', 'beta_testing', 'list_item', 'ほしい機能や不安な点がないか', 80),
@@ -4025,7 +4025,7 @@ alter table public.notifications
   ));
 
 comment on column public.notifications.star_letter_id is
-  '星文通知の対象。R.Connectから流星便と星文を特定するために保持する。';
+  '星文通知の対象。Re:Connectから流星便と星文を特定するために保持する。';
 comment on column public.notifications.type is
   '通知タイプ。resonance、archive、star_letter、star_letter_reply、star_letter_resonanceを許可する。';
 
@@ -6470,7 +6470,7 @@ using (
   )
 );
 
--- Trusted notification triggers must not create R.Connect rows for either
+-- Trusted notification triggers must not create Re:Connect rows for either
 -- direction of a black-hole relationship.
 create or replace function app_private.create_resonance_notification()
 returns trigger
@@ -7256,7 +7256,7 @@ alter table public.notifications
   check (content_report_id is null or type = 'content_report');
 
 comment on column public.notifications.content_report_id is
-  '観測局の管理通知が指すreport。対象ユーザーや送信者へは公開せず、管理者のR.Connect遷移だけに使用する。';
+  '観測局の管理通知が指すreport。対象ユーザーや送信者へは公開せず、管理者のRe:Connect遷移だけに使用する。';
 comment on column public.notifications.type is
   '通知タイプ。content_reportは観測局に新しい異常が作成された時だけapp_adminへ送る管理通知。';
 

@@ -596,12 +596,12 @@ test("production post cards do not expose manual AI observation controls", () =>
   assert.equal(appJsx.includes('postType !== "text"'), false);
 });
 
-test("R.Connect renders smartphone notification test card through React instead of DOM injection", () => {
+test("Re:Connect renders smartphone notification test card through React instead of DOM injection", () => {
   const requiredAppTokens = [
     "function PushNotificationTestCard({ onboarding, session })",
     "<PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />",
     "スマホ通知テスト",
-    "この端末でR.Connect通知を表示できるか確認します。",
+    "この端末でRe:Connect通知を表示できるか確認します。",
     "通知を許可",
     "テスト通知",
     "getPushNotificationPermissionLabel(permission)",
@@ -657,7 +657,7 @@ test("Push subscription Functions expose config and authenticated registration o
   assert.equal(pushSharedFunction.includes('trimmed.startsWith("https://")'), true);
 });
 
-test("R.Connect notification card registers this device without client-side Push delivery", () => {
+test("Re:Connect notification card registers this device without client-side Push delivery", () => {
   const requiredAppTokens = [
     "subscribeToPushNotifications",
     "端末登録: 未登録",
@@ -695,7 +695,7 @@ test("R.Connect notification card registers this device without client-side Push
   assert.equal(pushRegisterFunction.includes("showNotification"), false);
 });
 
-test("R.Connect reconciles an existing Push subscription with the authenticated server record", () => {
+test("Re:Connect reconciles an existing Push subscription with the authenticated server record", () => {
   const appTokens = [
     'checking: "端末登録: 確認中"',
     "getPushSubscriptionRegistrationStatus({",
@@ -864,7 +864,7 @@ test("Push test delivery validates VAPID pairs and returns only safe delivery er
   assert.equal(pushSubscriptionTestSharedFunction.includes("console.warn"), false);
 });
 
-test("R.Connect Push delivery migration queues notifications and keeps jobs server-managed", () => {
+test("Re:Connect Push delivery migration queues notifications and keeps jobs server-managed", () => {
   const tokens = [
     "create table if not exists public.push_notification_jobs",
     "notification_id uuid not null references public.notifications(id) on delete cascade",
@@ -896,7 +896,7 @@ test("R.Connect Push delivery migration queues notifications and keeps jobs serv
   assert.equal(pushNotificationJobsMigrationSql.includes("ai_observation"), false);
 });
 
-test("R.Connect Push delivery Function sends all notification types without exposing secrets", () => {
+test("Re:Connect Push delivery Function sends all notification types without exposing secrets", () => {
   assert.equal(packageJson.includes('"web-push"'), true);
   assert.equal(pushDispatchFunction.includes('import webPush from "web-push"'), true);
   assert.equal(pushDispatchFunction.includes('schedule: "*/1 * * * *"'), true);
@@ -1191,7 +1191,7 @@ test("star-letter notification constraint replacement targets only the known typ
   );
 });
 
-test("star-letter notification types use the existing R.Connect and Push queue", () => {
+test("star-letter notification types use the existing Re:Connect and Push queue", () => {
   const sql = normalizedSql(starLetterConversationMigrationSql);
 
   assert.match(sql, /'star_letter_reply'/i);

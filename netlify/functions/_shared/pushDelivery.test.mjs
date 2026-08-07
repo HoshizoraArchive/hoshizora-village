@@ -24,7 +24,7 @@ function createVapidKeyPair() {
   };
 }
 
-test("buildPushPayload uses R.Connect message and notification metadata", () => {
+test("buildPushPayload uses Re:Connect message and notification metadata", () => {
   const payload = JSON.parse(
     buildPushPayload({
       id: "notification-id",
@@ -54,7 +54,7 @@ test("buildPushPayload falls back for every current notification type", () => {
   assert.equal(JSON.parse(buildPushPayload({ type: "star_letter_reply", message: "" })).body, "星文に返信が届きました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "star_letter_resonance", message: "" })).body, "星文に共鳴が届きました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "content_report", message: "" })).body, "観測局に新しい異常が届きました");
-  assert.equal(JSON.parse(buildPushPayload({ type: "unknown", message: "" })).body, "R.Connectに新しい通知があります。");
+  assert.equal(JSON.parse(buildPushPayload({ type: "unknown", message: "" })).body, "Re:Connectに新しい通知があります。");
 });
 
 test("toWebPushSubscription only exposes endpoint and Web Push keys", () => {

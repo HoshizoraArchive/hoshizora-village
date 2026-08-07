@@ -117,7 +117,7 @@ test("各画面グループの再開先が定義され、途中再読込でも�
     "push_test_success",
     "push_test_explained",
   ]) {
-    assert.ok(onboardingSource.includes(`"${step}"`), `${step} must remain in R.Connect resume coverage`);
+    assert.ok(onboardingSource.includes(`"${step}"`), `${step} must remain in Re:Connect resume coverage`);
   }
 
   for (const step of ["post_intro_1", "post_intro_2", "post_intro_3", "post_intro_4", "first_post"]) {

@@ -419,7 +419,7 @@ test("created reports notify only eligible app admins with a fixed private messa
   assert.doesNotMatch(migrationSql, /create trigger[\s\S]*content_reports/i);
 });
 
-test("admin notification schema supports R.Connect navigation and Push job reuse", () => {
+test("admin notification schema supports Re:Connect navigation and Push job reuse", () => {
   assert.match(migrationSql, /content_report_id uuid references public\.content_reports\(id\) on delete set null/);
   assert.match(migrationSql, /notifications_content_report_id_idx/);
   assert.match(migrationSql, /notifications_content_report_reference_check/);

@@ -27,7 +27,7 @@ Databaseには以下を保存します。
 - `meteor_tags`: 流星タグ辞書
 - `post_meteor_tags`: 流星便と流星タグの関連
 - `resonances`: 共鳴
-- `notifications`: R.Connect通知
+- `notifications`: Re:Connect通知
 - `feedbacks`: 星の目安箱
 - `star_letters`: 星文
 - `archives`: Archive
@@ -116,8 +116,8 @@ RLS方針:
 
 補足:
 
-- `notify_authors_when_i_archive` はデフォルトONです。OFFの場合、自分が誰かの流星便をArchiveしても相手にR.Connect通知を作りません。
-- `notify_authors_when_i_resonate` はデフォルトONです。OFFの場合、自分が誰かの流星便に共鳴しても相手にR.Connect通知を作りません。
+- `notify_authors_when_i_archive` はデフォルトONです。OFFの場合、自分が誰かの流星便をArchiveしても相手にRe:Connect通知を作りません。
+- `notify_authors_when_i_resonate` はデフォルトONです。OFFの場合、自分が誰かの流星便に共鳴しても相手にRe:Connect通知を作りません。
 - `active_frame_id` はDB triggerで `profile_frame_ownerships` による所持確認を行い、所持していないフレームIDを直接送っても保存できません。
 
 ### legal_consents
@@ -456,12 +456,12 @@ RLS方針:
 
 - 初期MVPでは、同じユーザーが同じ流星便に何度も共鳴できる設計です。
 - `resonances` に `unique(post_id, profile_id)` は追加しません。
-- 共鳴が作成されると、DBトリガーで流星便の作者にR.Connect通知を作成します。
+- 共鳴が作成されると、DBトリガーで流星便の作者にRe:Connect通知を作成します。
 - 共鳴通知は、同じ `recipient_id` / `actor_id` / `post_id` の組み合わせにつき1件だけ作成します。
 
 ### notifications
 
-R.Connectに表示する通知を保存します。
+Re:Connectに表示する通知を保存します。
 
 MVPでは、共鳴された時、Archiveされた時、星文が届いた時に流星便の作者へ通知を残します。
 
@@ -778,7 +778,7 @@ RLSでは`anon`と一般`authenticated`へ公開行のSELECTだけを許可し�
 Issue #97の新規入村者向け進捗をユーザー単位で1行保存します。migration適用後に
 `auth.users`へ追加されたユーザーだけをAuth triggerで登録し、既存ユーザーはbackfillしません。
 
-- `current_step`: Welcome映像、プロフィール、Archive、R.Connect、初投稿の現在地点
+- `current_step`: Welcome映像、プロフィール、Archive、Re:Connect、初投稿の現在地点
 - `target_post_id`: 観測とArchive画面で共通して確認する公開流星便
 - `notification_permission_status`: 許可、拒否、未対応を端末登録や送信結果と分離
 - `push_registration_status`: 現在ユーザーへの端末登録成功・失敗
@@ -795,7 +795,7 @@ Issue #97の新規入村者向け進捗をユーザー単位で1行保存しま�
 
 `public.content_reports`は一般ユーザーへ直接公開せず、作成・管理閲覧・状態更新を固定`search_path`の専用SECURITY DEFINER RPCへ限定します。送信時snapshotはDB内で生成し、本文、プロフィール文字列、メディア参照を項目ごとの固定長へ切り詰めます。24時間の重複判定はtransaction advisory lock内で行い、`already_reported`では新しいreportも通知も作りません。
 
-新しいreportが`created`になった場合だけ、送信者と対象者を除く`app_admins`のうちR.Connectプロフィールを持つ運営アカウントへ、固定文言「観測局に新しい異常が届きました」の`content_report`通知を同じtransaction内で作ります。`actor_id`はnullとし、理由、補足、snapshot、送信者名、対象者名は通知行とPush本文へ含めません。既存のnotifications INSERT triggerがPush jobを作るため、Push未登録でもR.Connect行は残り、Push登録済み端末には同じ安全な固定文言だけを送ります。異常を伝えられた対象ユーザーと送信者本人への通知、R.Connect表示、Push送信は行いません。
+新しいreportが`created`になった場合だけ、送信者と対象者を除く`app_admins`のうちRe:Connectプロフィールを持つ運営アカウントへ、固定文言「観測局に新しい異常が届きました」の`content_report`通知を同じtransaction内で作ります。`actor_id`はnullとし、理由、補足、snapshot、送信者名、対象者名は通知行とPush本文へ含めません。既存のnotifications INSERT triggerがPush jobを作るため、Push未登録でもRe:Connect行は残り、Push登録済み端末には同じ安全な固定文言だけを送ります。異常を伝えられた対象ユーザーと送信者本人への通知、Re:Connect表示、Push送信は行いません。
 
 ## 今回まだ実装しないこと
 
@@ -809,7 +809,7 @@ Issue #97の新規入村者向け進捗をユーザー単位で1行保存しま�
 - Supabase Storage
 - AI API接続
 - AI住人のサーバー処理
-- R.Connect通知の画面表示
+- Re:Connect通知の画面表示
 - 本番デプロイ操作
 
 ## SQL Editor投入前の注意
@@ -818,11 +818,11 @@ Issue #97の新規入村者向け進捗をユーザー単位で1行保存しま�
 
 すでに古いドラフトSQLをSupabaseに投入済みの場合は、このSQLをそのまま再実行する前に、既存テーブルの有無とデータを確認してください。必要に応じて、初期化するか、差分マイグレーションとして分けて実行します。
 
-R.Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
+Re:Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
 
 Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
 
-星文のR.Connect通知triggerを既存DBに追加する場合は、`supabase/migrations/20260612_add_frontend_notifications.sql` をSupabase SQL Editorで実行してください。
+星文のRe:Connect通知triggerを既存DBに追加する場合は、`supabase/migrations/20260612_add_frontend_notifications.sql` をSupabase SQL Editorで実行してください。
 
 流星便編集・削除MVPでソフト削除を有効にする場合は、`supabase/migrations/20260605_add_post_soft_delete.sql` をSupabase SQL Editorで実行してください。
 

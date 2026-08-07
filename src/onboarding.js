@@ -129,7 +129,7 @@ const STEP_DEFINITIONS = {
   rconnect_intro: {
     action: "rconnect_intro_ack",
     lines: [
-      "次は「R.Connect」！",
+      "次は「Re:Connect」！",
       "ここは、○○が流星便を放流した時に、みんなから届いた共鳴や星文を確認できる場所だよ！",
     ],
   },

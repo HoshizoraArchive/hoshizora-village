@@ -1,4 +1,4 @@
--- Add server-managed Web Push subscriptions for R.Connect mobile notifications.
+-- Add server-managed Web Push subscriptions for Re:Connect mobile notifications.
 -- This migration only stores device subscriptions. It does not send Push
 -- notifications automatically.
 
@@ -38,7 +38,7 @@ create table if not exists public.push_subscriptions (
 );
 
 comment on table public.push_subscriptions is
-'R.ConnectスマホPush通知用の端末購読情報。Netlify Functionのservice_role経由でのみ登録し、このmigrationでは自動Push送信を実装しない。';
+'Re:ConnectスマホPush通知用の端末購読情報。Netlify Functionのservice_role経由でのみ登録し、このmigrationでは自動Push送信を実装しない。';
 comment on column public.push_subscriptions.profile_id is
 '購読端末を登録したプロフィール。ブラウザから直接insert/updateさせず、認証済みNetlify Functionが検証済みaccess tokenから設定する。';
 comment on column public.push_subscriptions.endpoint is

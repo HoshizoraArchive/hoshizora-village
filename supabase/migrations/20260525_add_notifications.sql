@@ -1,4 +1,4 @@
--- 星空Village R.Connect notifications migration
+-- 星空Village Re:Connect notifications migration
 -- Run this file in the Supabase SQL Editor after merging PR #19.
 -- This migration only adds the notifications foundation and resonance notification trigger.
 -- It does not drop tables, truncate data, disable RLS, or add any API keys.
@@ -7,7 +7,7 @@
 create schema if not exists app_private;
 revoke all on schema app_private from public, anon, authenticated;
 
--- notifications: R.Connect notification records.
+-- notifications: Re:Connect notification records.
 -- Frontend users can read only their own notifications and update only is_read.
 -- Notification rows are created by trusted database triggers, not by direct client inserts.
 create table if not exists public.notifications (
@@ -21,7 +21,7 @@ create table if not exists public.notifications (
   created_at timestamptz not null default now()
 );
 
-comment on table public.notifications is 'R.Connect通知。共鳴、星文、Archiveなどの通知を保存する。MVPでは共鳴通知のみ。';
+comment on table public.notifications is 'Re:Connect通知。共鳴、星文、Archiveなどの通知を保存する。MVPでは共鳴通知のみ。';
 comment on column public.notifications.recipient_id is '通知を受け取るユーザー。本人だけが閲覧できる。';
 comment on column public.notifications.actor_id is '通知のきっかけを作ったユーザー。削除された場合はnullになる。';
 comment on column public.notifications.type is '通知タイプ。MVPでは resonance のみ。';

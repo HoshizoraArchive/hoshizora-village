@@ -736,7 +736,7 @@ using (
   )
 );
 
--- Trusted notification triggers must not create R.Connect rows for either
+-- Trusted notification triggers must not create Re:Connect rows for either
 -- direction of a black-hole relationship.
 create or replace function app_private.create_resonance_notification()
 returns trigger

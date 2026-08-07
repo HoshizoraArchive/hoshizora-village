@@ -97,7 +97,7 @@ test.describe("星空Village browser smoke", () => {
 
     await expect(navigation).toBeVisible();
 
-    for (const label of ["観測", "R.Connect", "流星便", "Archive", "My Universe"]) {
+    for (const label of ["観測", "Re:Connect", "流星便", "Archive", "My Universe"]) {
       await expect(navigation.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
 
@@ -113,7 +113,7 @@ test.describe("星空Village browser smoke", () => {
       name: "星空Village bottom navigation",
     });
 
-    for (const label of ["R.Connect", "Archive", "My Universe", "観測"]) {
+    for (const label of ["Re:Connect", "Archive", "My Universe", "観測"]) {
       const button = navigation.getByRole("button", { name: label, exact: true });
       await button.click();
       await expect(button).toHaveAttribute("aria-current", "page");

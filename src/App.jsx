@@ -158,7 +158,7 @@ import {
 
 const bottomNavItems = [
   { id: "observe", label: "観測", icon: "telescope" },
-  { id: "rconnect", label: "R.Connect", icon: "bell" },
+  { id: "rconnect", label: "Re:Connect", icon: "bell" },
   { id: "post", label: "流星便", icon: "plus", primary: true },
   { id: "archive", label: "Archive", icon: "bookmark" },
   { id: "profile", label: "My Universe", ariaLabel: "My Universe", icon: "asterism" },
@@ -7623,7 +7623,7 @@ function App() {
     setNotificationsError("");
 
     if (!session?.user?.id) {
-      setNotificationsError("ログインするとR.Connectを確認できます。");
+      setNotificationsError("ログインするとRe:Connectを確認できます。");
       return;
     }
 
@@ -11048,7 +11048,7 @@ function PushNotificationTestCard({ onboarding, session }) {
 
     if (!session?.access_token) {
       setSubscriptionStatus("failed");
-      setStatusMessage("ログインすると、この端末をR.Connect通知用に登録できます。");
+      setStatusMessage("ログインすると、この端末をRe:Connect通知用に登録できます。");
       onboarding?.onPushRegistrationFailed?.();
       return;
     }
@@ -11162,7 +11162,7 @@ function PushNotificationTestCard({ onboarding, session }) {
         <div>
           <h3 className="text-base font-black text-white">スマホ通知テスト</h3>
           <p className="mt-2 text-sm leading-6 text-slate-200">
-            この端末でR.Connect通知を表示できるか確認します。iPhoneではホーム画面に追加した星空Villageから試してください。
+            この端末でRe:Connect通知を表示できるか確認します。iPhoneではホーム画面に追加した星空Villageから試してください。
           </p>
           <p className="mt-3 text-xs font-black text-comet">{permissionLabel}</p>
           <p className="mt-1 text-xs font-black text-comet">{subscriptionLabel}</p>
@@ -11250,14 +11250,14 @@ function RConnectScreen({ notifications }) {
   return (
     <main className="mx-auto max-w-3xl">
       <section className="glass-panel p-5 sm:p-6">
-        <p className="text-xs font-bold normal-case text-comet">R.Connect</p>
-        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">R.Connect</h2>
+        <p className="text-xs font-bold normal-case text-comet">Re:Connect</p>
+        <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">Re:Connect</h2>
         <p className="mt-4 text-sm leading-7 text-slate-300">共鳴・星文・観測通知がここに届きます。</p>
         <PushNotificationTestCard onboarding={notifications.onboarding} session={notifications.session} />
 
         {!notifications.session ? (
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm leading-7 text-slate-400">
-            ログインすると、自分宛てのR.Connectを確認できます。
+            ログインすると、自分宛てのRe:Connectを確認できます。
           </div>
         ) : (
           <div className="mt-5 space-y-3">
@@ -11269,7 +11269,7 @@ function RConnectScreen({ notifications }) {
                     : "border-comet/20 bg-comet/10 text-comet"
                 }`}
               >
-                {notifications.error || notifications.message || "R.Connectを読み込み中..."}
+                {notifications.error || notifications.message || "Re:Connectを読み込み中..."}
               </p>
             )}
 

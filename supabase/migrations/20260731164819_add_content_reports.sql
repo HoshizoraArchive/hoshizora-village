@@ -132,7 +132,7 @@ alter table public.notifications
   check (content_report_id is null or type = 'content_report');
 
 comment on column public.notifications.content_report_id is
-  '観測局の管理通知が指すreport。対象ユーザーや送信者へは公開せず、管理者のR.Connect遷移だけに使用する。';
+  '観測局の管理通知が指すreport。対象ユーザーや送信者へは公開せず、管理者のRe:Connect遷移だけに使用する。';
 comment on column public.notifications.type is
   '通知タイプ。content_reportは観測局に新しい異常が作成された時だけapp_adminへ送る管理通知。';
 

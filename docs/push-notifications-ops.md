@@ -2,23 +2,23 @@
 
 ## 目的
 
-R.Connect のスマホ通知を、段階的に本番運用へ進めるための運用メモです。
+Re:Connect のスマホ通知を、段階的に本番運用へ進めるための運用メモです。
 
 ## 現在の段階
 
 PR #82 では、スマホ Push 通知のうち「端末登録」までを実装しました。
 
-今回のR.Connectスマホ通知配信MVPでは、`public.notifications` に保存されるR.Connect通知を全ユーザー・全通知タイプでPush配信対象にします。
+今回のRe:Connectスマホ通知配信MVPでは、`public.notifications` に保存されるRe:Connect通知を全ユーザー・全通知タイプでPush配信対象にします。
 
 - `public.push_subscriptions` に端末購読情報を保存する
 - `/api/push-config` で VAPID public key を返す
 - `/api/push-subscription-register` で認証済みユーザーの端末購読を保存する
-- R.Connect のスマホ通知テストカードから端末登録する
+- Re:Connect のスマホ通知テストカードから端末登録する
 - `public.notifications` の `INSERT` triggerで `public.push_notification_jobs` へ1通知1jobを積む
 - `push-notification-dispatch` scheduled Functionがservice_roleでjobをclaimし、`web-push`で配信する
 - 404 / 410 が返った購読は `disabled_at` を更新し、以後の配信対象から外す
 
-ちあ通知だけに限定せず、`resonance`、`archive`、`star_letter` を含む `public.notifications` 全体を対象にします。AI観測ロジックやR.Connect画面表示は変更しません。
+ちあ通知だけに限定せず、`resonance`、`archive`、`star_letter` を含む `public.notifications` 全体を対象にします。AI観測ロジックやRe:Connect画面表示は変更しません。
 
 ## Netlify environment variables
 
@@ -39,13 +39,13 @@ PR #82 では、スマホ Push 通知のうち「端末登録」までを実装�
 
 ## VAPID鍵ローテーション時の端末再登録
 
-VAPID public key を変更すると、既存のブラウザPush購読は新しい鍵の購読として再利用できません。R.Connectの `通知端末を再登録` は、現在ログインしているプロフィールと endpoint / p256dh / auth がすべて一致する行だけを `disabled_at` で無効化してから、ブラウザ側で旧購読を解除し、新しいpublic keyで購読を作成・登録します。
+VAPID public key を変更すると、既存のブラウザPush購読は新しい鍵の購読として再利用できません。Re:Connectの `通知端末を再登録` は、現在ログインしているプロフィールと endpoint / p256dh / auth がすべて一致する行だけを `disabled_at` で無効化してから、ブラウザ側で旧購読を解除し、新しいpublic keyで購読を作成・登録します。
 
 別プロフィールの行は無効化・移管しません。サーバー側に一致行がないブラウザ購読は、無効化対象がないものとして旧購読の解除へ進みます。再登録の途中で失敗した場合は、その段階の安全なエラーコードを表示し、新しい購読を作成する前に処理を止めます。既存行は削除しません。
 
 ## 本番確認
 
-R.Connect で以下を確認します。
+Re:Connect で以下を確認します。
 
 1. `通知: 許可済み` になること
 2. `端末登録: 未登録` が表示されること

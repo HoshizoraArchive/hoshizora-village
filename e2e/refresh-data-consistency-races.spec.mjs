@@ -1176,7 +1176,7 @@ test("増減・真の0・取得失敗を収束させ同一postを全viewで一�
 });
 
 
-test("R.Connectはsession切替後の旧通知応答を捨てruntime errorを出さない", async ({ page }) => {
+test("Re:Connectはsession切替後の旧通知応答を捨てruntime errorを出さない", async ({ page }) => {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   const controls = await mockVillage(page, {
@@ -1197,7 +1197,7 @@ test("R.Connectはsession切替後の旧通知応答を捨てruntime errorを出
   await page.getByRole("button", { name: "村へ帰る", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Bユーザー", exact: true })).toBeVisible();
 
-  await navigation.getByRole("button", { name: "R.Connect", exact: true }).click();
+  await navigation.getByRole("button", { name: "Re:Connect", exact: true }).click();
   await expect(page.getByText("Bユーザーの通知", { exact: true })).toBeVisible();
   controls.releaseNotificationReads();
   await page.waitForTimeout(250);

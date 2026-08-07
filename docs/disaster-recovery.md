@@ -106,7 +106,7 @@ supabase db dump --db-url "$SOURCE_DB_URL" -f data.sql --use-copy --data-only -x
 6. Auth / Realtime / API key / Netlify環境変数などproject外設定を再設定する
 7. row count、主要profile / post、Storage checksumを確認する
 8. Netlifyの接続先を新projectへ切り替える
-9. 実機でlogin、投稿表示、画像・動画、共鳴、星文、Archive、R.Connectを確認する
+9. 実機でlogin、投稿表示、画像・動画、共鳴、星文、Archive、Re:Connectを確認する
 
 ## β開始前の完了条件
 
