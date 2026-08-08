@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { applyProfileActionLayout } from "./scripts/profile-action-layout-transform.mjs";
 
 function getClientBuildId() {
   return (
@@ -38,8 +39,26 @@ function clientBuildVersionPlugin(buildId) {
   };
 }
 
+function profileActionLayoutPlugin() {
+  return {
+    name: "hoshizora-profile-action-layout",
+    enforce: "pre",
+    transform(code, id) {
+      const cleanId = id.split("?", 1)[0];
+      if (!cleanId.endsWith("/src/App.jsx")) {
+        return null;
+      }
+
+      return {
+        code: applyProfileActionLayout(code),
+        map: null,
+      };
+    },
+  };
+}
+
 const clientBuildId = getClientBuildId();
 
 export default defineConfig({
-  plugins: [react(), clientBuildVersionPlugin(clientBuildId)],
+  plugins: [profileActionLayoutPlugin(), react(), clientBuildVersionPlugin(clientBuildId)],
 });
