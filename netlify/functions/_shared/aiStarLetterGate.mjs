@@ -8,7 +8,7 @@ function deterministicPercent(seed) {
   return value % 100;
 }
 
-function hasYoutubeMediaObservation(observation) {
+function hasMediaObservation(observation) {
   return (observation?.observedPoints ?? []).some((point) =>
     ["visual", "audio", "lyric"].includes(point?.kind),
   );
@@ -40,9 +40,9 @@ export function shouldAllowAutoStarLetter({
 
   if (
     observationContext === AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST &&
-    hasYoutubeMediaObservation(observation)
+    hasMediaObservation(observation)
   ) {
-    return { allowed: true, reason: "youtube_observed" };
+    return { allowed: true, reason: "media_observed" };
   }
 
   const autoConfig = config?.autoObservation ?? {};
