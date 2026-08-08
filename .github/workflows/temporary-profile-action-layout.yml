@@ -1,16 +1,15 @@
 name: Temporary profile action layout patch
 
 on:
-  issue_comment:
-    types:
-      - created
+  push:
+    branches:
+      - codex/profile-share-edit-actions
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.issue.pull_request && github.event.issue.number == 224 && github.event.comment.user.login == 'HoshizoraArchive' && github.event.comment.body == '/apply-profile-layout'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
