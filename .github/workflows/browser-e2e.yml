@@ -54,3 +54,122 @@ jobs:
           path: playwright-report/
           if-no-files-found: ignore
           retention-days: 7
+
+  profile-action-layout-patch:
+    name: Guarded profile action layout patch
+    needs: smoke
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/profile-share-edit-actions'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout target feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/profile-share-edit-actions
+          fetch-depth: 0
+
+      - name: Apply exact guarded UI patch and regression test
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/App.jsx')
+          text = path.read_text()
+          test_path = Path('netlify/functions/_shared/profileActionLayout.test.mjs')
+
+          old_header_edit = '''          {profile.canEdit && (
+            <button
+              className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+              data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
+              disabled={profile.loading}
+              onClick={profile.onStartEdit}
+              type="button"
+            >
+              {profile.loading ? "読込中" : "編集"}
+            </button>
+          )}
+'''
+
+          old_share = '''        {profile.canEdit && (
+          <button
+            className="mt-4 min-h-10 w-full rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!canShareStarProfile}
+            onClick={() => profile.onShareProfile(profile.data?.username)}
+            type="button"
+          >
+            星座URLを共有
+          </button>
+        )}
+'''
+
+          new_actions = '''        {profile.canEdit && (
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button
+              className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-3 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!canShareStarProfile}
+              onClick={() => profile.onShareProfile(profile.data?.username)}
+              type="button"
+            >
+              プロフィールを共有
+            </button>
+            <button
+              className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-3 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+              data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
+              disabled={profile.loading}
+              onClick={profile.onStartEdit}
+              type="button"
+            >
+              {profile.loading ? "読込中" : "プロフィールを編集"}
+            </button>
+          </div>
+        )}
+'''
+
+          if 'プロフィールを共有' in text and 'プロフィールを編集' in text and test_path.exists():
+              print('Profile action layout is already applied.')
+              raise SystemExit(0)
+
+          if text.count(old_header_edit) != 1:
+              raise SystemExit(f'Expected exactly one header edit block, found {text.count(old_header_edit)}')
+          if text.count(old_share) != 1:
+              raise SystemExit(f'Expected exactly one share block, found {text.count(old_share)}')
+
+          text = text.replace(old_header_edit, '', 1)
+          text = text.replace(old_share, new_actions, 1)
+          path.write_text(text)
+
+          test_path.write_text('''import assert from "node:assert/strict";\nimport { readFileSync } from "node:fs";\nimport test from "node:test";\n\nconst appSource = readFileSync("src/App.jsx", "utf8");\n\ntest("My Universe profile share/edit actions reuse existing behavior and keep onboarding target", () => {\n  assert.match(appSource, /mt-4 grid grid-cols-2 gap-3/);\n  assert.match(appSource, />\\s*プロフィールを共有\\s*<\\/button>/);\n  assert.match(appSource, /profile\\.loading \\? "読込中" : "プロフィールを編集"/);\n  assert.match(appSource, /onClick=\\{\\(\\) => profile\\.onShareProfile\\(profile\\.data\\?\\.username\\)\\}/);\n  assert.match(appSource, /onClick=\\{profile\\.onStartEdit\\}/);\n  assert.match(appSource, /data-onboarding-target=\\{profile\\.onboardingTarget === "profile-edit" \\? "profile-edit" : undefined\\}/);\n  assert.doesNotMatch(appSource, /星座URLを共有/);\n  assert.doesNotMatch(appSource, /profile\\.loading \\? "読込中" : "編集"/);\n});\n''')
+
+          trigger_path = Path('.profile-patch-trigger')
+          if trigger_path.exists():
+              trigger_path.unlink()
+          PY
+
+      - name: Verify exact product diff
+        run: |
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          printf '%s\n' "$changed"
+          printf '%s\n' "$changed" | grep -qx 'netlify/functions/_shared/profileActionLayout.test.mjs'
+          printf '%s\n' "$changed" | grep -qx 'src/App.jsx'
+          if printf '%s\n' "$changed" | grep -vE '^(\.profile-patch-trigger|netlify/functions/_shared/profileActionLayout\.test\.mjs|src/App\.jsx)$' | grep -q .; then
+            echo 'Unexpected file changed.' >&2
+            exit 1
+          fi
+
+      - name: Commit exact UI patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "ui: align profile share and edit actions"
+          git push origin HEAD:codex/profile-share-edit-actions
