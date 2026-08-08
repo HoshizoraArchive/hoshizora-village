@@ -85,18 +85,32 @@ test("the first public text post also uses the welcome-only route", () => {
   );
 });
 
-test("later image and uploaded-video posts remain outside ordinary automatic observation", () => {
-  for (const type of ["image", "video"]) {
-    assert.deepEqual(
-      getAutomaticChiaObservationEligibility({
-        userId: USER_ID,
-        post: textPost({ type }),
-        profile: profile(),
-        isFirstPostWelcome: false,
-      }),
-      { eligible: false, reason: "unsupported_type" },
-    );
-  }
+test("later image posts remain outside ordinary automatic observation", () => {
+  assert.deepEqual(
+    getAutomaticChiaObservationEligibility({
+      userId: USER_ID,
+      post: textPost({ type: "image" }),
+      profile: profile(),
+      isFirstPostWelcome: false,
+    }),
+    { eligible: false, reason: "unsupported_type" },
+  );
+});
+
+test("later uploaded-video observations are eligible for automatic Chia observation", () => {
+  assert.deepEqual(
+    getAutomaticChiaObservationEligibility({
+      userId: USER_ID,
+      post: textPost({ type: "video" }),
+      profile: profile(),
+      isFirstPostWelcome: false,
+    }),
+    {
+      eligible: true,
+      reason: "public_video_author",
+      observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    },
+  );
 });
 
 test("later YouTube observations are eligible for automatic Chia observation", () => {
