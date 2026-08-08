@@ -1,0 +1,129 @@
+name: Temporary guarded profile actions patcher
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-profile-actions:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/profile-actions-layout'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out target branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: fix/profile-actions-layout
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Apply exact guarded UI patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/App.jsx')
+          text = path.read_text()
+
+          old_header_edit = '''          {profile.canEdit && (
+            <button
+              className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+              data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
+              disabled={profile.loading}
+              onClick={profile.onStartEdit}
+              type="button"
+            >
+              {profile.loading ? "読込中" : "編集"}
+            </button>
+          )}
+'''
+
+          old_share = '''        {profile.canEdit && (
+          <button
+            className="mt-4 min-h-10 w-full rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!canShareStarProfile}
+            onClick={() => profile.onShareProfile(profile.data?.username)}
+            type="button"
+          >
+            星座URLを共有
+          </button>
+        )}
+'''
+
+          new_actions = '''        {profile.canEdit && (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              className="min-h-10 rounded-2xl border border-white/15 bg-white/5 px-3 text-xs font-black text-slate-200 transition hover:border-comet/30 hover:bg-comet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!canShareStarProfile}
+              onClick={() => profile.onShareProfile(profile.data?.username)}
+              type="button"
+            >
+              プロフィールを共有
+            </button>
+            <button
+              className="min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-3 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
+              data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
+              disabled={profile.loading}
+              onClick={profile.onStartEdit}
+              type="button"
+            >
+              {profile.loading ? "読込中" : "プロフィールを編集"}
+            </button>
+          </div>
+        )}
+'''
+
+          already_patched = (
+              'プロフィールを共有' in text
+              and 'プロフィールを編集' in text
+              and '星座URLを共有' not in text
+          )
+          if already_patched:
+              print('Profile action layout is already patched.')
+              raise SystemExit(0)
+
+          if text.count(old_header_edit) != 1:
+              raise SystemExit(f'Expected exactly one header edit block, found {text.count(old_header_edit)}')
+          if text.count(old_share) != 1:
+              raise SystemExit(f'Expected exactly one share block, found {text.count(old_share)}')
+
+          text = text.replace(old_header_edit, '', 1)
+          text = text.replace(old_share, new_actions, 1)
+
+          required = [
+              'プロフィールを共有',
+              'プロフィールを編集',
+              'onClick={() => profile.onShareProfile(profile.data?.username)}',
+              'onClick={profile.onStartEdit}',
+              'data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}',
+          ]
+          for token in required:
+              if token not in text:
+                  raise SystemExit(f'Missing required token after patch: {token}')
+          if '星座URLを共有' in text:
+              raise SystemExit('Legacy share label still exists')
+
+          path.write_text(text)
+          PY
+
+      - name: Verify exact application diff
+        run: |
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = "src/App.jsx"
+          git diff -- src/App.jsx
+
+      - name: Commit and push patch when needed
+        run: |
+          if git diff --quiet -- src/App.jsx; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.jsx
+          git commit -m "fix: align profile share and edit actions"
+          git push origin HEAD:fix/profile-actions-layout
