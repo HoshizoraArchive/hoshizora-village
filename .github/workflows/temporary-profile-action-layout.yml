@@ -1,17 +1,18 @@
 name: Temporary profile action layout patch
 
 on:
-  pull_request:
-    branches:
-      - main
-    types: [synchronize, reopened]
+  workflow_run:
+    workflows:
+      - Quality Gate
+    types:
+      - completed
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.pull_request.head.ref == 'codex/profile-share-edit-actions'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'codex/profile-share-edit-actions'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +33,20 @@ jobs:
               raise SystemExit(0)
 
           old_header_edit = '''          {profile.canEdit && (
+            <button
+              className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:border-comet/30 hover:bg-comet/10 hover:text-white"
+              data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
+              disabled={profile.loading}
+              onClick={profile.onStartEdit}
+              type="button"
+            >
+              {profile.loading ? "読込中" : "編集"}
+            </button>
+          )}
+'''
+
+          # Keep compatibility with the current exact class string if hover classes differ.
+          old_header_edit_current = '''          {profile.canEdit && (
             <button
               className="min-h-9 rounded-full border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15 disabled:cursor-not-allowed disabled:opacity-60"
               data-onboarding-target={profile.onboardingTarget === "profile-edit" ? "profile-edit" : undefined}
@@ -79,10 +94,12 @@ jobs:
         )}
 '''
 
-          assert text.count(old_header_edit) == 1, f'header edit block count={text.count(old_header_edit)}'
+          candidates = [old_header_edit_current, old_header_edit]
+          matches = [candidate for candidate in candidates if text.count(candidate) == 1]
+          assert len(matches) == 1, f'header edit block match count={len(matches)}'
           assert text.count(old_share) == 1, f'share block count={text.count(old_share)}'
 
-          text = text.replace(old_header_edit, '', 1)
+          text = text.replace(matches[0], '', 1)
           text = text.replace(old_share, new_actions, 1)
           path.write_text(text)
 
