@@ -32,7 +32,7 @@ test("observed YouTube works bypass random probability and confidence suppressio
 
   assert.equal(result.shouldPost, true);
   assert.match(result.starLetter, /サビ/);
-  assert.equal(result.starLetterGateReason, "youtube_observed");
+  assert.equal(result.starLetterGateReason, "media_observed");
 });
 
 test("YouTube observation never fabricates a star letter when Gemini declines", () => {
