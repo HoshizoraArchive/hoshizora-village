@@ -59,9 +59,10 @@ jobs:
     name: Guarded profile action layout patch
     needs: smoke
     if: >-
-      github.event_name == 'pull_request' &&
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'codex/profile-share-edit-actions'
+      github.event.pull_request.head.ref == 'codex/profile-share-edit-actions')
     runs-on: ubuntu-latest
     permissions:
       contents: write
