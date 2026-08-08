@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
 const FIRST_POST_WELCOME_TYPES = new Set(["text", "image", "video", "youtube"]);
+const AUTO_OBSERVATION_TYPES = new Set(["text", "video", "youtube"]);
 
 export function getAutomaticChiaObservationEligibility({
   userId,
@@ -25,13 +26,19 @@ export function getAutomaticChiaObservationEligibility({
     };
   }
 
-  if (!["text", "youtube"].includes(post?.type)) {
+  if (!AUTO_OBSERVATION_TYPES.has(post?.type)) {
     return { eligible: false, reason: "unsupported_type" };
   }
 
+  const reasonByType = {
+    text: "public_text_author",
+    video: "public_video_author",
+    youtube: "public_youtube_author",
+  };
+
   return {
     eligible: true,
-    reason: post.type === "youtube" ? "public_youtube_author" : "public_text_author",
+    reason: reasonByType[post.type],
     observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
   };
 }
@@ -68,4 +75,4 @@ export function buildAutoObservationNotBeforeAt({
   return new Date(now.getTime() + delaySeconds * 1000);
 }
 
-export { FIRST_POST_WELCOME_TYPES };
+export { AUTO_OBSERVATION_TYPES, FIRST_POST_WELCOME_TYPES };
