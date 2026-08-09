@@ -7,21 +7,24 @@ const migrationSql = readFileSync(
   "utf8",
 );
 
-test("new human profiles are automatically added to the beta_resident cohort", () => {
+test("only newly inserted human profile kinds are automatically added to beta_resident", () => {
   assert.match(migrationSql, /after insert or update of kind on public\.profile_kinds/i);
-  assert.match(migrationSql, /if new\.kind = 'human' then/i);
+  assert.match(migrationSql, /if tg_op = 'INSERT' and new\.kind = 'human' then/i);
   assert.match(migrationSql, /insert into public\.profile_cohorts \(profile_id, cohort_key\)/i);
   assert.match(migrationSql, /values \(new\.profile_id, 'beta_resident'\)/i);
   assert.match(migrationSql, /on conflict \(profile_id, cohort_key\) do nothing/i);
 });
 
-test("AI residents are not left in the beta_resident cohort", () => {
-  assert.match(migrationSql, /elsif new\.kind = 'ai_resident' then/i);
+test("profiles changed to AI residents are removed from beta_resident", () => {
+  assert.match(migrationSql, /tg_op = 'UPDATE'/i);
+  assert.match(migrationSql, /old\.kind is distinct from new\.kind/i);
+  assert.match(migrationSql, /new\.kind = 'ai_resident'/i);
   assert.match(migrationSql, /delete from public\.profile_cohorts/i);
   assert.match(migrationSql, /cohort_key = 'beta_resident'/i);
 });
 
-test("migration does not backfill existing non-beta human profiles", () => {
+test("migration does not backfill or touch existing non-beta human rows", () => {
   assert.doesNotMatch(migrationSql, /insert into public\.profile_cohorts[\s\S]*select[\s\S]*from public\.profile_kinds/i);
   assert.doesNotMatch(migrationSql, /update public\.profile_kinds/i);
+  assert.doesNotMatch(migrationSql, /tg_op = 'UPDATE'[\s\S]*new\.kind = 'human'/i);
 });
