@@ -44,6 +44,7 @@ export function promoteEmbeddedYoutubePost(post) {
 
   return {
     ...post,
+    observation_source_type: "text",
     type: "youtube",
     youtube_url: embeddedYoutube.url,
     youtube_video_id: embeddedYoutube.videoId,
