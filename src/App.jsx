@@ -137,6 +137,11 @@ import {
   validateContentReportInput,
 } from "./contentReports";
 import {
+  getOwnedAvatarStoragePath,
+  runProfileSaveWithAvatarLifecycle,
+  saveProfileWithAvatarGuard,
+} from "./profileAvatarStorage";
+import {
   AUTH_CONFIRMATION_KIND,
   AUTH_CONFIRMATION_RESEND_COOLDOWN_MS,
   AUTH_PASSWORD_RECOVERY_COOLDOWN_MS,
@@ -5851,7 +5856,20 @@ function App() {
     setProfileMessage("");
     setProfileError("");
 
-    let nextAvatarUrl = optionalText(profileForm.avatar_url);
+    const profileExists = profile?.id === mutationSession.userId;
+    const previousAvatarUrl = profileExists ? optionalText(profile.avatar_url ?? "") : null;
+    const requestedAvatarUrl = optionalText(profileForm.avatar_url);
+    const hasAvatarUpload = Boolean(avatarFile);
+    const avatarStorage = supabase.storage.from(AVATAR_BUCKET);
+    const { data: avatarReferenceUrlData } = avatarStorage.getPublicUrl(
+      `${mutationSession.userId}/avatar-cropped-0.${AVATAR_CROP_OUTPUT_EXTENSION}`,
+    );
+    const previousAvatarPath = getOwnedAvatarStoragePath({
+      avatarUrl: previousAvatarUrl,
+      referenceUrl: avatarReferenceUrlData.publicUrl,
+      userId: mutationSession.userId,
+    });
+    let uploadAvatar = null;
 
     if (avatarFile) {
       if (!AVATAR_ALLOWED_TYPES[avatarFile.type]) {
@@ -5890,83 +5908,101 @@ function App() {
         }
       }
 
-      const filePath = `${mutationSession.userId}/avatar-cropped-${Date.now()}.${AVATAR_CROP_OUTPUT_EXTENSION}`;
-      const { error: uploadError } = await supabase.storage.from(AVATAR_BUCKET).upload(filePath, nextCroppedAvatarBlob, {
-        cacheControl: "3600",
-        contentType: AVATAR_CROP_OUTPUT_TYPE,
-        upsert: false,
-      });
+      uploadAvatar = async () => {
+        const filePath = `${mutationSession.userId}/avatar-cropped-${Date.now()}.${AVATAR_CROP_OUTPUT_EXTENSION}`;
+        const { error } = await avatarStorage.upload(filePath, nextCroppedAvatarBlob, {
+          cacheControl: "3600",
+          contentType: AVATAR_CROP_OUTPUT_TYPE,
+          upsert: false,
+        });
 
-      if (!isCurrentDataMutationSession(mutationSession)) {
-        return;
-      }
+        if (isCurrentDataMutationSession(mutationSession)) {
+          setAvatarUploading(false);
+        }
 
-      setAvatarUploading(false);
+        if (error) {
+          return { error };
+        }
 
-      if (uploadError) {
-        setProfileSaving(false);
-        setProfileError(getUserFacingError(uploadError, ERROR_OPERATION.STORAGE_UPLOAD));
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
-      nextAvatarUrl = publicUrlData.publicUrl;
+        const { data: publicUrlData } = avatarStorage.getPublicUrl(filePath);
+        return { error: null, path: filePath, publicUrl: publicUrlData.publicUrl };
+      };
     }
 
-    const profilePayload = {
-      id: mutationSession.userId,
-      display_name: displayName,
-      username: optionalUsername(profileForm.username),
-      avatar_url: nextAvatarUrl,
-      bio: optionalText(profileForm.bio),
-      constellation_note: optionalText(profileForm.constellation_note),
-    };
+    const profileSaveResult = await runProfileSaveWithAvatarLifecycle({
+      previousAvatarPath,
+      removeAvatar: (path) => avatarStorage.remove([path]),
+      removePreviousAvatar: hasAvatarUpload || previousAvatarUrl !== requestedAvatarUrl,
+      saveProfile: async (uploadedAvatarUrl) => {
+        assertCurrentDataMutationSession(mutationSession);
 
-    if (profileFramesAvailable) {
-      profilePayload.active_frame_id = profileForm.active_frame_id || null;
+        const profilePayload = {
+          id: mutationSession.userId,
+          display_name: displayName,
+          username: optionalUsername(profileForm.username),
+          avatar_url: uploadedAvatarUrl ?? requestedAvatarUrl,
+          bio: optionalText(profileForm.bio),
+          constellation_note: optionalText(profileForm.constellation_note),
+        };
+
+        if (profileFramesAvailable) {
+          profilePayload.active_frame_id = profileForm.active_frame_id || null;
+        }
+
+        let result = await saveProfileWithAvatarGuard({
+          expectedAvatarUrl: previousAvatarUrl,
+          profileExists,
+          profilePayload,
+          selectColumns: profileFramesAvailable ? PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME : PROFILE_DETAIL_SELECT_COLUMNS,
+          supabase,
+        });
+
+        assertCurrentDataMutationSession(mutationSession);
+
+        if (result.error && isMissingProfileFrameSchemaError(result.error) && profileFramesAvailable) {
+          const fallbackProfilePayload = { ...profilePayload };
+          delete fallbackProfilePayload.active_frame_id;
+          result = await saveProfileWithAvatarGuard({
+            expectedAvatarUrl: previousAvatarUrl,
+            profileExists,
+            profilePayload: fallbackProfilePayload,
+            selectColumns: PROFILE_DETAIL_SELECT_COLUMNS,
+            supabase,
+          });
+          assertCurrentDataMutationSession(mutationSession);
+          setProfileFramesAvailable(false);
+        }
+
+        return result;
+      },
+      uploadAvatar,
+    });
+
+    if (profileSaveResult.cleanupError) {
+      logSafeError(ERROR_OPERATION.MEDIA_CLEANUP, profileSaveResult.cleanupError);
     }
-
-    let { data, error } = await supabase
-      .from("profiles")
-      .upsert(profilePayload, { onConflict: "id" })
-      .select(profileFramesAvailable ? PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME : PROFILE_DETAIL_SELECT_COLUMNS)
-      .single();
 
     if (!isCurrentDataMutationSession(mutationSession)) {
       return;
     }
 
-    if (error && isMissingProfileFrameSchemaError(error) && profileFramesAvailable) {
-      const fallbackProfilePayload = { ...profilePayload };
-      delete fallbackProfilePayload.active_frame_id;
-      const fallbackResult = await supabase
-        .from("profiles")
-        .upsert(fallbackProfilePayload, { onConflict: "id" })
-        .select(PROFILE_DETAIL_SELECT_COLUMNS)
-        .single();
-
-      if (!isCurrentDataMutationSession(mutationSession)) {
-        return;
-      }
-
-      data = fallbackResult.data;
-      error = fallbackResult.error;
-      setProfileFramesAvailable(false);
-    }
-
+    setAvatarUploading(false);
     setProfileSaving(false);
 
-    if (error) {
+    if (profileSaveResult.error) {
       setProfileError(
-        isUnownedProfileFrameError(error)
+        isUnownedProfileFrameError(profileSaveResult.error)
           ? "所持していないアイコンフレームは装着できません。"
-          : getUserFacingError(error, ERROR_OPERATION.PROFILE_SAVE),
+          : getUserFacingError(
+              profileSaveResult.error,
+              profileSaveResult.stage === "upload" ? ERROR_OPERATION.STORAGE_UPLOAD : ERROR_OPERATION.PROFILE_SAVE,
+            ),
       );
       return;
     }
 
     const nextProfile = {
-      ...data,
+      ...profileSaveResult.data,
       profile_titles: profile?.profile_titles ?? [],
       notify_authors_when_i_archive: profileForm.notify_authors_when_i_archive ?? true,
       notify_authors_when_i_resonate: profileForm.notify_authors_when_i_resonate ?? true,
@@ -5996,7 +6032,7 @@ function App() {
         ]),
       ),
     );
-    setProfileMessage(avatarFile ? "星影を更新しました。" : "プロフィールを保存しました。");
+    setProfileMessage(hasAvatarUpload ? "星影を更新しました。" : "プロフィールを保存しました。");
     setProfileScreenMode("view");
   }
 
