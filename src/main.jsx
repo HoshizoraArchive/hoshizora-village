@@ -7,8 +7,10 @@ import "./onboardingProfileFollowthrough.js";
 import "./onboardingSkipExperience.js";
 import App from "./App.jsx";
 import BetaUsageAdminApp from "./BetaUsageAdminApp.jsx";
+import SignupOpenAdminApp from "./SignupOpenAdminApp.jsx";
 import "./authSessionDisplay.js";
 import "./appOpenTracking.js";
+import "./signupOpenTracking.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./reconnectNotificationPlatformCopy.js";
@@ -36,9 +38,16 @@ import "./starLetterProfileNavigation.css";
 
 const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
 const isBetaUsageAdminRoute = normalizedPath === "/admin/beta-usage";
+const isSignupOpenAdminRoute = normalizedPath === "/admin/signup-opens";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    {isBetaUsageAdminRoute ? <BetaUsageAdminApp /> : <App />}
+    {isBetaUsageAdminRoute ? (
+      <BetaUsageAdminApp />
+    ) : isSignupOpenAdminRoute ? (
+      <SignupOpenAdminApp />
+    ) : (
+      <App />
+    )}
   </React.StrictMode>,
 );
