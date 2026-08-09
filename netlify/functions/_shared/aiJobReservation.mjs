@@ -49,17 +49,44 @@ export function normalizeMediaRowsForFingerprint(mediaRows = []) {
     }));
 }
 
+function getFingerprintPostView(post, mediaSummary) {
+  const embeddedYoutubeFromText =
+    post?.observation_source_type === "text" && post?.type === "youtube";
+
+  if (!embeddedYoutubeFromText) {
+    return {
+      mediaSummary,
+      postType: post.type,
+      youtubeUrl: post.youtube_url ?? null,
+      youtubeVideoId: post.youtube_video_id ?? null,
+    };
+  }
+
+  return {
+    mediaSummary: {
+      inputKind: "text",
+      inputSizeBytes: 0,
+      inputDurationSeconds: null,
+    },
+    postType: "text",
+    youtubeUrl: null,
+    youtubeVideoId: null,
+  };
+}
+
 export function buildRequestFingerprintPayload({ post, mediaRows = [], mediaSummary }) {
+  const fingerprintView = getFingerprintPostView(post, mediaSummary);
+
   return {
     aiResidentKey: AI_RESIDENT_KEY,
     body: post.body ?? "",
-    media: mediaSummary,
+    media: fingerprintView.mediaSummary,
     mediaRows: normalizeMediaRowsForFingerprint(mediaRows),
     postId: post.id,
-    postType: post.type,
+    postType: fingerprintView.postType,
     updatedAt: post.updated_at ?? null,
-    youtubeUrl: post.youtube_url ?? null,
-    youtubeVideoId: post.youtube_video_id ?? null,
+    youtubeUrl: fingerprintView.youtubeUrl,
+    youtubeVideoId: fingerprintView.youtubeVideoId,
   };
 }
 
