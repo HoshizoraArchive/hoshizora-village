@@ -9,6 +9,7 @@ import App from "./App.jsx";
 import BetaUsageAdminApp from "./BetaUsageAdminApp.jsx";
 import "./authSessionDisplay.js";
 import "./appOpenTracking.js";
+import "./betaUsageAdminEntry.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./reconnectNotificationPlatformCopy.js";
