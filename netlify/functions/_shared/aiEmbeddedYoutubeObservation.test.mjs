@@ -4,6 +4,7 @@ import {
   findEmbeddedYoutubeVideo,
   promoteEmbeddedYoutubePost,
 } from "./aiObservationData.mjs";
+import { createRequestFingerprint } from "./aiJobReservation.mjs";
 
 const BASE_POST = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -24,9 +25,41 @@ test("embedded youtu.be link is promoted to a YouTube observation input", () => 
     videoId: "DebSQ5_BzEE",
   });
   assert.equal(promoted.type, "youtube");
+  assert.equal(promoted.observation_source_type, "text");
   assert.equal(promoted.youtube_url, embedded.url);
   assert.equal(promoted.youtube_video_id, embedded.videoId);
   assert.equal(promoted.body, body);
+});
+
+test("embedded YouTube promotion preserves the stored text-post fingerprint", () => {
+  const body = "『不条理な命の巡環』です！良かったら聴いてね♪\nhttps://youtu.be/DebSQ5_BzEE?si=example";
+  const storedPost = {
+    ...BASE_POST,
+    body,
+    youtube_url: null,
+    youtube_video_id: null,
+  };
+  const promoted = promoteEmbeddedYoutubePost(storedPost);
+  const storedFingerprint = createRequestFingerprint({
+    post: storedPost,
+    mediaRows: [],
+    mediaSummary: {
+      inputKind: "text",
+      inputSizeBytes: 0,
+      inputDurationSeconds: null,
+    },
+  });
+  const observationFingerprint = createRequestFingerprint({
+    post: promoted,
+    mediaRows: [],
+    mediaSummary: {
+      inputKind: "youtube",
+      inputSizeBytes: 0,
+      inputDurationSeconds: null,
+    },
+  });
+
+  assert.equal(observationFingerprint, storedFingerprint);
 });
 
 test("YouTube URLs with trailing Japanese punctuation are normalized before observation", () => {
