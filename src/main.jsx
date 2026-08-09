@@ -35,10 +35,10 @@ import "./myStarChartPreview.css";
 import "./starLetterProfileNavigation.css";
 
 const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
-const RootApp = normalizedPath === "/admin/beta-usage" ? BetaUsageAdminApp : App;
+const isBetaUsageAdminRoute = normalizedPath === "/admin/beta-usage";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <RootApp />
+    {isBetaUsageAdminRoute ? <BetaUsageAdminApp /> : <App />}
   </React.StrictMode>,
 );
