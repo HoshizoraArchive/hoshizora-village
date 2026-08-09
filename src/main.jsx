@@ -6,6 +6,7 @@ import "./onboardingProfileGuideSync.js";
 import "./onboardingProfileFollowthrough.js";
 import "./onboardingSkipExperience.js";
 import App from "./App.jsx";
+import BetaUsageAdminApp from "./BetaUsageAdminApp.jsx";
 import "./authSessionDisplay.js";
 import "./appOpenTracking.js";
 import "./buildVersionWatcher.js";
@@ -33,8 +34,11 @@ import "./rConnectPolish.css";
 import "./myStarChartPreview.css";
 import "./starLetterProfileNavigation.css";
 
+const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
+const RootApp = normalizedPath === "/admin/beta-usage" ? BetaUsageAdminApp : App;
+
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <RootApp />
   </React.StrictMode>,
 );
