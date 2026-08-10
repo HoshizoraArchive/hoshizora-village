@@ -13,6 +13,7 @@ const FALLBACK_BODY_BY_TYPE = {
   star_letter_reply: "星文に返信が届きました。",
   star_letter_resonance: "星文に共鳴が届きました。",
   content_report: "観測局に新しい異常が届きました",
+  chia_post: "星空ちあが流星便を放流しました。",
 };
 
 export function readPushDeliveryConfig() {
@@ -39,7 +40,6 @@ function decodeVapidKey(value, expectedLength) {
   }
 
   const decoded = Buffer.from(value, "base64url");
-
   return decoded.length === expectedLength ? decoded : null;
 }
 
@@ -81,13 +81,14 @@ function normalizeNotificationMessage(notification) {
 }
 
 export function buildPushPayload(notification) {
-  const url = "/";
   const notificationId = notification?.id ?? null;
   const postId = notification?.post_id ?? null;
   const type = notification?.type ?? "notification";
+  const isChiaPost = type === "chia_post" && Boolean(postId);
+  const url = isChiaPost ? `/meteor/${encodeURIComponent(postId)}` : "/";
 
   return JSON.stringify({
-    title: "星空Village",
+    title: isChiaPost ? "星空ちあから流星便 ✨" : "星空Village",
     body: normalizeNotificationMessage(notification),
     icon: PUSH_DEFAULT_ICON,
     badge: PUSH_DEFAULT_BADGE,

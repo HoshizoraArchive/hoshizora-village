@@ -14,6 +14,7 @@ import "./betaUsageAdminEntry.js";
 import "./signupOpenTracking.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
+import "./chiaPostNotifications.js";
 import "./reconnectNotificationPlatformCopy.js";
 import "./myStarChartPreviewExperience.js";
 import "./starLetterProfileNavigation.js";
