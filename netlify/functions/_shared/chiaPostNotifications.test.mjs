@@ -20,7 +20,25 @@ test("Chia Push can be disabled without disabling in-app notification", () => {
   assert.match(migrationSql, /new\.type = 'chia_post'/i);
   assert.match(migrationSql, /profile\.notify_chia_posts/i);
   assert.match(migrationSql, /return new;/i);
-  assert.match(clientSource, /OFFにしても、Village内のRe:Connectとバナー/);
+  assert.match(clientSource, /Village内のRe:Connectとバナーは、この設定に関係なく届きます/);
+});
+
+test("Chia Push toggle appears only on Chia My Universe below My Star Chart", () => {
+  assert.match(clientSource, /\.public-profile-page/);
+  assert.match(clientSource, /CHIA_USERNAME_LABEL/);
+  assert.match(clientSource, /My Star Chart/);
+  assert.match(clientSource, /insertAdjacentElement\("afterend"/);
+  assert.match(clientSource, /ちあの流星便通知/);
+  assert.doesNotMatch(clientSource, /notify_authors_when_i_archive/);
+  assert.doesNotMatch(clientSource, /notify_authors_when_i_resonate/);
+});
+
+test("Chia Push toggle saves immediately as an accessible switch", () => {
+  assert.match(clientSource, /role", "switch"/);
+  assert.match(clientSource, /aria-checked/);
+  assert.match(clientSource, /update\(\{ notify_chia_posts: nextValue \}\)/);
+  assert.match(clientSource, /スマホ通知をONにしました/);
+  assert.match(clientSource, /スマホ通知をOFFにしました/);
 });
 
 test("visible app gets a realtime Chia banner that opens the exact meteor", () => {
