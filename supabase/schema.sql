@@ -1775,6 +1775,27 @@ drop policy if exists profiles_delete_own on public.profiles;
 create policy profiles_delete_own on public.profiles
 for delete using (auth.uid() = id);
 
+-- Avatar removal stays owner-scoped and cannot delete the avatar currently referenced by that profile.
+drop policy if exists avatars_delete_own_unreferenced on storage.objects;
+create policy avatars_delete_own_unreferenced
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'avatars'
+  and owner_id = (select auth.uid()::text)
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.id = (select auth.uid())
+      and right(
+        p.avatar_url,
+        length('/storage/v1/object/public/avatars/' || storage.objects.name)
+      ) = '/storage/v1/object/public/avatars/' || storage.objects.name
+  )
+);
+
 -- legal_consents:
 -- Users can read and insert only their own legal consent records.
 drop policy if exists legal_consents_select_own on public.legal_consents;
