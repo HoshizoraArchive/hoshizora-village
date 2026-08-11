@@ -7,7 +7,7 @@ const migrationSql = readFileSync("supabase/migrations/20260703070724_add_ai_obs
 const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
 const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707082530_recover_stale_ai_observation_jobs.sql", "utf8");
 const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260707150257_expand_chia_auto_observation.sql", "utf8");
-const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708113000_add_push_subscriptions.sql", "utf8");
+const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708025455_add_push_subscriptions.sql", "utf8");
 const pushNotificationJobsMigrationSql = readFileSync("supabase/migrations/20260708124500_add_push_notification_jobs.sql", "utf8");
 const legalConsentsMigrationSql = readFileSync("supabase/migrations/20260710093444_add_legal_consents.sql", "utf8");
 const starLetterConversationMigrationSql = readFileSync(
@@ -15,11 +15,11 @@ const starLetterConversationMigrationSql = readFileSync(
   "utf8",
 );
 const chiaFirstPostWelcomeMigrationSql = readFileSync(
-  "supabase/migrations/20260729093000_add_chia_first_post_welcomes.sql",
+  "supabase/migrations/20260729092512_add_chia_first_post_welcomes.sql",
   "utf8",
 );
 const postsRealtimePublicationMigrationSql = readFileSync(
-  "supabase/migrations/20260730155837_add_posts_to_realtime_publication.sql",
+  "supabase/migrations/20260730161351_add_posts_to_realtime_publication.sql",
   "utf8",
 );
 const preflightSql = readFileSync("docs/ai-resident-security-preflight.sql", "utf8");
@@ -335,7 +335,7 @@ test("first-post welcome migration keeps the once-only record and completion pat
     .replace(/\ncommit;\s*$/i, "")
     .trim();
   const schemaBlock = schemaSql
-    .split("-- 20260729093000_add_chia_first_post_welcomes.sql\n")[1]
+    .split("-- 20260729092512_add_chia_first_post_welcomes.sql\n")[1]
     ?.split("-- 20260729120000_add_profile_titles.sql")[0]
     ?.trim();
 
@@ -953,7 +953,7 @@ test("star-letter conversation migration and schema keep the normalized foundati
     .trim();
   const schemaBlock = schemaSql
     .split("-- Issue #108: star-letter conversation foundation.")[1]
-    ?.split("-- 20260729093000_add_chia_first_post_welcomes.sql")[0]
+    ?.split("-- 20260729092512_add_chia_first_post_welcomes.sql")[0]
     ?.replace(/\s+/g, " ")
     .trim();
 

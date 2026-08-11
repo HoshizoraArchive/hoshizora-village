@@ -13,8 +13,8 @@ import {
 import { processPushNotificationJob } from "../push-notification-dispatch.mjs";
 
 const migrationPath =
-  "supabase/migrations/20260731030315_add_profile_blocks.sql";
-const marker = "-- 20260731030315_add_profile_blocks.sql\n";
+  "supabase/migrations/20260731080253_add_profile_blocks.sql";
+const marker = "-- 20260731080253_add_profile_blocks.sql\n";
 const migrationSql = readFileSync(migrationPath, "utf8").trim();
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const appSource = readFileSync("src/App.jsx", "utf8");

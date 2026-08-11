@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync(
-  "supabase/migrations/20260727173000_guard_onboarding_existing_posts.sql",
+  "supabase/migrations/20260727173708_guard_onboarding_existing_posts.sql",
   "utf8",
 );
 

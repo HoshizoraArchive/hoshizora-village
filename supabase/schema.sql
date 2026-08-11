@@ -4970,7 +4970,7 @@ on public.star_letter_archives
 for select to authenticated
 using (profile_id = (select auth.uid()));
 
--- 20260729093000_add_chia_first_post_welcomes.sql
+-- 20260729092512_add_chia_first_post_welcomes.sql
 begin;
 
 create table if not exists public.chia_first_post_welcomes (
@@ -5752,7 +5752,7 @@ begin
 end;
 $$;
 
--- 20260731030315_add_profile_blocks.sql
+-- 20260731080253_add_profile_blocks.sql
 begin;
 
 create table if not exists public.profile_blocks (
