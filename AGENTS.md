@@ -122,10 +122,10 @@ Deploy Preview固有の境界は [`docs/deploy-preview-operations.md`](docs/depl
 
 ## Deploy Previewの重要原則
 
-- Deploy Previewのブラウザは、標準運用では**Production Supabaseへ公開クライアント権限で接続する**。
-- そのため、Preview上でもRLS/RPCで許可された投稿・共鳴・星文・Archive・プロフィール変更等はProductionデータへ反映されうる。
+- Deploy PreviewのブラウザとFunctionsは、標準運用では**分離されたPreview-v2 Supabase (`qskeezefmvnutuzpevbc`)へ接続する**。
+- `CONTEXT=deploy-preview` のbuild guardで、ブラウザ用URLとFunctions用URLの欠落・不一致・Production project参照を拒否する。
 - 一方、未マージのPreview Functionsへ `SUPABASE_SERVICE_ROLE_KEY`、`GEMINI_API_KEY`、`AI_WORKER_SHARED_SECRET`、`PUSH_VAPID_PRIVATE_KEY` 等の強い秘密権限を渡さない。
-- UI確認では読み取り中心・非破壊操作を優先する。
+- Preview-v2のデータはProductionへコピーせず、synthetic Preview identityと廃棄可能なテストデータだけを使う。
 - Previewが壊れているからといって、秘密値やDB環境を無言で変更して通さない。
 
 ## テストと完了条件
