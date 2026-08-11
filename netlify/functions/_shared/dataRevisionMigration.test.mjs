@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const migrationPath = "supabase/migrations/20260804153000_add_causal_data_revisions.sql";
+const migrationPath = "supabase/migrations/20260804140028_add_causal_data_revisions.sql";
 const sql = readFileSync(migrationPath, "utf8");
 const normalizedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
 const appSource = readFileSync("src/App.jsx", "utf8");

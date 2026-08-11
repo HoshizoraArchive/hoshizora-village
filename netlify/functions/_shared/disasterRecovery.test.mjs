@@ -13,7 +13,7 @@ import {
   shouldStartDisasterRecoveryBackup,
 } from "./disasterRecovery.mjs";
 
-const migrationPath = "supabase/migrations/20260801133000_add_disaster_recovery_snapshot_rpcs.sql";
+const migrationPath = "supabase/migrations/20260802002927_add_disaster_recovery_snapshot_rpcs.sql";
 const migrationSql = readFileSync(migrationPath, "utf8").trim();
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const schemaMarker = "-- Disaster-recovery snapshot helpers for trusted server-side backup jobs.\n";

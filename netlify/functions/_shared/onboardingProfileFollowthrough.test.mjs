@@ -6,7 +6,7 @@ const bridgeSource = readFileSync("src/onboardingProfileFollowthrough.js", "utf8
 const cssSource = readFileSync("src/onboardingProfileFollowthrough.css", "utf8");
 const mainSource = readFileSync("src/main.jsx", "utf8");
 const migrationSource = readFileSync(
-  "supabase/migrations/20260803111500_allow_optional_avatar_in_initial_onboarding.sql",
+  "supabase/migrations/20260803021916_allow_optional_avatar_in_initial_onboarding.sql",
   "utf8",
 );
 

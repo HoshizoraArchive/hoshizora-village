@@ -18,7 +18,7 @@ import {
 const appSource = readFileSync("src/App.jsx", "utf8");
 const componentSource = readFileSync("src/InteractiveOnboarding.jsx", "utf8");
 const migration = readFileSync(
-  "supabase/migrations/20260727143000_add_interactive_onboarding.sql",
+  "supabase/migrations/20260727154941_add_interactive_onboarding.sql",
   "utf8",
 );
 const schema = readFileSync("supabase/schema.sql", "utf8");

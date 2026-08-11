@@ -76,7 +76,7 @@ test("AI出力を整形し、危険な形式は予備文へ回せるよう拒否
 test("投稿作成と台帳完了はDB関数内で原子的に行う", () => {
   const functionSource = readFileSync("netlify/functions/chia-daily-meteor-dispatch.mjs", "utf8");
   const migrationSource = readFileSync(
-    "supabase/migrations/20260728174500_add_chia_daily_meteor_runs.sql",
+    "supabase/migrations/20260728090654_add_chia_daily_meteor_runs.sql",
     "utf8",
   );
 

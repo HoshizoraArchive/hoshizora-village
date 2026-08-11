@@ -55,7 +55,7 @@ test("Archive with no known ids still loads the current server Archive", async (
 
 test("Archive migration keeps the 100-id input guard but does not cap current Archive rows", () => {
   const sql = readFileSync(
-    "supabase/migrations/20260804153000_add_causal_data_revisions.sql",
+    "supabase/migrations/20260804140028_add_causal_data_revisions.sql",
     "utf8",
   ).replace(/\s+/g, " ").toLowerCase();
   const archiveRpc = sql.match(
