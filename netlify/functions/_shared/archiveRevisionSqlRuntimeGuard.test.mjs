@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const sql = readFileSync(
-  "supabase/migrations/20260804154500_fix_archive_snapshot_ambiguity.sql",
+  "supabase/migrations/20260804140058_fix_archive_snapshot_ambiguity.sql",
   "utf8",
 ).replace(/\s+/g, " ").toLowerCase();
 

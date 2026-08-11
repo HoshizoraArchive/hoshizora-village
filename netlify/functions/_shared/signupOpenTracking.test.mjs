@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migrationSql = readFileSync(
-  "supabase/migrations/20260809150000_add_signup_open_tracking.sql",
+  "supabase/migrations/20260809044223_add_signup_open_tracking.sql",
   "utf8",
 );
 const trackingSource = readFileSync("src/signupOpenTracking.js", "utf8");

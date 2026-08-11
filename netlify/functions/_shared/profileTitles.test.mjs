@@ -21,7 +21,7 @@ const runtimeIdentitySource = [
   readFileSync("netlify/functions/_shared/pushSubscriptionTest.mjs", "utf8"),
 ].join("\n");
 const migrationSql = readFileSync(
-  "supabase/migrations/20260729120000_add_profile_titles.sql",
+  "supabase/migrations/20260729125037_add_profile_titles.sql",
   "utf8",
 );
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");

@@ -13,7 +13,7 @@ const skipSource = await readFile(
 );
 const migrationSource = await readFile(
   new URL(
-    "../../../supabase/migrations/20260805130000_add_onboarding_skip_all.sql",
+    "../../../supabase/migrations/20260805131743_add_onboarding_skip_all.sql",
     import.meta.url,
   ),
   "utf8",

@@ -8,7 +8,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(currentDir, "../../..");
 const migrationPath = path.join(
   repoRoot,
-  "supabase/migrations/20260807102000_add_beta_opening_memorial_frame.sql",
+  "supabase/migrations/20260807103108_add_beta_opening_memorial_frame.sql",
 );
 const assetPath = path.join(repoRoot, "public/profile-frames/opening-memorial.png");
 const migration = fs.readFileSync(migrationPath, "utf8");

@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
-const migrationSql = readFileSync("supabase/migrations/20260703_add_ai_observation_security_foundation.sql", "utf8");
+const migrationSql = readFileSync("supabase/migrations/20260703070724_add_ai_observation_security_foundation.sql", "utf8");
 const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
-const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql", "utf8");
-const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260708_expand_chia_auto_observation.sql", "utf8");
+const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707082530_recover_stale_ai_observation_jobs.sql", "utf8");
+const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260707150257_expand_chia_auto_observation.sql", "utf8");
 const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708113000_add_push_subscriptions.sql", "utf8");
 const pushNotificationJobsMigrationSql = readFileSync("supabase/migrations/20260708124500_add_push_notification_jobs.sql", "utf8");
-const legalConsentsMigrationSql = readFileSync("supabase/migrations/20260710120000_add_legal_consents.sql", "utf8");
+const legalConsentsMigrationSql = readFileSync("supabase/migrations/20260710093444_add_legal_consents.sql", "utf8");
 const starLetterConversationMigrationSql = readFileSync(
   "supabase/migrations/20260728210000_add_star_letter_conversation_foundation.sql",
   "utf8",
