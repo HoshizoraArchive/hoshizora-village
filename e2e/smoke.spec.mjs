@@ -139,9 +139,11 @@ test.describe("星空Village browser smoke", () => {
   test("会員登録成功後は再登録できない確認待ち画面へ進む", async ({ page }) => {
     await mockSupabaseAsEmptyVillage(page);
     let signupRequests = 0;
+    let signupRedirectTo = "";
 
-    await page.route("**/__supabase/auth/v1/signup", async (route) => {
+    await page.route("**/__supabase/auth/v1/signup**", async (route) => {
       signupRequests += 1;
+      signupRedirectTo = new URL(route.request().url()).searchParams.get("redirect_to") ?? "";
       await fulfillAuthJson(route, {
         id: "11111111-1111-4111-8111-111111111111",
         aud: "authenticated",
@@ -167,13 +169,14 @@ test.describe("星空Village browser smoke", () => {
     await expect(page.getByRole("button", { name: "入村する" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /秒後に再送できます/ })).toBeDisabled();
     expect(signupRequests).toBe(1);
+    expect(signupRedirectTo).toBe(new URL(page.url()).origin);
   });
 
   test("初回会員登録のrate limitは登録完了扱いにせず再試行可能にする", async ({ page }) => {
     await mockSupabaseAsEmptyVillage(page);
     let signupRequests = 0;
 
-    await page.route("**/__supabase/auth/v1/signup", async (route) => {
+    await page.route("**/__supabase/auth/v1/signup**", async (route) => {
       signupRequests += 1;
       await fulfillAuthJson(
         route,
@@ -209,7 +212,7 @@ test.describe("星空Village browser smoke", () => {
     let signupRequests = 0;
     let resendRequests = 0;
 
-    await page.route("**/__supabase/auth/v1/signup", async (route) => {
+    await page.route("**/__supabase/auth/v1/signup**", async (route) => {
       signupRequests += 1;
       await fulfillAuthJson(route, {});
     });

@@ -149,7 +149,7 @@ Publish directory: dist
 
 Pull RequestではDeploy Previewを使って未マージ差分を確認します。
 
-星空Villageでは、本番と同じログイン・プロフィール・投稿状態で差分を確認するため、**Deploy Previewのブラウザ側はProduction Supabaseへ公開キーで接続**します。ただしDeploy PreviewにはPR版のNetlify Functionsも含まれるため、**Productionのservice role、AI APIキー、worker secret、Push private keyなどの強い秘密権限は渡しません。** Preview上の通常ユーザー操作はRLS/RPCの範囲で本番データへ影響するため、確認時はProductionと同じ注意で扱ってください。
+星空Villageでは、**Deploy PreviewのブラウザとFunctionsを分離されたPreview-v2 Supabaseへ接続**します。Deploy PreviewにはPR版のNetlify Functionsも含まれるため、**Productionのservice role、AI APIキー、worker secret、Push private keyなどの強い秘密権限は渡しません。** Previewではsynthetic identityと廃棄可能なテストデータだけを使い、Productionのアカウントや実データをコピーしません。
 
 詳細な運用ルール、秘密値の境界、DB migrationを含むPRの扱い、E2Eとの役割分担は[`docs/deploy-preview-operations.md`](docs/deploy-preview-operations.md)を参照してください。
 

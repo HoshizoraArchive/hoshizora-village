@@ -5006,6 +5006,7 @@ function App() {
         email: normalizedEmail,
         password,
         options: {
+          emailRedirectTo: window.location.origin,
           data: {
             legal_age_confirmed: true,
             legal_privacy_version: LEGAL_PRIVACY_VERSION,
