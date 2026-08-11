@@ -1,4 +1,4 @@
--- Read-only checks after applying 20260729093000_add_chia_first_post_welcomes.sql.
+-- Read-only checks after applying 20260729092512_add_chia_first_post_welcomes.sql.
 -- Run separately from the migration; this file makes no data changes.
 
 select
