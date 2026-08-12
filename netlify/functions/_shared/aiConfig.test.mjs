@@ -56,13 +56,13 @@ test("AI observation config accepts enabled server-only settings", () => {
     globalProcessingLimit: 2,
   });
   assert.deepEqual(config.autoObservation, {
-    minDelaySeconds: 60,
-    maxDelaySeconds: 900,
+    minDelaySeconds: 120,
+    maxDelaySeconds: 2100,
     dispatchBatchSize: 5,
-    starLetterProbabilityPercent: 70,
+    starLetterProbabilityPercent: 100,
     starLetterMinConfidencePercent: 75,
-    starLetterDailyLimit: 20,
-    starLetterAuthorCooldownSeconds: 21600,
+    starLetterDailyLimit: 100,
+    starLetterAuthorCooldownSeconds: 0,
   });
   assert.equal(config.operatorUserIds.has(VALID_UUID), true);
 });
@@ -115,14 +115,16 @@ test("AI observation config accepts automatic observation overrides", () => {
   });
 });
 
-test("AI observation config reads the production star-letter probability and cooldown", () => {
+test("AI observation config supports the early-beta full star-letter mode", () => {
   const config = readAiObservationConfig(enabledEnv({
-    AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT: "70",
-    AI_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS: "21600",
+    AI_AUTO_STAR_LETTER_PROBABILITY_PERCENT: "100",
+    AI_AUTO_STAR_LETTER_DAILY_LIMIT: "100",
+    AI_AUTO_STAR_LETTER_AUTHOR_COOLDOWN_SECONDS: "0",
   }));
 
-  assert.equal(config.autoObservation.starLetterProbabilityPercent, 70);
-  assert.equal(config.autoObservation.starLetterAuthorCooldownSeconds, 21600);
+  assert.equal(config.autoObservation.starLetterProbabilityPercent, 100);
+  assert.equal(config.autoObservation.starLetterDailyLimit, 100);
+  assert.equal(config.autoObservation.starLetterAuthorCooldownSeconds, 0);
 });
 
 test("AI observation config rejects invalid automatic observation settings", () => {
@@ -134,8 +136,8 @@ test("AI observation config rejects invalid automatic observation settings", () 
   );
   assert.throws(
     () => readAiObservationConfig(enabledEnv({
-      AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS: "901",
-      AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS: "900",
+      AI_AUTO_OBSERVATION_MIN_DELAY_SECONDS: "2101",
+      AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS: "2100",
     })),
     /invalid_env:AI_AUTO_OBSERVATION_MAX_DELAY_SECONDS/,
   );
