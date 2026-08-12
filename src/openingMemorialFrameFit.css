@@ -1,0 +1,41 @@
+/*
+ * Opening Memorial beta frame visual fit.
+ *
+ * Keep this scoped to the single frame asset so existing avatar frames,
+ * profile interactions, post cards, star letters, and notification logic
+ * retain their current behavior.
+ */
+
+.relative.flex-none:has(> img[src$="/profile-frames/opening-memorial.png"]) {
+  --profile-frame-scale: 1.18 !important;
+}
+
+/* My Universe / public profile / profile editor preview */
+.h-16.w-16:has(> img[src$="/profile-frames/opening-memorial.png"]) {
+  height: 5rem !important;
+  width: 5rem !important;
+}
+
+/* Timeline post cards */
+.h-12.w-12:has(> img[src$="/profile-frames/opening-memorial.png"]) {
+  height: 3.5rem !important;
+  width: 3.5rem !important;
+}
+
+/* Frame picker preview */
+.h-11.w-11:has(> img[src$="/profile-frames/opening-memorial.png"]) {
+  height: 3.25rem !important;
+  width: 3.25rem !important;
+}
+
+/* Re:Connect / Archive rows */
+.h-10.w-10:has(> img[src$="/profile-frames/opening-memorial.png"]) {
+  height: 3rem !important;
+  width: 3rem !important;
+}
+
+/* Star-letter compact rows */
+.h-9.w-9:has(> img[src$="/profile-frames/opening-memorial.png"]) {
+  height: 2.75rem !important;
+  width: 2.75rem !important;
+}

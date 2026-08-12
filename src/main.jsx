@@ -37,6 +37,7 @@ import "./archivePolish.css";
 import "./rConnectPolish.css";
 import "./myStarChartPreview.css";
 import "./starLetterProfileNavigation.css";
+import "./openingMemorialFrameFit.css";
 
 const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
 const isBetaUsageAdminRoute = normalizedPath === "/admin/beta-usage";
