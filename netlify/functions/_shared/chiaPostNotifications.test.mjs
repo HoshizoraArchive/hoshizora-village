@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const migrationSql = readFileSync("supabase/migrations/20260810090000_add_chia_post_notifications.sql", "utf8");
+const migrationSql = readFileSync("supabase/migrations/20260810013137_add_chia_post_notifications.sql", "utf8");
+const catalogCommentMigrationSql = readFileSync(
+  "supabase/migrations/20260812051400_restore_canonical_catalog_comments.sql",
+  "utf8",
+);
 const clientSource = readFileSync("src/chiaPostNotifications.js", "utf8");
 const pushSource = readFileSync("netlify/functions/_shared/pushDelivery.mjs", "utf8");
 const mainSource = readFileSync("src/main.jsx", "utf8");
@@ -14,6 +18,12 @@ test("Chia posts fan out to all human residents in Re:Connect", () => {
   assert.match(migrationSql, /insert into public\.notifications/i);
   assert.match(migrationSql, /after insert on public\.posts/i);
   assert.match(migrationSql, /coalesce\(profile_kind\.kind, 'human'\) = 'human'/i);
+});
+
+test("Chia notification function comments are restored after the canonical migration", () => {
+  assert.doesNotMatch(migrationSql, /comment on function app_private\.(create_chia_post_notifications|enqueue_push_notification_job)/i);
+  assert.match(catalogCommentMigrationSql, /comment on function app_private\.create_chia_post_notifications\(\)/i);
+  assert.match(catalogCommentMigrationSql, /comment on function app_private\.enqueue_push_notification_job\(\)/i);
 });
 
 test("Chia Push can be disabled without disabling in-app notification", () => {

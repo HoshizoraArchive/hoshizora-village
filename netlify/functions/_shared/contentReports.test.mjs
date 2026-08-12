@@ -16,9 +16,13 @@ import {
   validateContentReportInput,
 } from "../../../src/contentReports.js";
 
-const migrationPath = "supabase/migrations/20260731164819_add_content_reports.sql";
-const marker = "-- 20260731164819_add_content_reports.sql\n";
+const migrationPath = "supabase/migrations/20260801083009_add_content_reports.sql";
+const marker = "-- 20260801083009_add_content_reports.sql\n";
 const migrationSql = readFileSync(migrationPath, "utf8").trim();
+const catalogCommentMigrationSql = readFileSync(
+  "supabase/migrations/20260812051400_restore_canonical_catalog_comments.sql",
+  "utf8",
+);
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const appSource = readFileSync("src/App.jsx", "utf8");
 const dialogSource = readFileSync("src/ContentReportDialog.jsx", "utf8");
@@ -474,7 +478,7 @@ test("verification SQL checks secrecy, RPC grants, indexes, snapshots, and plans
   assert.doesNotMatch(verificationSql, /insert into|update public|delete from/i);
 });
 
-test("migration and schema.sql stay byte-for-byte synchronized", () => {
+test("canonical migration and final catalog comment stay synchronized with schema.sql", () => {
   const schemaSuffix = schemaSql.split(marker)[1] ?? "";
   const transactionEnd = "\ncommit;";
   const transactionEndIndex = schemaSuffix.indexOf(transactionEnd);
@@ -484,5 +488,11 @@ test("migration and schema.sql stay byte-for-byte synchronized", () => {
   const schemaBlock = schemaSuffix
     .slice(0, transactionEndIndex + transactionEnd.length)
     .trim();
-  assert.equal(schemaBlock, migrationSql);
+  const canonicalComment =
+    "観測局の管理通知が指すreport。対象ユーザーや送信者へは公開せず、管理者のR.Connect遷移だけに使用する。";
+  const finalComment =
+    "観測局の管理通知が指すreport。対象ユーザーや送信者へは公開せず、管理者のRe:Connect遷移だけに使用する。";
+
+  assert.equal(schemaBlock.replace(finalComment, canonicalComment), migrationSql);
+  assert.equal(catalogCommentMigrationSql.includes(finalComment), true);
 });
