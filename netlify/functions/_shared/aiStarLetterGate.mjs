@@ -47,23 +47,27 @@ export function shouldAllowAutoStarLetter({
 
   const autoConfig = config?.autoObservation ?? {};
   const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 100);
+  const minConfidencePercent = Number(autoConfig.starLetterMinConfidencePercent ?? 75);
 
   if (!Number.isSafeInteger(probabilityPercent) || probabilityPercent <= 0) {
     return { allowed: false, reason: "probability_zero" };
   }
 
-  // Early beta can explicitly run at 100% coverage. In that mode a valid
-  // model-authored star letter should not be discarded by the legacy
-  // confidence/probability sampling gate.
-  if (probabilityPercent >= 100) {
+  // Early beta runs at 100% coverage with the normal confidence setting.
+  // An operator can still deliberately raise the minimum-confidence threshold
+  // later without having to lower the probability first.
+  if (probabilityPercent >= 100 && minConfidencePercent <= 75) {
     return { allowed: true, reason: "probability_full" };
   }
 
   const confidencePercent = Math.floor(Number(observation.confidence ?? 0) * 100);
-  const minConfidencePercent = Number(autoConfig.starLetterMinConfidencePercent ?? 75);
 
   if (!Number.isSafeInteger(confidencePercent) || confidencePercent < minConfidencePercent) {
     return { allowed: false, reason: "low_confidence" };
+  }
+
+  if (probabilityPercent >= 100) {
+    return { allowed: true, reason: "probability_full" };
   }
 
   const bucket = deterministicPercent(`${jobId}:${requestFingerprint}:star-letter`);
