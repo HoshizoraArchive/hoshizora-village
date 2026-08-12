@@ -142,7 +142,7 @@ test("prompt uses the honorific-adjusted sanitized author call name", () => {
   assert.equal(prompt.includes("<author_call_name>\n山田太郎\n</author_call_name>"), false);
 });
 
-test("automatic text observation prompt nudges star-letter creation without changing manual prompt", () => {
+test("automatic text observation prompt uses early-beta full star-letter coverage without changing manual prompt", () => {
   const post = {
     type: "text",
     body: "星空ちあすき",
@@ -166,13 +166,12 @@ test("automatic text observation prompt nudges star-letter creation without chan
     },
   });
 
-  assert.equal(manualPrompt.includes("投稿作成後の自動観測候補"), false);
-  assert.equal(manualPrompt.includes("原則 should_post=true"), false);
+  assert.equal(manualPrompt.includes("現在は初期β"), false);
+  assert.equal(manualPrompt.includes("短い星文を必ず返してください"), false);
   assert.equal(manualPrompt.includes("星文を残す場合は、この呼び名を自然に1回だけ使ってください。"), true);
-  assert.equal(automaticPrompt.includes("投稿作成後の自動観測候補"), true);
-  assert.equal(automaticPrompt.includes("原則 should_post=true"), false);
-  assert.equal(automaticPrompt.includes("星文は毎回返しません"), true);
-  assert.equal(automaticPrompt.includes("十分な具体性や余白"), true);
+  assert.equal(automaticPrompt.includes("現在は初期β"), true);
+  assert.equal(automaticPrompt.includes("挨拶や短い日常投稿でも"), true);
+  assert.equal(automaticPrompt.includes("短い星文を必ず返してください"), true);
   assert.equal(automaticPrompt.includes("should_post=false"), true);
   assert.equal(automaticPrompt.includes("<meteor_text>"), true);
   assert.equal(automaticPrompt.includes("星空ちあすき"), true);
