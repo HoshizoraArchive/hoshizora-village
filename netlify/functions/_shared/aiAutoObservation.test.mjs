@@ -41,14 +41,18 @@ test("automatic Chia observation is eligible for any author's text posts", () =>
   });
 });
 
-test("automatic Chia observation skips unsupported image posts", () => {
+test("automatic Chia observation is eligible for image posts", () => {
   const result = getAutomaticChiaObservationEligibility({
     userId: USER_ID,
     post: textPost({ type: "image" }),
     profile: profile(),
   });
 
-  assert.deepEqual(result, { eligible: false, reason: "unsupported_type" });
+  assert.deepEqual(result, {
+    eligible: true,
+    reason: "public_image_author",
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+  });
 });
 
 test("first public image, video, and YouTube posts use the welcome-only route", () => {
@@ -85,7 +89,7 @@ test("the first public text post also uses the welcome-only route", () => {
   );
 });
 
-test("later image posts remain outside ordinary automatic observation", () => {
+test("later image posts are eligible for automatic Chia observation", () => {
   assert.deepEqual(
     getAutomaticChiaObservationEligibility({
       userId: USER_ID,
@@ -93,7 +97,11 @@ test("later image posts remain outside ordinary automatic observation", () => {
       profile: profile(),
       isFirstPostWelcome: false,
     }),
-    { eligible: false, reason: "unsupported_type" },
+    {
+      eligible: true,
+      reason: "public_image_author",
+      observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    },
   );
 });
 
