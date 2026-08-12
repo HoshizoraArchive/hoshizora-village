@@ -1,10 +1,40 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const migrationSql = readFileSync("supabase/migrations/20260703070724_add_ai_observation_security_foundation.sql", "utf8");
-const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_add_chia_observation_mvp.sql", "utf8");
+const observationMvpMigrations = [
+  {
+    md5: "944893e0106440ad15232f416b7d4af1",
+    path: "supabase/migrations/20260704031235_add_chia_observation_mvp_helpers.sql",
+    sha256: "1f7e41c03b7dc08c5a472180ff65cf43f91ced570bd962489b9a914ad469ee49",
+  },
+  {
+    md5: "f6ca0a797e8260a7e216594297393704",
+    path: "supabase/migrations/20260704031259_add_chia_observation_mvp_reserve_rpc.sql",
+    sha256: "f6058899b665ee6a4f9ddc77a97701bbad0fd39af7771d69906c3555b4c323a3",
+  },
+  {
+    md5: "9b43ccdd38fe32a0bccc32b26cd8c216",
+    path: "supabase/migrations/20260704031316_add_chia_observation_mvp_claim_start_rpc.sql",
+    sha256: "bebf50a5e4fdb8ccb0e120f733ebff1efff744aa220dc9d47f1d7c0c5c13e3f2",
+  },
+  {
+    md5: "40d45d77ecb1a00d77c07c17f61a3bf6",
+    path: "supabase/migrations/20260704031337_add_chia_observation_mvp_completion_rpc.sql",
+    sha256: "bc4b16999c3d17000fbd3e2aaffcf076c3abc65da9dd1b35f8f65a68d32e329f",
+  },
+  {
+    md5: "95086fdf595f9e3a5a18b70724090470",
+    path: "supabase/migrations/20260704031357_add_chia_observation_mvp_fail_cancel_grants.sql",
+    sha256: "c6a17ef7d414fa48a383c6e4ecbca290a6ebcbc5365f669881595d9d2dda0fa1",
+  },
+];
+const observationMvpMigrationSql = observationMvpMigrations
+  .map(({ path }) => readFileSync(path, "utf8"))
+  .join("\n");
 const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707082530_recover_stale_ai_observation_jobs.sql", "utf8");
 const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260707150257_expand_chia_auto_observation.sql", "utf8");
 const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708025455_add_push_subscriptions.sql", "utf8");
@@ -53,6 +83,14 @@ const termsOfServiceMarkdown = readFileSync("src/legal/terms-of-service.md", "ut
 function normalizedSql(sql) {
   return sql.replace(/\s+/g, " ");
 }
+
+test("split AI observation MVP migrations keep the exact Production statement fingerprints", () => {
+  for (const migration of observationMvpMigrations) {
+    const bytes = readFileSync(migration.path);
+    assert.equal(createHash("md5").update(bytes).digest("hex"), migration.md5);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), migration.sha256);
+  }
+});
 
 const requiredTokens = [
   "public.ai_observation_job_status",

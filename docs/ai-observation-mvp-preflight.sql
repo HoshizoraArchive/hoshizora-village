@@ -1,5 +1,5 @@
 -- 星空ちあ観測MVP migration preflight.
--- Read-only. Run before applying supabase/migrations/20260704_add_chia_observation_mvp.sql.
+-- Read-only. Run before applying the five add_chia_observation_mvp migrations from 20260704031235 through 20260704031357.
 -- If any anomaly_count is greater than 0, inspect data before applying the migration.
 
 with chia_profiles as (
