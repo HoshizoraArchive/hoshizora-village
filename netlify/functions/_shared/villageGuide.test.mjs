@@ -10,11 +10,39 @@ import {
 } from "../../../src/villageGuide.js";
 
 const repositoryRoot = new URL("../../../", import.meta.url);
-const migrationUrl = new URL("supabase/migrations/20260719130000_add_editable_village_guide.sql", repositoryRoot);
+const migrationUrls = [
+  "20260719140342_add_editable_village_guide_tables.sql",
+  "20260719140500_lock_down_editable_village_guide_tables.sql",
+  "20260719140522_add_editable_village_guide_constraints.sql",
+  "20260719140534_add_village_guide_admin_table.sql",
+  "20260719140552_link_village_guide_admins_to_auth.sql",
+  "20260719140606_add_village_guide_admin_check.sql",
+  "20260719140645_add_village_guide_visibility_function.sql",
+  "20260719140704_grant_village_guide_visibility_function.sql",
+  "20260719140756_add_village_guide_section_audit_function.sql",
+  "20260719140812_add_village_guide_entry_audit_function.sql",
+  "20260719140834_attach_village_guide_audit_triggers.sql",
+  "20260719140850_grant_village_guide_access.sql",
+  "20260719140908_add_village_guide_section_policies.sql",
+  "20260719140926_add_village_guide_entry_policies.sql",
+  "20260719140946_seed_village_guide_sections.sql",
+  "20260719141014_seed_village_guide_entries_part_one.sql",
+  "20260719141041_seed_village_guide_entries_part_two.sql",
+  "20260719141100_seed_village_guide_entries_part_three.sql",
+  "20260719141619_harden_village_guide_audit_functions.sql",
+  "20260722143000_update_village_guide_philosophy.sql",
+  "20260722145500_fix_village_philosophy_line_breaks.sql",
+  "20260807071000_rename_rconnect_to_reconnect.sql",
+  "20260812070757_restore_village_guide_current_intent.sql",
+].map((filename) => new URL(`supabase/migrations/${filename}`, repositoryRoot));
 const schemaUrl = new URL("supabase/schema.sql", repositoryRoot);
 const appUrl = new URL("src/App.jsx", repositoryRoot);
 const adminUiUrl = new URL("src/VillageGuideAdmin.jsx", repositoryRoot);
 const verificationUrl = new URL("docs/village-guide-verification.sql", repositoryRoot);
+
+async function readGuideMigrationChain() {
+  return (await Promise.all(migrationUrls.map((url) => readFile(url, "utf8")))).join("\n");
+}
 
 function isDatabaseSectionPublic(sectionRows, sectionId) {
   const sectionsById = new Map(sectionRows.map((section) => [section.id, section]));
@@ -79,6 +107,7 @@ test("database visibility includes visible ancestry and rejects hidden parents, 
   const child = rows.sections.find((section) => section.section_key === "available_account_profile");
   const entry = rows.entries.find((item) => item.entry_key === "account_auth");
 
+  assert.equal(isDatabaseSectionPublic(rows.sections, null), false);
   assert.equal(isDatabaseSectionPublic(rows.sections, root.id), true);
   assert.equal(isDatabaseSectionPublic(rows.sections, child.id), true);
   assert.equal(entry.is_visible && isDatabaseSectionPublic(rows.sections, entry.section_id), true);
@@ -175,7 +204,7 @@ test("guide input validation rejects blank and oversized values", () => {
 
 test("migration and schema keep guide security, audit, seed, and grants in sync", async () => {
   const [migration, schema] = await Promise.all([
-    readFile(migrationUrl, "utf8"),
+    readGuideMigrationChain(),
     readFile(schemaUrl, "utf8"),
   ]);
   const fallback = getFallbackVillageGuideRows();
@@ -208,22 +237,27 @@ test("migration and schema keep guide security, audit, seed, and grants in sync"
 
     for (const entry of fallback.entries) {
       assert.equal(sql.includes(`'${entry.entry_key}'`), true, `missing entry seed: ${entry.entry_key}`);
-      assert.equal(sql.includes(`'${entry.body}'`), true, `missing entry body: ${entry.entry_key}`);
+      const currentBody = `'${entry.body}'`;
+      const historicalBody = `'${entry.body.replaceAll("Re:Connect", "R.Connect")}'`;
+      assert.equal(
+        sql.includes(currentBody) || (sql === migration && sql.includes(historicalBody)),
+        true,
+        `missing entry body: ${entry.entry_key}`,
+      );
     }
   }
 
-  const blockStart = "create table if not exists public.app_admins";
-  const blockEnd = "on conflict (entry_key) do nothing;";
-  const getGuideSqlBlock = (sql) => {
-    const startIndex = sql.lastIndexOf(blockStart);
-    const endIndex = sql.indexOf(blockEnd, startIndex) + blockEnd.length;
+  const functionStart = "create or replace function app_private.guide_section_is_public(p_section_id uuid)";
+  const getFinalVisibilityFunction = (sql) => {
+    const startIndex = sql.lastIndexOf(functionStart);
+    const endIndex = sql.indexOf("$$;", startIndex) + 3;
     return sql.slice(startIndex, endIndex).trim();
   };
-  assert.equal(getGuideSqlBlock(migration), getGuideSqlBlock(schema));
+  assert.equal(getFinalVisibilityFunction(migration), getFinalVisibilityFunction(schema));
 });
 
 test("browser roles can only read public guide rows while admin writes stay behind RLS", async () => {
-  const migration = await readFile(migrationUrl, "utf8");
+  const migration = await readGuideMigrationChain();
   const guideEntryColumnGrant = migration.match(
     /grant select \(([\s\S]*?)\) on table public\.guide_entries to anon, authenticated;/,
   )?.[1];
