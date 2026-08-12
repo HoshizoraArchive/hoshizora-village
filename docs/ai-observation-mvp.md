@@ -172,7 +172,7 @@ Files API upload前など、生成処理が始まっていない段階のretry�
 
 1. `docs/ai-observation-mvp-preflight.sql` を読み取り専用で実行する。
 2. anomalyが0件であることを確認する。
-3. `supabase/migrations/20260704_add_chia_observation_mvp.sql`、`supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql`、`supabase/migrations/20260708_expand_chia_auto_observation.sql`、`supabase/migrations/20260729092512_add_chia_first_post_welcomes.sql` を確認して順に適用する。
+3. `supabase/migrations/20260704031235_add_chia_observation_mvp_helpers.sql`、`supabase/migrations/20260704031259_add_chia_observation_mvp_reserve_rpc.sql`、`supabase/migrations/20260704031316_add_chia_observation_mvp_claim_start_rpc.sql`、`supabase/migrations/20260704031337_add_chia_observation_mvp_completion_rpc.sql`、`supabase/migrations/20260704031357_add_chia_observation_mvp_fail_cancel_grants.sql`、`supabase/migrations/20260707_recover_stale_ai_observation_jobs.sql`、`supabase/migrations/20260708_expand_chia_auto_observation.sql`、`supabase/migrations/20260729092512_add_chia_first_post_welcomes.sql` を確認して順に適用する。
 4. `docs/ai-observation-mvp-verification.sql` を読み取り専用で実行する。
 5. Netlify環境変数を設定する場合も、最初は `AI_OBSERVATION_ENABLED` を未設定または `false` のままにする。
 6. Deploy Previewでoperatorログイン、予約、status poll、星文再取得を確認する。
