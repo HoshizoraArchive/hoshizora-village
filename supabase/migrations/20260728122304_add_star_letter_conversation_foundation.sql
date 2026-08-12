@@ -110,7 +110,7 @@ alter table public.notifications
   ));
 
 comment on column public.notifications.star_letter_id is
-  '星文通知の対象。Re:Connectから流星便と星文を特定するために保持する。';
+  '星文通知の対象。R.Connectから流星便と星文を特定するために保持する。';
 comment on column public.notifications.type is
   '通知タイプ。resonance、archive、star_letter、star_letter_reply、star_letter_resonanceを許可する。';
 
@@ -195,8 +195,6 @@ begin
     return new;
   end if;
 
-  -- Serialize relationship changes for one post so concurrent re-parenting
-  -- cannot make a cycle after either transaction has completed its read.
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtext('star_letter_reply_graph'),
     pg_catalog.hashtext(new.post_id::text)
@@ -294,9 +292,6 @@ security definer
 set search_path = ''
 as $$
 begin
-  -- Browser deletes carry auth.uid() and preserve replies through soft delete.
-  -- Trusted maintenance/service sessions have no user uid and may hard-delete;
-  -- the parent FK keeps child rows and clears only their parent reference.
   if auth.uid() is null then
     return old;
   end if;

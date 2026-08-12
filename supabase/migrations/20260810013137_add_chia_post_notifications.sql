@@ -65,9 +65,6 @@ begin
 end;
 $$;
 
-comment on function app_private.create_chia_post_notifications() is
-'星空ちあの新規流星便を、ちあ本人とAI住人を除く全村人のRe:Connectへ配る。';
-
 drop trigger if exists posts_create_chia_post_notifications on public.posts;
 create trigger posts_create_chia_post_notifications
 after insert on public.posts
@@ -114,8 +111,5 @@ begin
   return new;
 end;
 $$;
-
-comment on function app_private.enqueue_push_notification_job() is
-'通知INSERTをPush配信jobへ積む。chia_postだけはrecipientのnotify_chia_posts=falseならPushを積まない。';
 
 commit;

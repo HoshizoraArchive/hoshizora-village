@@ -8,10 +8,14 @@ const observationMvpMigrationSql = readFileSync("supabase/migrations/20260704_ad
 const staleRecoveryMigrationSql = readFileSync("supabase/migrations/20260707082530_recover_stale_ai_observation_jobs.sql", "utf8");
 const autoObservationExpansionMigrationSql = readFileSync("supabase/migrations/20260707150257_expand_chia_auto_observation.sql", "utf8");
 const pushSubscriptionsMigrationSql = readFileSync("supabase/migrations/20260708025455_add_push_subscriptions.sql", "utf8");
-const pushNotificationJobsMigrationSql = readFileSync("supabase/migrations/20260708124500_add_push_notification_jobs.sql", "utf8");
+const pushNotificationJobsMigrationSql = readFileSync("supabase/migrations/20260709105630_add_push_notification_jobs.sql", "utf8");
 const legalConsentsMigrationSql = readFileSync("supabase/migrations/20260710093444_add_legal_consents.sql", "utf8");
 const starLetterConversationMigrationSql = readFileSync(
-  "supabase/migrations/20260728210000_add_star_letter_conversation_foundation.sql",
+  "supabase/migrations/20260728122304_add_star_letter_conversation_foundation.sql",
+  "utf8",
+);
+const catalogCommentMigrationSql = readFileSync(
+  "supabase/migrations/20260812051400_restore_canonical_catalog_comments.sql",
   "utf8",
 );
 const chiaFirstPostWelcomeMigrationSql = readFileSync(
@@ -920,7 +924,7 @@ test("Re:Connect Push delivery Function sends all notification types without exp
   assert.equal(pushDispatchFunction.includes("hoshizora_chia"), false);
 });
 
-test("star-letter conversation migration and schema keep the normalized foundation in sync", () => {
+test("canonical star-letter foundation and final catalog comment stay synchronized with schema", () => {
   const tokens = [
     "parent_star_letter_id uuid",
     "client_request_id uuid",
@@ -949,15 +953,25 @@ test("star-letter conversation migration and schema keep the normalized foundati
   const migrationBody = starLetterConversationMigrationSql
     .replace(/^begin;\s*/i, "")
     .replace(/\s*commit;\s*$/i, "")
+    .replace(/^\s*--.*$/gm, "")
     .replace(/\s+/g, " ")
     .trim();
   const schemaBlock = schemaSql
     .split("-- Issue #108: star-letter conversation foundation.")[1]
     ?.split("-- 20260729092512_add_chia_first_post_welcomes.sql")[0]
+    ?.replace(/^\s*--.*$/gm, "")
     ?.replace(/\s+/g, " ")
     .trim();
 
-  assert.equal(schemaBlock, migrationBody, "migration and schema.sql star-letter foundation blocks differ");
+  const canonicalComment = "星文通知の対象。R.Connectから流星便と星文を特定するために保持する。";
+  const finalComment = "星文通知の対象。Re:Connectから流星便と星文を特定するために保持する。";
+
+  assert.equal(
+    schemaBlock.replace(finalComment, canonicalComment),
+    migrationBody,
+    "canonical migration and schema.sql star-letter foundation blocks differ",
+  );
+  assert.equal(catalogCommentMigrationSql.includes(finalComment), true);
 });
 
 test("star-letter foreign keys have leading-column indexes and RLS auth calls use init plans", () => {
