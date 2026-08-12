@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
 const FIRST_POST_WELCOME_TYPES = new Set(["text", "image", "video", "youtube"]);
-const AUTO_OBSERVATION_TYPES = new Set(["text", "video", "youtube"]);
+const AUTO_OBSERVATION_TYPES = new Set(["text", "image", "video", "youtube"]);
 
 export function getAutomaticChiaObservationEligibility({
   userId,
@@ -32,6 +32,7 @@ export function getAutomaticChiaObservationEligibility({
 
   const reasonByType = {
     text: "public_text_author",
+    image: "public_image_author",
     video: "public_video_author",
     youtube: "public_youtube_author",
   };
