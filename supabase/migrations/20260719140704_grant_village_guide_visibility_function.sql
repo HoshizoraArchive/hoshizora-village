@@ -1,0 +1,2 @@
+revoke all on function app_private.guide_section_is_public(uuid) from public, anon, authenticated, service_role;
+grant execute on function app_private.guide_section_is_public(uuid) to anon, authenticated;
