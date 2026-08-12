@@ -46,17 +46,24 @@ export function shouldAllowAutoStarLetter({
   }
 
   const autoConfig = config?.autoObservation ?? {};
-  const confidencePercent = Math.floor(Number(observation.confidence ?? 0) * 100);
+  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 100);
   const minConfidencePercent = Number(autoConfig.starLetterMinConfidencePercent ?? 75);
-
-  if (!Number.isSafeInteger(confidencePercent) || confidencePercent < minConfidencePercent) {
-    return { allowed: false, reason: "low_confidence" };
-  }
-
-  const probabilityPercent = Number(autoConfig.starLetterProbabilityPercent ?? 70);
 
   if (!Number.isSafeInteger(probabilityPercent) || probabilityPercent <= 0) {
     return { allowed: false, reason: "probability_zero" };
+  }
+
+  // Early beta runs at 100% coverage with the normal confidence setting.
+  // An operator can still deliberately raise the minimum-confidence threshold
+  // later without having to lower the probability first.
+  if (probabilityPercent >= 100 && minConfidencePercent <= 75) {
+    return { allowed: true, reason: "probability_full" };
+  }
+
+  const confidencePercent = Math.floor(Number(observation.confidence ?? 0) * 100);
+
+  if (!Number.isSafeInteger(confidencePercent) || confidencePercent < minConfidencePercent) {
+    return { allowed: false, reason: "low_confidence" };
   }
 
   if (probabilityPercent >= 100) {

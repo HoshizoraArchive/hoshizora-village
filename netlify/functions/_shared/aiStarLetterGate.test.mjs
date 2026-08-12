@@ -36,13 +36,27 @@ test("manual observations keep model star-letter decision", () => {
   assert.equal(result.starLetterGateReason, "manual_or_non_auto");
 });
 
-test("automatic observations suppress low-confidence star letters", () => {
+test("100 percent early-beta mode keeps valid star letters even below the legacy confidence threshold", () => {
+  const result = applyAutoStarLetterGate({
+    observation: observation({ confidence: 0.2 }),
+    observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
+    jobId: "job",
+    requestFingerprint: "fingerprint",
+    config: config({ starLetterProbabilityPercent: 100, starLetterMinConfidencePercent: 75 }),
+  });
+
+  assert.equal(result.shouldPost, true);
+  assert.equal(result.starLetter, observation().starLetter);
+  assert.equal(result.starLetterGateReason, "probability_full");
+});
+
+test("partial-probability mode still suppresses low-confidence star letters", () => {
   const result = applyAutoStarLetterGate({
     observation: observation({ confidence: 0.7 }),
     observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
     jobId: "job",
     requestFingerprint: "fingerprint",
-    config: config({ starLetterMinConfidencePercent: 75 }),
+    config: config({ starLetterProbabilityPercent: 70, starLetterMinConfidencePercent: 75 }),
   });
 
   assert.equal(result.shouldPost, false);
@@ -76,7 +90,7 @@ test("automatic observations allow all star letters when probability is full", (
   assert.equal(result.starLetterGateReason, "probability_full");
 });
 
-test("automatic observations use 70 percent when config is missing", () => {
+test("automatic observations default to full coverage when config is missing", () => {
   const decision = shouldAllowAutoStarLetter({
     observation: observation(),
     observationContext: AI_OBSERVATION_CONTEXT.AUTO_TEXT_POST,
@@ -85,7 +99,7 @@ test("automatic observations use 70 percent when config is missing", () => {
     config: undefined,
   });
 
-  assert.deepEqual(decision, { allowed: true, reason: "probability_passed" });
+  assert.deepEqual(decision, { allowed: true, reason: "probability_full" });
 });
 
 test("first automatic post bypasses model decline, confidence, and probability only for its welcome", () => {

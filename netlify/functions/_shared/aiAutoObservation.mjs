@@ -3,6 +3,11 @@ import { AI_OBSERVATION_CONTEXT } from "./aiObservationContext.mjs";
 
 const FIRST_POST_WELCOME_TYPES = new Set(["text", "image", "video", "youtube"]);
 const AUTO_OBSERVATION_TYPES = new Set(["text", "image", "video", "youtube"]);
+const EARLY_BETA_DELAY_BANDS = Object.freeze([
+  Object.freeze({ minDelaySeconds: 120, maxDelaySeconds: 180 }),
+  Object.freeze({ minDelaySeconds: 480, maxDelaySeconds: 720 }),
+  Object.freeze({ minDelaySeconds: 1500, maxDelaySeconds: 2100 }),
+]);
 
 export function getAutomaticChiaObservationEligibility({
   userId,
@@ -44,11 +49,7 @@ export function getAutomaticChiaObservationEligibility({
   };
 }
 
-export function pickAutoObservationDelaySeconds({
-  minDelaySeconds,
-  maxDelaySeconds,
-  randomInteger = randomInt,
-}) {
+function validateDelayRange({ minDelaySeconds, maxDelaySeconds }) {
   if (
     !Number.isSafeInteger(minDelaySeconds) ||
     !Number.isSafeInteger(maxDelaySeconds) ||
@@ -57,8 +58,37 @@ export function pickAutoObservationDelaySeconds({
   ) {
     throw new Error("invalid_auto_observation_delay");
   }
+}
 
-  return randomInteger(minDelaySeconds, maxDelaySeconds + 1);
+function getActiveDelayBands({ minDelaySeconds, maxDelaySeconds }) {
+  const bands = EARLY_BETA_DELAY_BANDS
+    .map((band) => ({
+      minDelaySeconds: Math.max(minDelaySeconds, band.minDelaySeconds),
+      maxDelaySeconds: Math.min(maxDelaySeconds, band.maxDelaySeconds),
+    }))
+    .filter((band) => band.minDelaySeconds <= band.maxDelaySeconds);
+
+  return bands.length > 0
+    ? bands
+    : [{ minDelaySeconds, maxDelaySeconds }];
+}
+
+export function pickAutoObservationDelaySeconds({
+  minDelaySeconds,
+  maxDelaySeconds,
+  randomInteger = randomInt,
+}) {
+  validateDelayRange({ minDelaySeconds, maxDelaySeconds });
+
+  const bands = getActiveDelayBands({ minDelaySeconds, maxDelaySeconds });
+  const bandIndex = randomInteger(0, bands.length);
+  const band = bands[bandIndex];
+
+  if (!band) {
+    throw new Error("invalid_auto_observation_delay");
+  }
+
+  return randomInteger(band.minDelaySeconds, band.maxDelaySeconds + 1);
 }
 
 export function buildAutoObservationNotBeforeAt({
@@ -76,4 +106,8 @@ export function buildAutoObservationNotBeforeAt({
   return new Date(now.getTime() + delaySeconds * 1000);
 }
 
-export { AUTO_OBSERVATION_TYPES, FIRST_POST_WELCOME_TYPES };
+export {
+  AUTO_OBSERVATION_TYPES,
+  EARLY_BETA_DELAY_BANDS,
+  FIRST_POST_WELCOME_TYPES,
+};
