@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildAutoObservationNotBeforeAt,
+  EARLY_BETA_DELAY_BANDS,
   getAutomaticChiaObservationEligibility,
   pickAutoObservationDelaySeconds,
 } from "./aiAutoObservation.mjs";
@@ -156,29 +157,89 @@ test("automatic Chia observation skips non-author requests", () => {
   );
 });
 
-test("automatic Chia observation delay uses configured inclusive range", () => {
+test("early beta timing keeps three natural response bands", () => {
+  assert.deepEqual(EARLY_BETA_DELAY_BANDS, [
+    { minDelaySeconds: 120, maxDelaySeconds: 180 },
+    { minDelaySeconds: 480, maxDelaySeconds: 720 },
+    { minDelaySeconds: 1500, maxDelaySeconds: 2100 },
+  ]);
+});
+
+test("automatic Chia observation chooses the quick 2-3 minute band", () => {
+  const calls = [];
+  const values = [0, 150];
   const delay = pickAutoObservationDelaySeconds({
-    minDelaySeconds: 60,
-    maxDelaySeconds: 900,
+    minDelaySeconds: 120,
+    maxDelaySeconds: 2100,
     randomInteger(min, maxExclusive) {
-      assert.equal(min, 60);
-      assert.equal(maxExclusive, 901);
-      return 123;
+      calls.push([min, maxExclusive]);
+      return values.shift();
     },
   });
 
-  assert.equal(delay, 123);
+  assert.equal(delay, 150);
+  assert.deepEqual(calls, [[0, 3], [120, 181]]);
+});
+
+test("automatic Chia observation can choose the around-10-minute band", () => {
+  const values = [1, 600];
+  const delay = pickAutoObservationDelaySeconds({
+    minDelaySeconds: 120,
+    maxDelaySeconds: 2100,
+    randomInteger: () => values.shift(),
+  });
+
+  assert.equal(delay, 600);
+});
+
+test("automatic Chia observation can choose the around-30-minute band", () => {
+  const values = [2, 1800];
+  const delay = pickAutoObservationDelaySeconds({
+    minDelaySeconds: 120,
+    maxDelaySeconds: 2100,
+    randomInteger: () => values.shift(),
+  });
+
+  assert.equal(delay, 1800);
+});
+
+test("automatic Chia observation respects configured bounds by intersecting timing bands", () => {
+  const values = [1, 540];
+  const delay = pickAutoObservationDelaySeconds({
+    minDelaySeconds: 120,
+    maxDelaySeconds: 600,
+    randomInteger: () => values.shift(),
+  });
+
+  assert.equal(delay, 540);
+});
+
+test("automatic Chia observation falls back to configured range when no early-beta band overlaps", () => {
+  const calls = [];
+  const values = [0, 60];
+  const delay = pickAutoObservationDelaySeconds({
+    minDelaySeconds: 45,
+    maxDelaySeconds: 90,
+    randomInteger(min, maxExclusive) {
+      calls.push([min, maxExclusive]);
+      return values.shift();
+    },
+  });
+
+  assert.equal(delay, 60);
+  assert.deepEqual(calls, [[0, 1], [45, 91]]);
 });
 
 test("automatic Chia observation builds delayed not-before timestamp", () => {
+  const values = [0, 150];
   const notBeforeAt = buildAutoObservationNotBeforeAt({
     now: new Date("2026-07-07T00:00:00.000Z"),
-    minDelaySeconds: 60,
-    maxDelaySeconds: 900,
-    randomInteger: () => 75,
+    minDelaySeconds: 120,
+    maxDelaySeconds: 2100,
+    randomInteger: () => values.shift(),
   });
 
-  assert.equal(notBeforeAt.toISOString(), "2026-07-07T00:01:15.000Z");
+  assert.equal(notBeforeAt.toISOString(), "2026-07-07T00:02:30.000Z");
 });
 
 test("automatic Chia observation rejects invalid delay ranges", () => {
