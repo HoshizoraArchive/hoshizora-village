@@ -19,8 +19,24 @@ function removeBanner() {
   }
 }
 
-function showChiaPostBanner(post) {
+async function isCurrentUserMentioned(postId) {
+  if (!postId || !currentUserId) return false;
+
+  const { data, error } = await supabase
+    .from("post_mentions")
+    .select("id")
+    .eq("post_id", postId)
+    .eq("mentioned_profile_id", currentUserId)
+    .maybeSingle();
+
+  return !error && Boolean(data?.id);
+}
+
+async function showChiaPostBanner(post) {
   if (!post?.id || !currentUserId || post.author_id === currentUserId) return;
+
+  const mentioned = await isCurrentUserMentioned(post.id);
+  if (!post?.id || !currentUserId) return;
 
   removeBanner();
   const root = document.createElement("div");
@@ -55,7 +71,9 @@ function showChiaPostBanner(post) {
   content.style.border = "0";
   content.style.color = "inherit";
   content.style.padding = "0";
-  content.innerHTML = '<div style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#73ddff">✨ 星空ちあから流星便</div><div style="margin-top:4px;font-size:14px;font-weight:800">星空ちあが流星便を放流しました</div><div style="margin-top:5px;font-size:11px;color:#8f9bb4">タップして流星便を見る</div>';
+  content.innerHTML = mentioned
+    ? '<div style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#f4b8ff">✦ ちあがあなたを観測中</div><div style="margin-top:4px;font-size:14px;font-weight:800">星空ちあが、あなたのことを話してるよ！🌟</div><div style="margin-top:5px;font-size:11px;color:#8f9bb4">タップして流星便を見る</div>'
+    : '<div style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#73ddff">✨ 星空ちあから流星便</div><div style="margin-top:4px;font-size:14px;font-weight:800">星空ちあが流星便を放流しました</div><div style="margin-top:5px;font-size:11px;color:#8f9bb4">タップして流星便を見る</div>';
   content.addEventListener("click", () => {
     window.location.assign(`/meteor/${encodeURIComponent(post.id)}`);
   });
@@ -104,7 +122,7 @@ async function startPostChannel() {
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "posts", filter: `author_id=eq.${id}` },
       (payload) => {
-        if (document.visibilityState !== "hidden") showChiaPostBanner(payload.new);
+        if (document.visibilityState !== "hidden") void showChiaPostBanner(payload.new);
       },
     )
     .subscribe();
