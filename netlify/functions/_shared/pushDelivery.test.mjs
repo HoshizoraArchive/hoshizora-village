@@ -47,6 +47,27 @@ test("buildPushPayload uses Re:Connect message and notification metadata", () =>
   });
 });
 
+test("buildPushPayload deep-links AI resident mentions to the meteor", () => {
+  const payload = JSON.parse(
+    buildPushPayload({
+      id: "mention-notification-id",
+      post_id: "mention-post-id",
+      type: "ai_resident_mention",
+      message: "星空ちあが、あなたのことを話してるよ！🌟",
+    }),
+  );
+
+  assert.equal(payload.title, "星空Village");
+  assert.equal(payload.body, "星空ちあが、あなたのことを話してるよ！🌟");
+  assert.equal(payload.url, "/meteor/mention-post-id");
+  assert.deepEqual(payload.data, {
+    url: "/meteor/mention-post-id",
+    notificationId: "mention-notification-id",
+    postId: "mention-post-id",
+    type: "ai_resident_mention",
+  });
+});
+
 test("buildPushPayload falls back for every current notification type", () => {
   assert.equal(JSON.parse(buildPushPayload({ type: "resonance", message: "" })).body, "共鳴が届きました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "archive", message: "" })).body, "Archiveに追加されました。");
@@ -54,6 +75,8 @@ test("buildPushPayload falls back for every current notification type", () => {
   assert.equal(JSON.parse(buildPushPayload({ type: "star_letter_reply", message: "" })).body, "星文に返信が届きました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "star_letter_resonance", message: "" })).body, "星文に共鳴が届きました。");
   assert.equal(JSON.parse(buildPushPayload({ type: "content_report", message: "" })).body, "観測局に新しい異常が届きました");
+  assert.equal(JSON.parse(buildPushPayload({ type: "chia_post", message: "" })).body, "星空ちあが流星便を放流しました。");
+  assert.equal(JSON.parse(buildPushPayload({ type: "ai_resident_mention", message: "" })).body, "AI住人が、あなたのことを話してるよ！🌟");
   assert.equal(JSON.parse(buildPushPayload({ type: "unknown", message: "" })).body, "Re:Connectに新しい通知があります。");
 });
 
