@@ -9,10 +9,19 @@ test("extractProfileMentionUsernames returns unique usernames in first-seen orde
   );
 });
 
-test("extractProfileMentionUsernames ignores malformed mention tokens", () => {
+test("extractProfileMentionUsernames ignores malformed or embedded mention tokens", () => {
   assert.deepEqual(
-    extractProfileMentionUsernames("@ valid @-bad @good_name @bad-name @alsoGood123"),
-    ["good_name", "bad", "alsoGood123"],
+    extractProfileMentionUsernames(
+      "@ valid @-bad @good_name @bad-name @alsoGood123 mail@example.com foo.@embedded",
+    ),
+    ["good_name", "alsoGood123"],
+  );
+});
+
+test("extractProfileMentionUsernames handles punctuation boundaries", () => {
+  assert.deepEqual(
+    extractProfileMentionUsernames("(@ash)、@sora。『@chia_hoshizora』"),
+    ["ash", "sora", "chia_hoshizora"],
   );
 });
 
