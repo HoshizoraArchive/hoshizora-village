@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { readEnv, UUID_PATTERN } from "./_shared/aiConfig.mjs";
+import { syncAiResidentPostMentions } from "./_shared/aiResidentMentions.mjs";
 import {
   buildChiaAiPrompt,
   buildCuratedLunchBody,
@@ -237,6 +238,23 @@ export default async function handler() {
       generated,
     });
 
+    let mentionSync = { created: 0, usernames: [] };
+    try {
+      mentionSync = await syncAiResidentPostMentions({
+        supabase,
+        postId: completion.post_id,
+        actorProfileId: profile.id,
+        body: generated.body,
+      });
+    } catch (error) {
+      console.warn("chia_daily_meteor_mentions_failed", {
+        requestId,
+        runId,
+        postId: completion.post_id,
+        code: error instanceof Error ? error.message.slice(0, 120) : "unknown",
+      });
+    }
+
     console.log("chia_daily_meteor_posted", {
       requestId,
       runId,
@@ -245,6 +263,7 @@ export default async function handler() {
       localDate: slotInfo.localDate,
       source: generated.source,
       outcome: completion.outcome,
+      mentionCount: mentionSync.created,
     });
 
     return jsonResponse(200, {
@@ -253,6 +272,7 @@ export default async function handler() {
       slot: slotInfo.slot,
       localDate: slotInfo.localDate,
       source: generated.source,
+      mentionCount: mentionSync.created,
       requestId,
     });
   } catch (error) {
