@@ -14,6 +14,7 @@ const FALLBACK_BODY_BY_TYPE = {
   star_letter_resonance: "星文に共鳴が届きました。",
   content_report: "観測局に新しい異常が届きました",
   chia_post: "星空ちあが流星便を放流しました。",
+  ai_resident_mention: "AI住人が、あなたのことを話してるよ！🌟",
 };
 
 export function readPushDeliveryConfig() {
@@ -85,7 +86,9 @@ export function buildPushPayload(notification) {
   const postId = notification?.post_id ?? null;
   const type = notification?.type ?? "notification";
   const isChiaPost = type === "chia_post" && Boolean(postId);
-  const url = isChiaPost ? `/meteor/${encodeURIComponent(postId)}` : "/";
+  const isAiResidentMention = type === "ai_resident_mention" && Boolean(postId);
+  const opensMeteor = isChiaPost || isAiResidentMention;
+  const url = opensMeteor ? `/meteor/${encodeURIComponent(postId)}` : "/";
 
   return JSON.stringify({
     title: isChiaPost ? "星空ちあから流星便 ✨" : "星空Village",

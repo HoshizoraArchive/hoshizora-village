@@ -18,6 +18,7 @@ import "./chiaPostNotifications.js";
 import "./reconnectNotificationPlatformCopy.js";
 import "./myStarChartPreviewExperience.js";
 import "./starLetterProfileNavigation.js";
+import "./profileMentionNavigation.js";
 import "./onboardingFirstPostExample.js";
 import "./onboardingStarLetterButtonCompatibility.js";
 import "./onboardingObserveBootstrap.js";
@@ -37,6 +38,7 @@ import "./archivePolish.css";
 import "./rConnectPolish.css";
 import "./myStarChartPreview.css";
 import "./starLetterProfileNavigation.css";
+import "./profileMentionNavigation.css";
 
 const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
 const isBetaUsageAdminRoute = normalizedPath === "/admin/beta-usage";
