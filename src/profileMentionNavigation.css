@@ -1,0 +1,24 @@
+.profile-mention-link {
+  display: inline;
+  margin: 0;
+  padding: 0 0.08em;
+  border: 0;
+  border-radius: 0.35em;
+  background: linear-gradient(90deg, rgba(116, 225, 255, 0.12), rgba(198, 149, 255, 0.12));
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  line-height: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(155, 221, 255, 0.42);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.14em;
+  cursor: pointer;
+}
+
+.profile-mention-link:hover,
+.profile-mention-link:focus-visible {
+  background: linear-gradient(90deg, rgba(116, 225, 255, 0.2), rgba(255, 145, 205, 0.16));
+  outline: none;
+  text-decoration-color: rgba(190, 235, 255, 0.8);
+}
