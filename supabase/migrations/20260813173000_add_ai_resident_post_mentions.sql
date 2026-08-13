@@ -111,4 +111,59 @@ create trigger post_mentions_create_ai_resident_notification
 after insert on public.post_mentions
 for each row execute function app_private.create_ai_resident_mention_notification();
 
+create or replace function app_private.enqueue_push_notification_job()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if (
+    new.type = 'chia_post'
+    or (
+      new.type = 'ai_resident_mention'
+      and exists (
+        select 1
+        from public.profiles actor
+        where actor.id = new.actor_id
+          and actor.username = 'chia_hoshizora'
+      )
+    )
+  )
+  and not coalesce(
+    (
+      select recipient.notify_chia_posts
+      from public.profiles recipient
+      where recipient.id = new.recipient_id
+    ),
+    true
+  ) then
+    return new;
+  end if;
+
+  insert into public.push_notification_jobs (
+    notification_id,
+    recipient_id,
+    status,
+    attempt_count,
+    max_attempts,
+    next_attempt_at
+  )
+  values (
+    new.id,
+    new.recipient_id,
+    'queued',
+    0,
+    5,
+    now()
+  )
+  on conflict (notification_id) do nothing;
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.enqueue_push_notification_job()
+from public, anon, authenticated;
+
 commit;
