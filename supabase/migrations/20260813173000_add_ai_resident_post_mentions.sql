@@ -57,9 +57,11 @@ begin
 
   if not exists (
     select 1 from public.posts p
-    where p.id = new.post_id and p.author_id = new.actor_profile_id
+    where p.id = new.post_id
+      and p.author_id = new.actor_profile_id
+      and position(new.token in coalesce(p.body, '')) > 0
   ) then
-    raise exception 'mention actor must author the post';
+    raise exception 'mention must belong to the actor post and appear in its body';
   end if;
 
   if not exists (
