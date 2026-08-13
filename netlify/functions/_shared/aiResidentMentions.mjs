@@ -1,8 +1,25 @@
 const PROFILE_MENTION_PATTERN = /@([A-Za-z0-9_]{1,64})/g;
+const INVALID_PREFIX_PATTERN = /[A-Za-z0-9._%+-]/;
+const INVALID_SUFFIX_PATTERN = /[A-Za-z0-9_-]/;
+
+function isStandaloneMention(source, match) {
+  const atIndex = match.index ?? -1;
+  if (atIndex < 0) return false;
+
+  const before = atIndex > 0 ? source[atIndex - 1] : "";
+  const afterIndex = atIndex + match[0].length;
+  const after = afterIndex < source.length ? source[afterIndex] : "";
+
+  if (before && INVALID_PREFIX_PATTERN.test(before)) return false;
+  if (after && INVALID_SUFFIX_PATTERN.test(after)) return false;
+  return true;
+}
 
 export function extractProfileMentionUsernames(body) {
+  const source = String(body || "");
   const usernames = new Set();
-  for (const match of String(body || "").matchAll(PROFILE_MENTION_PATTERN)) {
+  for (const match of source.matchAll(PROFILE_MENTION_PATTERN)) {
+    if (!isStandaloneMention(source, match)) continue;
     usernames.add(match[1]);
   }
   return [...usernames];
