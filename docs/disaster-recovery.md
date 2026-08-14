@@ -27,7 +27,7 @@ Productionの`disaster-recovery-backup` Scheduled Functionが1分ごとに起動
 
 Authのsession / refresh tokenは保存しません。`auth.users`についてもconfirmation / recovery / email-change / reauthenticationの一時tokenはsnapshotから除外します。災害復旧後は既存sessionを引き継ぐ前提にせず、利用者は再ログインします。
 
-DBの構造自体はGitHubの`s​​upabase/schema.sql`と`s​​upabase/migrations/`を正とします。
+DB構造の再構築手順はGitHubの`s​​upabase/migrations/`を正とし、`20260524_historical_core_baseline.sql`からversion順にreplayします。`s​​upabase/schema.sql`は全migration適用後のfinal snapshotとしてmetadata比較に使用します。
 
 ### Storage
 

@@ -1,0 +1,25 @@
+# Local-only Supabase project configuration for isolated migration replay.
+# This file contains no hosted project reference or environment credentials.
+project_id = "hoshizora-village-local"
+
+[api]
+enabled = true
+port = 54321
+# Preserve the legacy grants present when the historical schema was created.
+auto_expose_new_tables = true
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = false
+sql_paths = []
