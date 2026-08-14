@@ -218,13 +218,14 @@ comparison as (
   from expected
   join actual using (category)
 ),
-assertion as (
-  select 1 / ((count(*) filter (where not matches) = 0)::int) as passed
+result as (
+  select
+    comparison.*,
+    count(*) filter (where not matches) over () as mismatch_count
   from comparison
 )
-select comparison.*, assertion.passed
-from comparison
-cross join assertion
-order by comparison.category;
+select *
+from result
+order by result.category;
 
 rollback;
