@@ -206,7 +206,7 @@ test("migrationとschema.sqlはOpening Memorial設定とgrant RPCを同期する
   for (const fragment of [
     "'opening_memorial_beta'",
     "'/profile-frames/opening-memorial.png'",
-    "1.22",
+    "1.15",
     "create or replace function public.grant_opening_memorial_to_beta_residents()",
     "cohort.cohort_key = 'beta_resident'",
     "profile.active_frame_id is null",

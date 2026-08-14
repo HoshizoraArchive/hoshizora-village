@@ -22,6 +22,10 @@ const AVATAR_FIXTURE_URL = "https://fixture.invalid/opening-memorial-avatar.jpg"
 const screenshotDirectory = process.env.OPENING_MEMORIAL_SCREENSHOT_DIR
   ? path.resolve(process.cwd(), process.env.OPENING_MEMORIAL_SCREENSHOT_DIR)
   : "";
+const authStorageKeys = [
+  "sb-127-auth-token",
+  process.env.PROFILE_FRAME_AUTH_STORAGE_KEY,
+].filter(Boolean);
 
 const profiles = [
   {
@@ -188,10 +192,12 @@ async function mockFramedVillage(page) {
   const session = createTestSession();
 
   await page.addInitScript(
-    ({ storedSession }) => {
-      window.localStorage.setItem("sb-127-auth-token", JSON.stringify(storedSession));
+    ({ storageKeys, storedSession }) => {
+      for (const storageKey of storageKeys) {
+        window.localStorage.setItem(storageKey, JSON.stringify(storedSession));
+      }
     },
-    { storedSession: session },
+    { storageKeys: authStorageKeys, storedSession: session },
   );
 
   await page.route(AVATAR_FIXTURE_URL, async (route) => {
@@ -202,7 +208,7 @@ async function mockFramedVillage(page) {
     });
   });
 
-  await page.route("**/__supabase/**", async (route) => {
+  await page.route(/(?:\/__supabase\/|https:\/\/[^/]+\.supabase\.co\/)/, async (route) => {
     const request = route.request();
     const url = request.url();
 
@@ -231,7 +237,7 @@ async function mockFramedVillage(page) {
           asset_path: "/profile-frames/opening-memorial.png",
           acquisition_type: "beta_reward",
           rarity: "special",
-          frame_scale: 1.22,
+          frame_scale: 1.15,
           frame_offset_x: 0,
           frame_offset_y: 0,
           is_active: true,
@@ -338,8 +344,16 @@ async function mockFramedVillage(page) {
   });
 }
 
-async function assertOverlayGeometry(frameImage, avatarSize) {
+async function assertOverlayGeometry(frameImage, avatarSize, frameScale) {
   await expect(frameImage).toBeVisible();
+  await expect.poll(
+    () => frameImage.evaluate((image) => image.naturalWidth),
+  ).toBeGreaterThan(0);
+  await expect.poll(
+    () => frameImage.evaluate(
+      (image) => image.parentElement?.querySelector(":scope > div > img")?.naturalWidth ?? 0,
+    ),
+  ).toBeGreaterThan(0);
   const geometry = await frameImage.evaluate((image) => {
     const root = image.parentElement;
     const avatar = root?.querySelector(":scope > div > img");
@@ -361,15 +375,14 @@ async function assertOverlayGeometry(frameImage, avatarSize) {
   expect(geometry.rootHeight).toBeCloseTo(avatarSize, 1);
   expect(geometry.avatarWidth).toBeCloseTo(avatarSize - 2, 1);
   expect(geometry.avatarHeight).toBeCloseTo(avatarSize - 2, 1);
-  expect(geometry.frameWidth / geometry.rootWidth).toBeCloseTo(1.22, 2);
-  expect(geometry.frameHeight / geometry.rootHeight).toBeCloseTo(1.22, 2);
+  expect(geometry.frameWidth / geometry.rootWidth).toBeCloseTo(frameScale, 2);
+  expect(geometry.frameHeight / geometry.rootHeight).toBeCloseTo(frameScale, 2);
 }
 
-async function captureVisual(page, fileName) {
+async function captureVisual(target, fileName) {
   if (!screenshotDirectory) return;
   fs.mkdirSync(screenshotDirectory, { recursive: true });
-  await page.screenshot({
-    fullPage: true,
+  await target.screenshot({
     path: path.join(screenshotDirectory, fileName),
   });
 }
@@ -382,25 +395,35 @@ test("Opening Memorialは大・中・小avatarを縮めず外周へoverlayする
   const chiaFrame = page.locator('img[src="/profile-frames/chia-guide.png"]');
 
   await expect(page.getByText("Opening Memorialの通常サイズ確認用流星便")).toBeVisible();
-  await assertOverlayGeometry(openingFrame.first(), 48);
-  await assertOverlayGeometry(chiaFrame.first(), 48);
+  await assertOverlayGeometry(openingFrame.first(), 48, 1.15);
+  await assertOverlayGeometry(chiaFrame.first(), 48, 1.22);
 
   const framelessPost = page.getByText("フレームなし表示の回帰確認用流星便").locator("xpath=ancestor::article[1]");
   await expect(framelessPost.locator('img[src*="/profile-frames/"]')).toHaveCount(0);
-  await captureVisual(page, "opening-memorial-medium-post.png");
+  const openingPost = page.getByText("Opening Memorialの通常サイズ確認用流星便").locator("xpath=ancestor::article[1]");
+  await captureVisual(openingPost, "opening-memorial-medium-post.png");
 
   await page.getByRole("button", { name: "星文 1" }).first().click();
   await expect(page.getByText("Opening Memorialの小サイズ確認用星文")).toBeVisible();
-  await assertOverlayGeometry(page.locator('img[src="/profile-frames/opening-memorial.png"]:visible').last(), 36);
+  const starLetter = page.locator('article[aria-label="Opening Memorialテスターの星文"]');
+  await assertOverlayGeometry(
+    starLetter.locator('img[src="/profile-frames/opening-memorial.png"]'),
+    36,
+    1.15,
+  );
   await page.getByText("Opening Memorialの小サイズ確認用星文").scrollIntoViewIfNeeded();
-  await captureVisual(page, "opening-memorial-small-star-letter.png");
+  await captureVisual(starLetter, "opening-memorial-small-star-letter.png");
 
   await page.getByRole("navigation", { name: "星空Village bottom navigation" })
     .getByRole("button", { name: "My Universe", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: "Opening Memorialテスター" })).toBeVisible();
-  await assertOverlayGeometry(page.locator('img[src="/profile-frames/opening-memorial.png"]:visible').first(), 64);
-  await captureVisual(page, "opening-memorial-large-profile.png");
+  await assertOverlayGeometry(
+    page.locator('img[src="/profile-frames/opening-memorial.png"]:visible').first(),
+    64,
+    1.15,
+  );
+  await captureVisual(page.locator("section.profile-surface").first(), "opening-memorial-large-profile.png");
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth + 1,

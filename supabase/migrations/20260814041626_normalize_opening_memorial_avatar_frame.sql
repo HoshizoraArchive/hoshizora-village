@@ -19,7 +19,7 @@ values (
   '/profile-frames/opening-memorial.png',
   'beta_reward',
   'special',
-  1.22,
+  1.15,
   0,
   0,
   true
