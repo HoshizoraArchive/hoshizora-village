@@ -3,10 +3,7 @@ import {
   readChiaDailyMeteorDispatchAuthConfig,
   signChiaDailyMeteorDispatch,
 } from "./_shared/chiaDailyMeteorDispatchAuth.mjs";
-import {
-  CHIA_DAILY_METEOR_SCHEDULE,
-  resolveChiaDailyMeteorSlot,
-} from "./_shared/chiaDailyMeteor.mjs";
+import { resolveChiaDailyMeteorSlot } from "./_shared/chiaDailyMeteor.mjs";
 
 const BACKGROUND_FUNCTION_PATH = "/api/chia-daily-meteor-background";
 
@@ -120,5 +117,5 @@ export default async function handler(request, context) {
 }
 
 export const config = {
-  schedule: CHIA_DAILY_METEOR_SCHEDULE,
+  schedule: "0,10,20,30,40,50 3,10,23 * * *",
 };
