@@ -44,7 +44,7 @@ export function normalizeProfileTitles(assignments, cohorts = []) {
         id: title.id,
         key: title.key,
         label:
-          title.key === FOUNDING_RESIDENT_TITLE_KEY
+          title.key === FOUNDING_RESIDENT_TITLE_KEY && foundingResidentSerialNumber !== null
             ? getFoundingResidentTitleLabel(foundingResidentSerialNumber)
             : title.label,
         description: title.description ?? null,
