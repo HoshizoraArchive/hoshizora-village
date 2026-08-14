@@ -265,23 +265,22 @@ Recommended fix PR:
 ### SEC-010: Migration baseline is incomplete
 
 Severity: Medium  
-Status: Confirmed from repository files  
-Beta blocker: Conditional
+Status: Remediation prepared; Production ledger alignment tracked separately
+Beta blocker: No after fresh replay passes
 
 Evidence:
 
-- `supabase/schema.sql` contains the full expected schema.
-- `supabase/migrations/` only includes feature migrations from notifications onward. It does not include a complete initial baseline migration for core tables such as `profiles`, `posts`, `archives`, `star_letters`, `observations`, legacy `profile_tags`, and legacy `post_tags`.
+- `supabase/migrations/20260524_historical_core_baseline.sql` restores the audited pre-notification core schema.
+- The isolated fresh-replay quality gate applies the baseline and every later migration twice and compares final schema/catalog metadata.
 
 Impact:
 
-- Rebuilding a new Supabase project from migrations alone may miss core schema.
-- Live schema drift is harder to detect.
+- Production must record the historical baseline version as applied without re-running its SQL.
 
 Recommended fix PR:
 
-- Add a documented baseline migration or an explicit "schema.sql is baseline" runbook.
-- Add live schema verification to release checks.
+- Keep the local fresh-replay job required for migration changes.
+- Apply the separately approved ledger-only alignment for version `20260524`; never execute the baseline SQL against Production.
 
 ### SEC-011: Dependency reproducibility is weak
 

@@ -812,20 +812,10 @@ Issue #97の新規入村者向け進捗をユーザー単位で1行保存しま�
 - Re:Connect通知の画面表示
 - 本番デプロイ操作
 
-## SQL Editor投入前の注意
+## Migration運用
 
-`supabase/schema.sql` はMVP初期投入向けのSQLです。
+`supabase/schema.sql` は全migration適用後のfinal snapshotです。空のSupabase環境は、historical coreを復元する`supabase/migrations/20260524_historical_core_baseline.sql`から始め、`supabase/migrations/`をversion順にreplayして構築します。`supabase/schema.sql`を初期migrationとして直接実行しません。
 
-すでに古いドラフトSQLをSupabaseに投入済みの場合は、このSQLをそのまま再実行する前に、既存テーブルの有無とデータを確認してください。必要に応じて、初期化するか、差分マイグレーションとして分けて実行します。
-
-Re:Connect通知基盤だけを既存DBに追加する場合は、`supabase/migrations/20260525_add_notifications.sql` をSupabase SQL Editorで実行してください。
-
-Archive通知MVPと共鳴/Archive通知設定を既存DBに追加する場合は、`supabase/migrations/20260602_add_archive_notifications.sql` をSupabase SQL Editorで実行してください。
-
-星文のRe:Connect通知triggerを既存DBに追加する場合は、`supabase/migrations/20260612_add_frontend_notifications.sql` をSupabase SQL Editorで実行してください。
-
-流星便編集・削除MVPでソフト削除を有効にする場合は、`supabase/migrations/20260605_add_post_soft_delete.sql` をSupabase SQL Editorで実行してください。
-
-星の目安箱のフィードバック保存MVPを既存DBに追加する場合は、`supabase/migrations/20260608_add_feedbacks.sql` をSupabase SQL Editorで実行してください。
+schema変更はlocal migrationとして作成し、isolated local Supabaseで`supabase db reset --local`を通してからPRへ含めます。ProductionのSQL Editorでschemaだけを先行変更してmigration ledgerを飛ばす運用は行いません。
 
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。
