@@ -50,10 +50,13 @@ test("historical core baseline is the canonical audited Git blob", () => {
 });
 
 test("historical baseline is the oldest unique migration", () => {
-  assert.equal(migrationFilenames.length, 71);
-  assert.equal(new Set(migrationVersions).size, 71);
+  assert.equal(migrationFilenames.length, 72);
+  assert.equal(new Set(migrationVersions).size, 72);
   assert.equal(migrationFilenames[0], baselineFilename);
-  assert.equal(migrationFilenames.at(-1), "20260813180000_fix_ai_resident_mention_validation.sql");
+  assert.equal(
+    migrationFilenames.at(-1),
+    "20260814041626_normalize_opening_memorial_avatar_frame.sql",
+  );
 });
 
 test("historical baseline creates exactly the eight pre-notification core tables", () => {
