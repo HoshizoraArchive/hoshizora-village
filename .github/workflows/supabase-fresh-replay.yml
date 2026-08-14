@@ -1,0 +1,66 @@
+name: Supabase Fresh Replay
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/supabase-fresh-replay.yml"
+      - "netlify/functions/_shared/historicalCoreBaseline.test.mjs"
+      - "supabase/config.toml"
+      - "supabase/migrations/**"
+      - "supabase/tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-fresh-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  replay:
+    name: Isolated local reset twice
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.114.0
+
+      - name: Verify local-only boundary and static baseline contract
+        run: |
+          test ! -f supabase/.temp/project-ref
+          ! grep -R -E 'dhfecpymvmursozfgjlr|qskeezefmvnutuzpevbc' supabase/config.toml
+          node --test netlify/functions/_shared/historicalCoreBaseline.test.mjs
+
+      - name: Start isolated local Postgres
+        run: supabase start
+
+      - name: Fresh replay 1
+        run: |
+          supabase db reset --local --no-seed
+          db_container="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -n 1)"
+          test -n "$db_container"
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/fresh-replay-assertions.sql
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/final-schema-fingerprints.sql
+
+      - name: Fresh replay 2
+        run: |
+          supabase db reset --local --no-seed
+          db_container="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -n 1)"
+          test -n "$db_container"
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/fresh-replay-assertions.sql
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/final-schema-fingerprints.sql
+
+      - name: Stop isolated local stack
+        if: always()
+        run: supabase stop --no-backup
