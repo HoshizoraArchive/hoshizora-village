@@ -95,6 +95,35 @@ with metadata_rows(category, item) as (
     permissive, array_to_string(roles, ','), cmd, qual, with_check)
   from pg_catalog.pg_policies
   where schemaname in ('public', 'storage')
+    and policyname not in (
+      'profile_kinds_select_public',
+      'profile_roles_select_public',
+      'profile_cohorts_select_public'
+    )
+
+  union all
+  -- The privacy-safe 20260807063919 reconstruction uses `profile` where the
+  -- Production statement used `p` as a subquery alias. Compare the audited
+  -- policy contract after normalizing only that known non-semantic exception.
+  select 'profile_identity_policy_contract', concat_ws('|',
+    schemaname, tablename, policyname, permissive,
+    array_to_string(roles, ','), cmd,
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(coalesce(qual, ''), '[[:space:]]+', '', 'g'),
+        'profiles(p|profile)', 'profilesprofile_ref', 'g'
+      ),
+      '(p|profile)[.]', 'profile_ref.', 'g'
+    ),
+    coalesce(with_check, '')
+  )
+  from pg_catalog.pg_policies
+  where schemaname = 'public'
+    and policyname in (
+      'profile_kinds_select_public',
+      'profile_roles_select_public',
+      'profile_cohorts_select_public'
+    )
 
   union all
   select 'relation_grants', concat_ws('|', n.nspname, c.relname,
@@ -173,9 +202,9 @@ with metadata_rows(category, item) as (
 ),
 categories(category) as (
   values ('tables'), ('columns'), ('constraints'), ('indexes'), ('enums'),
-    ('views'), ('functions'), ('triggers'), ('policies'), ('relation_grants'),
-    ('function_grants'), ('sequence_grants'), ('schema_grants'),
-    ('column_grants')
+    ('views'), ('functions'), ('triggers'), ('policies'),
+    ('profile_identity_policy_contract'), ('relation_grants'),
+    ('function_grants'), ('sequence_grants'), ('schema_grants'), ('column_grants')
 ),
 actual as (
   select
@@ -198,7 +227,8 @@ expected(category, item_count, fingerprint) as (
     ('function_grants', 121, 'd64239426bf907402fa4f3f6291e6d45'),
     ('functions', 106, '82d5ac75a61433bacd825658e68277be'),
     ('indexes', 156, '556ab478ecdd8bfff390e95af41e86a7'),
-    ('policies', 76, '65d3d8e0c8ed5a934df2ad8384b74c11'),
+    ('policies', 73, 'd0ce97d4d8e908e7eadfe23dbd5a0d27'),
+    ('profile_identity_policy_contract', 3, '3166d0b171746fb5a5143b303d2a1892'),
     ('relation_grants', 401, '6ea02d91a7d015eb7087245d01a9cf97'),
     ('schema_grants', 4, '854909e6b7d3b8f0a3b6afa9f3029567'),
     ('sequence_grants', 0, 'd41d8cd98f00b204e9800998ecf8427e'),
