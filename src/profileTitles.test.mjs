@@ -25,6 +25,7 @@ const foundingAssignment = {
   },
 };
 
+// Keep No.1 and No.10 explicit so single- and double-digit labels remain regression-covered.
 test("founding resident label uses non-zero-padded serial number", () => {
   assert.equal(getFoundingResidentTitleLabel(1), "古参村人 No.1");
   assert.equal(getFoundingResidentTitleLabel(10), "古参村人 No.10");
