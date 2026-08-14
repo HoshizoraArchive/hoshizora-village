@@ -411,7 +411,7 @@ test("古参村人No.1/No.10と街の案内人を実コンポーネントで表�
   await page.getByRole("navigation", { name: "星空Village bottom navigation" })
     .getByRole("button", { name: "My Universe", exact: true })
     .click();
-  const no1ProfileHeading = page.getByRole("heading", { name: "Opening Memorial No.1" });
+  const no1ProfileHeading = page.getByRole("heading", { name: "Opening Memorial No.1", exact: true });
   await expect(no1ProfileHeading).toBeVisible();
   const no1Profile = no1ProfileHeading.locator("xpath=ancestor::section[1]");
   await expect(no1Profile.getByText("古参村人 No.1", { exact: true })).toBeVisible();
@@ -419,7 +419,7 @@ test("古参村人No.1/No.10と街の案内人を実コンポーネントで表�
   await capture(page, "founding-resident-profile-no1-iphone.png");
 
   await page.goto("/stars/founding_no10");
-  const no10ProfileHeading = page.getByRole("heading", { name: "Opening Memorial No.10" });
+  const no10ProfileHeading = page.getByRole("heading", { name: "Opening Memorial No.10", exact: true });
   await expect(no10ProfileHeading).toBeVisible();
   const no10Profile = no10ProfileHeading.locator("xpath=ancestor::section[1]");
   await expect(no10Profile.getByText("古参村人 No.10", { exact: true })).toBeVisible();
