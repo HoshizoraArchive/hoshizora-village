@@ -354,6 +354,14 @@ async function assertOverlayGeometry(frameImage, avatarSize, frameScale) {
       (image) => image.parentElement?.querySelector(":scope > div > img")?.naturalWidth ?? 0,
     ),
   ).toBeGreaterThan(0);
+  await frameImage.evaluate(async (image) => {
+    const avatar = image.parentElement?.querySelector(":scope > div > img");
+    await Promise.all([
+      image.decode(),
+      avatar instanceof HTMLImageElement ? avatar.decode() : Promise.resolve(),
+    ]);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const geometry = await frameImage.evaluate((image) => {
     const root = image.parentElement;
     const avatar = root?.querySelector(":scope > div > img");
@@ -379,10 +387,21 @@ async function assertOverlayGeometry(frameImage, avatarSize, frameScale) {
   expect(geometry.frameHeight / geometry.rootHeight).toBeCloseTo(frameScale, 2);
 }
 
-async function captureVisual(target, fileName) {
+async function captureFrameVisual(frameImage, fileName) {
   if (!screenshotDirectory) return;
   fs.mkdirSync(screenshotDirectory, { recursive: true });
-  await target.screenshot({
+  await frameImage.screenshot({
+    path: path.join(screenshotDirectory, fileName),
+  });
+}
+
+async function captureViewportVisual(page, fileName) {
+  if (!screenshotDirectory) return;
+  fs.mkdirSync(screenshotDirectory, { recursive: true });
+  await page.locator('iframe[title="Netlify Drawer"]').evaluateAll((frames) => {
+    for (const frame of frames) frame.remove();
+  });
+  await page.screenshot({
     path: path.join(screenshotDirectory, fileName),
   });
 }
@@ -401,7 +420,10 @@ test("Opening Memorialは大・中・小avatarを縮めず外周へoverlayする
   const framelessPost = page.getByText("フレームなし表示の回帰確認用流星便").locator("xpath=ancestor::article[1]");
   await expect(framelessPost.locator('img[src*="/profile-frames/"]')).toHaveCount(0);
   const openingPost = page.getByText("Opening Memorialの通常サイズ確認用流星便").locator("xpath=ancestor::article[1]");
-  await captureVisual(openingPost, "opening-memorial-medium-post.png");
+  await captureFrameVisual(
+    openingPost.locator('img[src="/profile-frames/opening-memorial.png"]'),
+    "opening-memorial-medium-post.png",
+  );
 
   await page.getByRole("button", { name: "星文 1" }).first().click();
   await expect(page.getByText("Opening Memorialの小サイズ確認用星文")).toBeVisible();
@@ -412,18 +434,24 @@ test("Opening Memorialは大・中・小avatarを縮めず外周へoverlayする
     1.15,
   );
   await page.getByText("Opening Memorialの小サイズ確認用星文").scrollIntoViewIfNeeded();
-  await captureVisual(starLetter, "opening-memorial-small-star-letter.png");
+  await captureFrameVisual(
+    starLetter.locator('img[src="/profile-frames/opening-memorial.png"]'),
+    "opening-memorial-small-star-letter.png",
+  );
+  await captureViewportVisual(page, "opening-memorial-small-star-letter-iphone.png");
 
   await page.getByRole("navigation", { name: "星空Village bottom navigation" })
     .getByRole("button", { name: "My Universe", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: "Opening Memorialテスター" })).toBeVisible();
-  await assertOverlayGeometry(
-    page.locator('img[src="/profile-frames/opening-memorial.png"]:visible').first(),
-    64,
-    1.15,
+  const profileFrame = page.locator('img[src="/profile-frames/opening-memorial.png"]:visible').first();
+  await assertOverlayGeometry(profileFrame, 64, 1.15);
+  await captureFrameVisual(
+    profileFrame,
+    "opening-memorial-large-profile.png",
   );
-  await captureVisual(page.locator("section.profile-surface").first(), "opening-memorial-large-profile.png");
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await captureViewportVisual(page, "opening-memorial-large-profile-iphone.png");
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth + 1,

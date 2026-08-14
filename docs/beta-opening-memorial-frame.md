@@ -13,8 +13,12 @@
 
 ## Deploy Preview visual evidence
 
-The screenshots below use the Draft PR Deploy Preview bundle at an iPhone-sized viewport and a synthetic portrait fixture. No Production profile data is copied into the Preview.
+The screenshots below use the Draft PR Deploy Preview bundle and its actual profile/post/star-letter components at a 390x844 iPhone-sized viewport. Only the API responses and portrait are safe synthetic fixtures; no Production profile data is copied into the Preview.
 
-- [Profile avatar (64px)](assets/opening-memorial/opening-memorial-large-profile.png)
-- [Meteor letter avatar (48px)](assets/opening-memorial/opening-memorial-medium-post.png)
-- [Star letter avatar (36px)](assets/opening-memorial/opening-memorial-small-star-letter.png)
+The original 64px and 36px evidence used cropped context screenshots. Chromium's clipped screenshot path omitted most of the absolutely positioned frame layer even though an uncropped Deploy Preview viewport rendered it correctly. The corrected evidence includes both exact frame-image bounds and uncropped 390x844 viewport captures, so it proves the overlay detail and the real in-page composition without relying on the faulty clip path.
+
+- [Profile avatar detail (64px)](assets/opening-memorial/opening-memorial-large-profile.png)
+- [Profile at 390x844](assets/opening-memorial/opening-memorial-large-profile-iphone.png)
+- [Meteor letter avatar detail (48px)](assets/opening-memorial/opening-memorial-medium-post.png)
+- [Star letter avatar detail (36px)](assets/opening-memorial/opening-memorial-small-star-letter.png)
+- [Star letter at 390x844](assets/opening-memorial/opening-memorial-small-star-letter-iphone.png)
