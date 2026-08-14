@@ -8,8 +8,11 @@
 - `AI_HOSHIZORA_CHIA_PROFILE_ID` または `CHIA_DAILY_METEOR_PROFILE_ID`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `AI_WORKER_SHARED_SECRET`（既存AI観測workerと共用し、用途分離したHMAC署名に使用）
 
 `CHIA_DAILY_METEOR_ENABLED` が未設定または `true` 以外の場合、定期関数は `disabled` で正常終了し、実行履歴も投稿も作成しない。
+
+Scheduled Functionはslotを判定し、署名付きpayloadをBackground Functionへ渡すだけに限定する。Background Functionは署名、TTL、nonce、slot整合性を検証してから、run取得、生成、投稿完了、mention同期を実行する。外部からの未署名・期限切れ・改ざん済み呼び出しでは実処理を開始しない。
 
 ## 主観的な村人発見（opt-in）
 
@@ -19,9 +22,11 @@
 
 `post_mentions` にあるちあの最新mentionが72時間以内なら紹介を行わず、同じ村人は14日以内に再紹介しない。候補照会・生成・mention検証の失敗時はwarnだけを残し、通常の夜投稿へ戻る。専用投稿の通知は既存の `syncAiResidentPostMentions()` と `ai_resident_mention` 経路を使用する。
 
+通常の朝・夜AI生成は15秒timeoutを維持し、主観的人間発見のAI生成だけ60秒timeoutを使用する。長い生成は15分上限のBackground Function内で行う。
+
 ## スケジュール
 
-日本時間の朝8時・昼12時・夜19時の各時間帯に、10分間隔で起動する。DBの一意制約により、各日・各枠につき投稿は1件だけ作成される。
+日本時間の朝8時・昼12時・夜19時の各時間帯に、10分間隔でScheduled Functionが起動する。各起動はBackground Functionへdispatchされ、既存の `claim_chia_daily_meteor_run` とDBの一意制約により、各日・各枠につき投稿は1件だけ作成される。
 
 ## 本番確認
 

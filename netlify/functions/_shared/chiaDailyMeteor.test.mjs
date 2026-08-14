@@ -129,7 +129,7 @@ test("discovery AI出力は選定対象だけのstandalone mentionを含む時�
 });
 
 test("投稿作成と台帳完了はDB関数内で原子的に行う", () => {
-  const functionSource = readFileSync("netlify/functions/chia-daily-meteor-dispatch.mjs", "utf8");
+  const functionSource = readFileSync("netlify/functions/_shared/chiaDailyMeteorDispatch.mjs", "utf8");
   const migrationSource = readFileSync(
     "supabase/migrations/20260728090654_add_chia_daily_meteor_runs.sql",
     "utf8",
