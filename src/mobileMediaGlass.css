@@ -57,13 +57,13 @@
   }
 
   /*
-   * Keep the picture readable and bright. The clear-glass feeling comes from
-   * the transparent shell and fine reflections rather than a blurred backdrop.
+   * Keep the picture readable and bright while making the center of the media
+   * visibly transparent too, not just the darker edges.
    */
   .post-video-youtube > .star-movie-surface {
     position: relative;
     z-index: 2;
-    opacity: 0.62;
+    opacity: 0.55;
     filter: none;
     pointer-events: auto;
     touch-action: manipulation;
@@ -77,7 +77,7 @@
     position: relative;
     z-index: 2;
     background: transparent !important;
-    opacity: 0.58;
+    opacity: 0.53;
     filter: none;
   }
 
@@ -88,7 +88,7 @@
   }
 
   .post-video-upload .post-video-viewport > button > img {
-    opacity: 0.60;
+    opacity: 0.55;
     filter: none;
   }
 
