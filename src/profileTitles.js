@@ -1,5 +1,9 @@
 export const PROFILE_TITLES_RELATION_SELECT =
-  "profile_titles(is_primary, granted_at, title:titles(id, key, label, description, variant, emblem_path, is_active, sort_order))";
+  "profile_titles(is_primary, granted_at, title:titles(id, key, label, description, variant, emblem_path, is_active, sort_order)), profile_cohorts(cohort_key, serial_number, joined_at)";
+
+export const FOUNDING_RESIDENT_TITLE_KEY = "beta_tester";
+export const BETA_RESIDENT_COHORT_KEY = "beta_resident";
+export const BETA_RESIDENT_ALUMNI_COHORT_KEY = "beta_resident_alumni";
 
 function readRelatedTitle(value) {
   if (Array.isArray(value)) {
@@ -9,7 +13,25 @@ function readRelatedTitle(value) {
   return value ?? null;
 }
 
-export function normalizeProfileTitles(assignments) {
+function readFoundingResidentSerialNumber(cohorts) {
+  const rows = Array.isArray(cohorts) ? cohorts : cohorts ? [cohorts] : [];
+  const foundingCohort = rows.find((cohort) =>
+    [BETA_RESIDENT_COHORT_KEY, BETA_RESIDENT_ALUMNI_COHORT_KEY].includes(cohort?.cohort_key),
+  );
+  const serialNumber = Number(foundingCohort?.serial_number);
+
+  return Number.isInteger(serialNumber) && serialNumber > 0 ? serialNumber : null;
+}
+
+export function getFoundingResidentTitleLabel(serialNumber) {
+  return Number.isInteger(serialNumber) && serialNumber > 0
+    ? `古参村人 No.${serialNumber}`
+    : "古参村人";
+}
+
+export function normalizeProfileTitles(assignments, cohorts = []) {
+  const foundingResidentSerialNumber = readFoundingResidentSerialNumber(cohorts);
+
   return (assignments ?? [])
     .map((assignment) => {
       const title = readRelatedTitle(assignment?.title);
@@ -21,7 +43,10 @@ export function normalizeProfileTitles(assignments) {
       return {
         id: title.id,
         key: title.key,
-        label: title.label,
+        label:
+          title.key === FOUNDING_RESIDENT_TITLE_KEY && foundingResidentSerialNumber !== null
+            ? getFoundingResidentTitleLabel(foundingResidentSerialNumber)
+            : title.label,
         description: title.description ?? null,
         variant: title.variant || "standard",
         emblemPath: title.emblem_path ?? null,
@@ -45,7 +70,11 @@ export function normalizeProfileTitles(assignments) {
 }
 
 export function getPrimaryProfileTitle(profile) {
-  return normalizeProfileTitles(profile?.profile_titles).find((title) => title.isPrimary) ?? null;
+  return (
+    normalizeProfileTitles(profile?.profile_titles, profile?.profile_cohorts).find(
+      (title) => title.isPrimary,
+    ) ?? null
+  );
 }
 
 export function isMissingProfileTitlesSchemaError(error) {
@@ -56,6 +85,7 @@ export function isMissingProfileTitlesSchemaError(error) {
     error?.code === "42703" ||
     error?.code === "PGRST200" ||
     message.includes("profile_titles") ||
+    message.includes("profile_cohorts") ||
     message.includes("could not find a relationship")
   );
 }
