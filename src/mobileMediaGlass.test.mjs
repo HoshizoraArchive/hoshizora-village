@@ -21,7 +21,7 @@ test("YouTube and uploaded 星映 keep the chosen transparency and brightness wi
   assert.match(cssSource, /\.post-video-shell::before\s*\{[\s\S]*?border: 0;[\s\S]*?box-shadow: none;/);
   assert.match(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?-webkit-backdrop-filter: none;[\s\S]*?backdrop-filter: none;/);
   assert.doesNotMatch(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?backdrop-filter: blur\(/);
-  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.55[\s\S]*?filter: brightness\(1\.14\)/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.55[\s\S]*?filter: brightness\(1\.14\)[\s\S]*?transform: scale\(1\.08\)/);
   assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?pointer-events: auto/);
   assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.53[\s\S]*?filter: brightness\(1\.14\)/);
   assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.55[\s\S]*?filter: brightness\(1\.14\)/);
