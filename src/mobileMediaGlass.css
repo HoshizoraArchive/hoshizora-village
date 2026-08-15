@@ -6,23 +6,16 @@
   .post-video-shell {
     position: relative;
     isolation: isolate;
-    border-color: rgb(235 247 255 / 0.62) !important;
+    border-color: transparent !important;
     background: transparent !important;
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.58),
-      inset 1px 0 0 rgb(230 246 255 / 0.18),
-      inset -1px 0 0 rgb(134 192 247 / 0.12),
-      inset 0 -1px 0 rgb(117 180 244 / 0.18),
-      0 0 0 1px rgb(135 202 255 / 0.10),
-      0 0 28px rgb(103 181 255 / 0.10),
-      0 18px 44px rgb(0 5 20 / 0.14) !important;
+    box-shadow: none !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 
   /*
-   * Clear glass only: keep a faint reflection layer, but do not blur the village behind media.
-   * The background should read as the actual village, not as a softened fog behind the video.
+   * Keep only a faint glass reflection behind media. No outline and no blur,
+   * so the video feels embedded in the post instead of pasted on as a second card.
    */
   .post-video-shell::after {
     content: "";
@@ -31,10 +24,9 @@
     inset: 0;
     border-radius: inherit;
     background:
-      linear-gradient(180deg, rgb(248 252 255 / 0.035) 0%, rgb(184 220 255 / 0.012) 18%, transparent 38%),
-      radial-gradient(ellipse at 8% 0%, rgb(229 246 255 / 0.035), transparent 34%),
-      radial-gradient(ellipse at 94% 100%, rgb(89 151 237 / 0.020), transparent 42%),
-      linear-gradient(145deg, rgb(5 24 61 / 0.025) 0%, rgb(3 18 47 / 0.015) 54%, rgb(2 12 36 / 0.020) 100%);
+      linear-gradient(180deg, rgb(248 252 255 / 0.025) 0%, rgb(184 220 255 / 0.008) 18%, transparent 38%),
+      radial-gradient(ellipse at 8% 0%, rgb(229 246 255 / 0.025), transparent 34%),
+      radial-gradient(ellipse at 94% 100%, rgb(89 151 237 / 0.014), transparent 42%);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     pointer-events: none;
@@ -45,20 +37,16 @@
     position: absolute;
     z-index: 1;
     inset: 1px;
-    border: 1px solid rgb(248 252 255 / 0.20);
+    border: 0;
     border-radius: inherit;
-    background:
-      linear-gradient(180deg, rgb(255 255 255 / 0.14) 0%, transparent 15%),
-      linear-gradient(118deg, rgb(255 255 255 / 0.06) 0%, transparent 28%);
-    box-shadow:
-      inset 0 8px 20px rgb(238 249 255 / 0.018),
-      inset 0 -10px 22px rgb(51 112 191 / 0.022);
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.055) 0%, transparent 14%);
+    box-shadow: none;
     pointer-events: none;
   }
 
   /*
-   * Preserve the current transparency while lifting only the media luminance.
-   * This keeps the village equally visible behind the video without making the media feel dim.
+   * Preserve the chosen transparency and brightness while removing the media frame.
+   * The video itself stays readable, with the Village visible through the whole surface.
    */
   .post-video-youtube > .star-movie-surface {
     position: relative;
