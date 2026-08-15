@@ -46,8 +46,7 @@
 
   /*
    * Preserve the chosen transparency and brightness while removing the media frame.
-   * Slightly overscan only the YouTube iframe so stray internal black player edges
-   * are clipped by the existing rounded, overflow-hidden shell on iPhone.
+   * Slightly overscan the YouTube iframe so stray internal player edges are clipped.
    */
   .post-video-youtube > .star-movie-surface {
     position: relative;
@@ -100,5 +99,15 @@
       inset 0 1px 0 rgb(255 255 255 / 0.42),
       0 0 34px rgb(137 226 255 / 0.46),
       0 10px 30px rgb(0 5 20 / 0.24);
+  }
+}
+
+/*
+ * Landscape iPhone playback exposes a wider black strip on the player's left edge.
+ * Keep portrait exactly as approved, and crop only landscape a little further left.
+ */
+@media (max-width: 1023px) and (orientation: landscape) {
+  .post-video-youtube > .star-movie-surface {
+    transform: translateX(-2%) scale(1.14);
   }
 }
