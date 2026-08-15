@@ -104,10 +104,10 @@
 
 /*
  * Landscape iPhone playback exposes a wider black strip on the player's left edge.
- * Keep portrait exactly as approved, and crop only landscape a little further left.
+ * Keep portrait exactly as approved, and crop only landscape further to the left.
  */
 @media (max-width: 1023px) and (orientation: landscape) {
   .post-video-youtube > .star-movie-surface {
-    transform: translateX(-2%) scale(1.14);
+    transform: translateX(-5%) scale(1.20);
   }
 }
