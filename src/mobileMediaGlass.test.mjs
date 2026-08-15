@@ -15,15 +15,15 @@ test("mobile media glass stylesheet is loaded after the shared post-card glass",
   assert.equal(mobileMediaGlassImport > postCardGlassImport, true);
 });
 
-test("YouTube and uploaded 星映 keep readable media above a clear, non-blurred mobile glass layer", () => {
+test("YouTube and uploaded 星映 keep the chosen transparency while lifting only media brightness", () => {
   assert.match(cssSource, /@media \(max-width: 1023px\)/);
   assert.match(cssSource, /\.post-video-shell\s*\{[\s\S]*?backdrop-filter: none/);
   assert.match(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?-webkit-backdrop-filter: none;[\s\S]*?backdrop-filter: none;/);
   assert.doesNotMatch(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?backdrop-filter: blur\(/);
-  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.55/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.55[\s\S]*?filter: brightness\(1\.14\)/);
   assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?pointer-events: auto/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.53/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.55/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.53[\s\S]*?filter: brightness\(1\.14\)/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.55[\s\S]*?filter: brightness\(1\.14\)/);
 
   assert.equal(appSource.includes("post-video-shell post-video-youtube"), true);
   assert.equal(appSource.includes("post-video-shell post-video-upload"), true);
