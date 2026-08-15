@@ -20,10 +20,10 @@ test("YouTube and uploaded 星映 keep readable media above a clear, non-blurred
   assert.match(cssSource, /\.post-video-shell\s*\{[\s\S]*?backdrop-filter: none/);
   assert.match(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?-webkit-backdrop-filter: none;[\s\S]*?backdrop-filter: none;/);
   assert.doesNotMatch(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?backdrop-filter: blur\(/);
-  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.62/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.55/);
   assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?pointer-events: auto/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.58/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.60/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.53/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.55/);
 
   assert.equal(appSource.includes("post-video-shell post-video-youtube"), true);
   assert.equal(appSource.includes("post-video-shell post-video-upload"), true);
