@@ -15,14 +15,14 @@ test("mobile media glass stylesheet is loaded after the shared post-card glass",
   assert.equal(mobileMediaGlassImport > postCardGlassImport, true);
 });
 
-test("YouTube and uploaded 星映 use the stronger transparent mobile media pane without changing desktop", () => {
+test("YouTube and uploaded 星映 keep readable media above a transparent mobile glass layer", () => {
   assert.match(cssSource, /@media \(max-width: 1023px\)/);
-  assert.match(cssSource, /\.post-video-shell\s*\{/);
-  assert.match(cssSource, /backdrop-filter: blur\(2px\) saturate\(1\.08\)/);
-  assert.match(cssSource, /-webkit-backdrop-filter: blur\(2px\) saturate\(1\.08\)/);
-  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.22/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.20/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.22/);
+  assert.match(cssSource, /\.post-video-shell\s*\{[\s\S]*?backdrop-filter: none/);
+  assert.match(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?backdrop-filter: blur\(2px\) saturate\(1\.06\)/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.62/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?pointer-events: auto/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.58/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.60/);
 
   assert.equal(appSource.includes("post-video-shell post-video-youtube"), true);
   assert.equal(appSource.includes("post-video-shell post-video-upload"), true);
