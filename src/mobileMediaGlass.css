@@ -61,6 +61,7 @@
     background: rgb(2 11 33 / 0.03) !important;
   }
 
+  /* 68% transparent before playback too, so the poster reads as media inside glass rather than an opaque tile. */
   .post-video-upload .post-video-viewport > button > img {
     opacity: 0.32;
     filter: saturate(0.88) brightness(0.94) contrast(0.94);
