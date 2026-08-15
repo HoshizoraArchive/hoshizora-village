@@ -8,6 +8,7 @@ import "./onboardingSkipExperience.js";
 import App from "./App.jsx";
 import BetaUsageAdminApp from "./BetaUsageAdminApp.jsx";
 import SignupOpenAdminApp from "./SignupOpenAdminApp.jsx";
+import MobileMediaGlassPreview from "./MobileMediaGlassPreview.jsx";
 import "./authSessionDisplay.js";
 import "./appOpenTracking.js";
 import "./betaUsageAdminEntry.js";
@@ -44,10 +45,18 @@ import "./profileMentionNavigation.css";
 const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
 const isBetaUsageAdminRoute = normalizedPath === "/admin/beta-usage";
 const isSignupOpenAdminRoute = normalizedPath === "/admin/signup-opens";
+const searchParams = new URLSearchParams(window.location.search);
+const isNetlifyDeployPreviewHost =
+  window.location.hostname.startsWith("deploy-preview-") ||
+  /^[0-9a-f]{24}--hoshizora-village\.netlify\.app$/.test(window.location.hostname);
+const isMobileMediaGlassPreviewRoute =
+  isNetlifyDeployPreviewHost && searchParams.get("mediaGlassPreview") === "1";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    {isBetaUsageAdminRoute ? (
+    {isMobileMediaGlassPreviewRoute ? (
+      <MobileMediaGlassPreview />
+    ) : isBetaUsageAdminRoute ? (
       <BetaUsageAdminApp />
     ) : isSignupOpenAdminRoute ? (
       <SignupOpenAdminApp />
