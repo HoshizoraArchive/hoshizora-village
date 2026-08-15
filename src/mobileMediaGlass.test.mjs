@@ -15,13 +15,14 @@ test("mobile media glass stylesheet is loaded after the shared post-card glass",
   assert.equal(mobileMediaGlassImport > postCardGlassImport, true);
 });
 
-test("YouTube and uploaded 星映 share the mobile glass shell without changing desktop", () => {
+test("YouTube and uploaded 星映 share the stronger mobile glass shell without changing desktop", () => {
   assert.match(cssSource, /@media \(max-width: 1023px\)/);
   assert.match(cssSource, /\.post-video-shell\s*\{/);
-  assert.match(cssSource, /backdrop-filter: blur\(22px\) saturate\(1\.18\)/);
-  assert.match(cssSource, /-webkit-backdrop-filter: blur\(22px\) saturate\(1\.18\)/);
-  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.78/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.74/);
+  assert.match(cssSource, /backdrop-filter: blur\(26px\) saturate\(1\.22\)/);
+  assert.match(cssSource, /-webkit-backdrop-filter: blur\(26px\) saturate\(1\.22\)/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.48/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.44/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.46/);
 
   assert.equal(appSource.includes("post-video-shell post-video-youtube"), true);
   assert.equal(appSource.includes("post-video-shell post-video-upload"), true);
