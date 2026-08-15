@@ -15,9 +15,10 @@ test("mobile media glass stylesheet is loaded after the shared post-card glass",
   assert.equal(mobileMediaGlassImport > postCardGlassImport, true);
 });
 
-test("YouTube and uploaded 星映 keep the chosen transparency while lifting only media brightness", () => {
+test("YouTube and uploaded 星映 keep the chosen transparency and brightness without a pasted-on frame", () => {
   assert.match(cssSource, /@media \(max-width: 1023px\)/);
-  assert.match(cssSource, /\.post-video-shell\s*\{[\s\S]*?backdrop-filter: none/);
+  assert.match(cssSource, /\.post-video-shell\s*\{[\s\S]*?border-color: transparent !important;[\s\S]*?box-shadow: none !important;[\s\S]*?backdrop-filter: none/);
+  assert.match(cssSource, /\.post-video-shell::before\s*\{[\s\S]*?border: 0;[\s\S]*?box-shadow: none;/);
   assert.match(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?-webkit-backdrop-filter: none;[\s\S]*?backdrop-filter: none;/);
   assert.doesNotMatch(cssSource, /\.post-video-shell::after\s*\{[\s\S]*?backdrop-filter: blur\(/);
   assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.55[\s\S]*?filter: brightness\(1\.14\)/);
