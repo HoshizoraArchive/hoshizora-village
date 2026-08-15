@@ -1,0 +1,41 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const appSource = readFileSync("src/App.jsx", "utf8");
+const mainSource = readFileSync("src/main.jsx", "utf8");
+const cssSource = readFileSync("src/mobileMediaGlass.css", "utf8");
+
+test("mobile media glass stylesheet is loaded after the shared post-card glass", () => {
+  const postCardGlassImport = mainSource.indexOf('import "./postCardCelestialGlass.css";');
+  const mobileMediaGlassImport = mainSource.indexOf('import "./mobileMediaGlass.css";');
+
+  assert.notEqual(postCardGlassImport, -1);
+  assert.notEqual(mobileMediaGlassImport, -1);
+  assert.equal(mobileMediaGlassImport > postCardGlassImport, true);
+});
+
+test("YouTube and uploaded 星映 share the mobile glass shell without changing desktop", () => {
+  assert.match(cssSource, /@media \(max-width: 1023px\)/);
+  assert.match(cssSource, /\.post-video-shell\s*\{/);
+  assert.match(cssSource, /backdrop-filter: blur\(22px\) saturate\(1\.18\)/);
+  assert.match(cssSource, /-webkit-backdrop-filter: blur\(22px\) saturate\(1\.18\)/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.78/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.74/);
+
+  assert.equal(appSource.includes("post-video-shell post-video-youtube"), true);
+  assert.equal(appSource.includes("post-video-shell post-video-upload"), true);
+});
+
+test("uploaded video preview keeps the play control above the stronger night tint", () => {
+  assert.match(cssSource, /> button > span:first-of-type[\s\S]*z-index: 1/);
+  assert.match(cssSource, /> button > span:nth-of-type\(2\)[\s\S]*z-index: 2/);
+  assert.match(cssSource, /pointer-events: none/);
+  assert.equal(appSource.includes('aria-label="流星便の星映を再生"'), true);
+});
+
+test("mobile media glass stays scoped away from post copy, onboarding, and notifications", () => {
+  assert.doesNotMatch(cssSource, /\.post-card-content|\.onboarding|\.rconnect|notification/i);
+  assert.doesNotMatch(cssSource, /\bcolor\s*:/);
+  assert.doesNotMatch(cssSource, /\b(?:width|height|margin|padding)\s*:/);
+});
