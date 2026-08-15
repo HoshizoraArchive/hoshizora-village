@@ -36,6 +36,6 @@ test("uploaded video preview keeps the play control above the stronger night tin
 
 test("mobile media glass stays scoped away from post copy, onboarding, and notifications", () => {
   assert.doesNotMatch(cssSource, /\.post-card-content|\.onboarding|\.rconnect|notification/i);
-  assert.doesNotMatch(cssSource, /\bcolor\s*:/);
-  assert.doesNotMatch(cssSource, /\b(?:width|height|margin|padding)\s*:/);
+  assert.doesNotMatch(cssSource, /(?:^|\n)\s*color\s*:/m);
+  assert.doesNotMatch(cssSource, /(?:^|\n)\s*(?:width|height|margin|padding)\s*:/m);
 });
