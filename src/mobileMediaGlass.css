@@ -46,13 +46,16 @@
 
   /*
    * Preserve the chosen transparency and brightness while removing the media frame.
-   * The video itself stays readable, with the Village visible through the whole surface.
+   * Slightly overscan only the YouTube iframe so stray internal black player edges
+   * are clipped by the existing rounded, overflow-hidden shell on iPhone.
    */
   .post-video-youtube > .star-movie-surface {
     position: relative;
     z-index: 2;
     opacity: 0.55;
     filter: brightness(1.14);
+    transform: scale(1.08);
+    transform-origin: center center;
     pointer-events: auto;
     touch-action: manipulation;
   }
