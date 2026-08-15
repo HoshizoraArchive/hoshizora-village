@@ -80,7 +80,7 @@ function YouTubeProductionCard() {
 function UploadProductionCard() {
   return (
     <ProductionCardShell
-      label="星映の再生中を確認するため、実際に再生できるMP4を本番の星映video要素と同じ構造で置いています。"
+      label="星映の再生中を確認するため、実際に再生できる検証用MP4を本番の星映video要素と同じ構造で置いています。"
       time="23:31"
     >
       <div
