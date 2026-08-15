@@ -1,27 +1,8 @@
-const uploadPreviewSvg = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540">
-  <defs>
-    <linearGradient id="sky" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#4cc9f0"/>
-      <stop offset="0.48" stop-color="#7b61ff"/>
-      <stop offset="1" stop-color="#ff70b7"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.72" cy="0.26" r="0.48">
-      <stop offset="0" stop-color="#fff6cf" stop-opacity="0.95"/>
-      <stop offset="1" stop-color="#fff6cf" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="960" height="540" fill="url(#sky)"/>
-  <rect width="960" height="540" fill="url(#glow)"/>
-  <circle cx="760" cy="132" r="54" fill="#fff7cf"/>
-  <path d="M0 390 C170 310 290 430 430 356 C590 272 720 430 960 328 V540 H0Z" fill="#061027" fill-opacity="0.72"/>
-  <g fill="#ffffff" fill-opacity="0.9">
-    <circle cx="120" cy="92" r="4"/><circle cx="210" cy="158" r="3"/><circle cx="346" cy="84" r="5"/>
-    <circle cx="478" cy="140" r="3"/><circle cx="604" cy="82" r="4"/><circle cx="878" cy="94" r="3"/>
-  </g>
-  <text x="54" y="475" fill="#ffffff" font-size="38" font-family="sans-serif" font-weight="700">星映 preview</text>
-</svg>
-`)}`;
+const STAR_MOVIE_SAMPLE_URL =
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
+const STAR_MOVIE_SAMPLE_POSTER =
+  "https://storage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerBlazes.jpg";
+const USER_YOUTUBE_VIDEO_ID = "Kh34c7MfaBE";
 
 function PreviewAction({ children }) {
   return (
@@ -34,7 +15,7 @@ function PreviewAction({ children }) {
   );
 }
 
-function ProductionCardShell({ children, label, time = "23:21" }) {
+function ProductionCardShell({ children, label, time = "23:32" }) {
   return (
     <article className="glass-panel post-card-panel post-card group relative overflow-hidden">
       <div className="h-1 bg-gradient-to-r from-comet/25 to-sakura/20" />
@@ -73,7 +54,11 @@ function ProductionCardShell({ children, label, time = "23:21" }) {
 
 function YouTubeProductionCard() {
   return (
-    <ProductionCardShell label={"YouTube付き流星便の確認用です。\n本番投稿カードの中で動画面がどう透けるかを確認します。"}>
+    <ProductionCardShell
+      label={
+        "指定してもらったYouTube動画を、本番のYouTube付き流星便と同じ埋め込み構造で表示しています。\n実際に再生して、再生中も背景の街が見えるか確認できます。"
+      }
+    >
       <div
         className="post-video-shell post-video-youtube relative mt-4 aspect-video overflow-hidden rounded-2xl border border-comet/20 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.28)]"
         data-card-action="true"
@@ -81,9 +66,11 @@ function YouTubeProductionCard() {
         <iframe
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
-          className="star-movie-surface block h-full w-full border-0"
-          src="https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ?rel=0"
-          title="Mobile media glass YouTube preview"
+          className="star-movie-surface h-full w-full"
+          loading="lazy"
+          referrerPolicy="strict-origin-when-cross-origin"
+          src={`https://www.youtube-nocookie.com/embed/${USER_YOUTUBE_VIDEO_ID}?enablejsapi=1`}
+          title="YouTube video player"
         />
       </div>
     </ProductionCardShell>
@@ -92,28 +79,23 @@ function YouTubeProductionCard() {
 
 function UploadProductionCard() {
   return (
-    <ProductionCardShell label="星映付き流星便の確認用です。下は本番の星映サムネイルと同じ構造です。" time="23:20">
+    <ProductionCardShell
+      label="星映の再生中を確認するため、実際に再生できるMP4を本番の星映video要素と同じ構造で置いています。"
+      time="23:31"
+    >
       <div
         className="post-video-shell post-video-upload mt-4 overflow-hidden rounded-2xl border border-white/10 bg-night-950/45 shadow-[0_18px_55px_rgba(3,7,18,0.22)]"
         data-card-action="true"
       >
         <div className="post-video-viewport relative aspect-video bg-black">
-          <button
-            aria-label="流星便の星映を再生"
-            className="group relative h-full w-full overflow-hidden bg-night-950 text-left outline-none focus-visible:ring-4 focus-visible:ring-comet/30"
-            type="button"
-          >
-            <img
-              alt=""
-              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-              draggable={false}
-              src={uploadPreviewSvg}
-            />
-            <span className="absolute inset-0 bg-night-950/15" />
-            <span className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/20 text-2xl text-white shadow-[0_0_30px_rgba(125,223,255,0.35)] backdrop-blur-md transition group-hover:scale-105">
-              ▶
-            </span>
-          </button>
+          <video
+            className="star-movie-surface h-full w-full bg-black object-contain"
+            controls
+            playsInline
+            poster={STAR_MOVIE_SAMPLE_POSTER}
+            preload="metadata"
+            src={STAR_MOVIE_SAMPLE_URL}
+          />
         </div>
       </div>
     </ProductionCardShell>
@@ -127,7 +109,7 @@ export default function MobileMediaGlassPreview() {
         <div className="mb-4 px-1">
           <p className="text-xs font-black tracking-[0.16em] text-comet/80">PR #269 / MOBILE CHECK</p>
           <p className="mt-1 text-sm leading-6 text-slate-300">
-            本番と同じ投稿カードの構造・クラス内で、YouTubeと星映の透け方だけを確認します。
+            本番投稿カードと同じ構造の中で、実際に再生できるYouTubeと星映を確認します。
           </p>
         </div>
 
