@@ -15,20 +15,20 @@ test("mobile media glass stylesheet is loaded after the shared post-card glass",
   assert.equal(mobileMediaGlassImport > postCardGlassImport, true);
 });
 
-test("YouTube and uploaded 星映 share the stronger mobile glass shell without changing desktop", () => {
+test("YouTube and uploaded 星映 use a genuinely transparent mobile media pane without changing desktop", () => {
   assert.match(cssSource, /@media \(max-width: 1023px\)/);
   assert.match(cssSource, /\.post-video-shell\s*\{/);
-  assert.match(cssSource, /backdrop-filter: blur\(26px\) saturate\(1\.22\)/);
-  assert.match(cssSource, /-webkit-backdrop-filter: blur\(26px\) saturate\(1\.22\)/);
-  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.48/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.44/);
-  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.46/);
+  assert.match(cssSource, /backdrop-filter: blur\(4px\) saturate\(1\.12\)/);
+  assert.match(cssSource, /-webkit-backdrop-filter: blur\(4px\) saturate\(1\.12\)/);
+  assert.match(cssSource, /\.post-video-youtube > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.32/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > \.star-movie-surface\s*\{[\s\S]*?opacity: 0\.30/);
+  assert.match(cssSource, /\.post-video-upload \.post-video-viewport > button > img\s*\{[\s\S]*?opacity: 0\.32/);
 
   assert.equal(appSource.includes("post-video-shell post-video-youtube"), true);
   assert.equal(appSource.includes("post-video-shell post-video-upload"), true);
 });
 
-test("uploaded video preview keeps the play control above the stronger night tint", () => {
+test("uploaded video preview keeps the play control above the light night tint", () => {
   assert.match(cssSource, /> button > span:first-of-type[\s\S]*z-index: 1/);
   assert.match(cssSource, /> button > span:nth-of-type\(2\)[\s\S]*z-index: 2/);
   assert.match(cssSource, /pointer-events: none/);
