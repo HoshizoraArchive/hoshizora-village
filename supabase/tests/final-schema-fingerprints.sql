@@ -1,8 +1,7 @@
 -- H-3 FINAL-B / READ ONLY.
 -- Compares schema/catalog metadata only. It never reads application, Auth, or
--- Storage object rows. The baseline was measured from Production at main
--- eeeebddd3f632ebe330a1e3bc3d34fe0d0351b0e on 2026-08-14; function values
--- include the intentional Opening Memorial operator RPC migration.
+-- Storage object rows. The baseline was measured from Production after the
+-- 20260816095022 Opening Memorial auto-grant migration.
 
 begin;
 set transaction read only;
@@ -225,8 +224,8 @@ expected(category, item_count, fingerprint) as (
     ('columns', 316, '970facc834fe96c0e1b4eefadc288011'),
     ('constraints', 240, 'c120130c09edcc38f8b0db6a659fc723'),
     ('enums', 5, '08c45d6b2c72748be6bc31b1c21d7b6c'),
-    ('function_grants', 122, '5af389052be0922a12e4006f78a93b1d'),
-    ('functions', 107, 'c720f6c36cc9a9e7b381169c57617316'),
+    ('function_grants', 123, '83fd02c21bd29bd41540ed3ca66f82d7'),
+    ('functions', 108, 'c1f8b6b22a67e8474ea521f5f4afeacf'),
     ('indexes', 156, '556ab478ecdd8bfff390e95af41e86a7'),
     ('policies', 73, 'd0ce97d4d8e908e7eadfe23dbd5a0d27'),
     ('profile_identity_policy_contract', 3, '3166d0b171746fb5a5143b303d2a1892'),
@@ -234,7 +233,7 @@ expected(category, item_count, fingerprint) as (
     ('schema_grants', 4, '854909e6b7d3b8f0a3b6afa9f3029567'),
     ('sequence_grants', 0, 'd41d8cd98f00b204e9800998ecf8427e'),
     ('tables', 37, 'c719260c1c397aff56bfd6c9ebe3d992'),
-    ('triggers', 40, '86aeed8c90398fab8cf3346e565ebb93'),
+    ('triggers', 41, 'b590ad0aaa46d7c9e82501b224120846'),
     ('views', 0, 'd41d8cd98f00b204e9800998ecf8427e')
 ),
 comparison as (
