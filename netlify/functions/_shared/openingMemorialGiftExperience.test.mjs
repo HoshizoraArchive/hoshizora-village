@@ -47,10 +47,10 @@ test("the gift is shown from a durable unread Re:Connect row and acknowledged on
   includes(experience, '.eq("type", OPENING_MEMORIAL_GIFT_TYPE)');
   includes(experience, '.eq("is_read", false)');
   includes(experience, '.update({ is_read: true })');
+  includes(experience, "checkedUserId === userId");
   includes(experience, "Opening Memorial");
   includes(experience, "/images/onboarding/mini-chia.png");
   includes(experience, "/profile-frames/opening-memorial.png");
-  includes(experience, "次");
 });
 
 test("gift presentation has an accessible modal shell and reduced-motion support", () => {
