@@ -57,7 +57,6 @@ assertion as (
 )
 select actual.*, assertion.passed
 from actual
-cross join baseline_row
 cross join assertion;
 
 rollback;
