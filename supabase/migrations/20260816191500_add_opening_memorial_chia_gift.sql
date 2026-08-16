@@ -14,12 +14,12 @@ alter table public.notifications
     'content_report'::text,
     'chia_post'::text,
     'ai_resident_mention'::text,
-    'profile_frame_gift'::text
+    'opening_memorial_gift'::text
   ]));
 
 create unique index if not exists notifications_opening_memorial_gift_recipient_unique
   on public.notifications (recipient_id)
-  where type = 'profile_frame_gift';
+  where type = 'opening_memorial_gift';
 
 create or replace function app_private.create_opening_memorial_gift_notification()
 returns trigger
@@ -58,7 +58,7 @@ begin
   values (
     new.profile_id,
     chia_profile_id,
-    'profile_frame_gift',
+    'opening_memorial_gift',
     '星空ちあからアイコンフレームが届きました！'
   )
   on conflict do nothing;
@@ -89,7 +89,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if new.type = 'profile_frame_gift' then
+  if new.type = 'opening_memorial_gift' then
     return new;
   end if;
 
@@ -157,7 +157,7 @@ select
     where chia.username = 'chia_hoshizora'
     limit 1
   ),
-  'profile_frame_gift',
+  'opening_memorial_gift',
   '星空ちあからアイコンフレームが届きました！'
 from public.profile_frame_ownerships ownership
 join public.profile_frames frame
