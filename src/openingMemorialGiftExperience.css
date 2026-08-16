@@ -1,0 +1,187 @@
+.opening-memorial-gift-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.opening-memorial-gift-card {
+  position: relative;
+  width: min(100%, 390px);
+  overflow: hidden;
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 30px;
+  padding: 28px 24px 24px;
+  text-align: center;
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at 50% -15%, rgba(125, 211, 252, 0.24), transparent 42%),
+    radial-gradient(circle at 86% 24%, rgba(244, 114, 182, 0.13), transparent 35%),
+    linear-gradient(160deg, rgba(15, 23, 42, 0.98), rgba(10, 17, 38, 0.98));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 0 42px rgba(56, 189, 248, 0.1);
+}
+
+.opening-memorial-gift-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.8) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 75% 14%, rgba(255, 255, 255, 0.62) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 88% 55%, rgba(255, 255, 255, 0.54) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 10% 68%, rgba(255, 255, 255, 0.5) 0 1px, transparent 1.6px);
+}
+
+.opening-memorial-gift-sparkles {
+  position: relative;
+  margin-bottom: 4px;
+  color: #bae6fd;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+}
+
+.opening-memorial-gift-chia {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  margin: 0 auto 8px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 18px rgba(56, 189, 248, 0.16));
+}
+
+.opening-memorial-gift-title {
+  position: relative;
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.5;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.opening-memorial-gift-lead,
+.opening-memorial-gift-description {
+  position: relative;
+  margin: 10px auto 0;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.opening-memorial-gift-preview {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 18px auto 8px;
+}
+
+.opening-memorial-gift-preview-core {
+  position: absolute;
+  inset: 18px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 34px;
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.2), transparent 24%),
+    linear-gradient(145deg, #172554, #312e81 58%, #701a75);
+  box-shadow: inset 0 0 26px rgba(125, 211, 252, 0.14);
+}
+
+.opening-memorial-gift-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 18px rgba(125, 211, 252, 0.2));
+}
+
+.opening-memorial-gift-frame-name {
+  position: relative;
+  margin: 0;
+  color: #e0f2fe;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.opening-memorial-gift-description {
+  max-width: 310px;
+  margin-top: 7px;
+}
+
+.opening-memorial-gift-button {
+  position: relative;
+  width: 100%;
+  margin-top: 20px;
+  border: 1px solid rgba(186, 230, 253, 0.38);
+  border-radius: 18px;
+  padding: 13px 18px;
+  color: #082f49;
+  font-size: 14px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #e0f2fe, #bae6fd 58%, #fce7f3);
+  box-shadow: 0 10px 28px rgba(56, 189, 248, 0.16);
+  transition: transform 160ms ease, filter 160ms ease, opacity 160ms ease;
+}
+
+.opening-memorial-gift-button:hover:not(:disabled) {
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+}
+
+.opening-memorial-gift-button:focus-visible {
+  outline: 3px solid rgba(125, 211, 252, 0.45);
+  outline-offset: 3px;
+}
+
+.opening-memorial-gift-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+@media (max-width: 420px) {
+  .opening-memorial-gift-overlay {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .opening-memorial-gift-card {
+    border-radius: 28px 28px 22px 22px;
+    padding: 24px 20px 20px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .opening-memorial-gift-card {
+    animation: opening-memorial-gift-arrive 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .opening-memorial-gift-preview {
+    animation: opening-memorial-gift-float 3.2s ease-in-out infinite;
+  }
+}
+
+@keyframes opening-memorial-gift-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes opening-memorial-gift-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
