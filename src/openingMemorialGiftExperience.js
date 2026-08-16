@@ -1,6 +1,6 @@
 import { supabase } from "./lib/supabaseClient";
 
-const OPENING_MEMORIAL_GIFT_TYPE = "profile_frame_gift";
+const OPENING_MEMORIAL_GIFT_TYPE = "opening_memorial_gift";
 const OPENING_MEMORIAL_GIFT_TITLE = "星空ちあからアイコンフレームが届きました！";
 const OPENING_MEMORIAL_FRAME_NAME = "Opening Memorial";
 
