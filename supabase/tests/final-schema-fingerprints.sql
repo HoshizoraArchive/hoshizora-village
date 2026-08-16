@@ -1,7 +1,7 @@
 -- H-3 FINAL-B / READ ONLY.
 -- Compares schema/catalog metadata only. It never reads application, Auth, or
--- Storage object rows. The baseline was measured from Production after the
--- 20260816095022 Opening Memorial auto-grant migration.
+-- Storage object rows. The baseline was measured from the canonical local replay
+-- after the 20260816191500 Opening Memorial gift migration.
 
 begin;
 set transaction read only;
@@ -222,18 +222,18 @@ expected(category, item_count, fingerprint) as (
   values
     ('column_grants', 41, 'fbff28e73cd9b2492a06fe59cf80fb53'),
     ('columns', 316, '970facc834fe96c0e1b4eefadc288011'),
-    ('constraints', 240, 'c120130c09edcc38f8b0db6a659fc723'),
+    ('constraints', 240, 'be0050494c36ba77631f778cc0e4e1ce'),
     ('enums', 5, '08c45d6b2c72748be6bc31b1c21d7b6c'),
     ('function_grants', 123, '83fd02c21bd29bd41540ed3ca66f82d7'),
-    ('functions', 108, 'c1f8b6b22a67e8474ea521f5f4afeacf'),
-    ('indexes', 156, '556ab478ecdd8bfff390e95af41e86a7'),
+    ('functions', 109, '0d375227c78dcc61722238c48827596c'),
+    ('indexes', 157, 'ca10af167925f03d7a47a80f7b51b704'),
     ('policies', 73, 'd0ce97d4d8e908e7eadfe23dbd5a0d27'),
     ('profile_identity_policy_contract', 3, '3166d0b171746fb5a5143b303d2a1892'),
     ('relation_grants', 401, '6ea02d91a7d015eb7087245d01a9cf97'),
     ('schema_grants', 4, '854909e6b7d3b8f0a3b6afa9f3029567'),
     ('sequence_grants', 0, 'd41d8cd98f00b204e9800998ecf8427e'),
     ('tables', 37, 'c719260c1c397aff56bfd6c9ebe3d992'),
-    ('triggers', 41, 'b590ad0aaa46d7c9e82501b224120846'),
+    ('triggers', 42, '519ab5a81482b4eb900d0a8db89c12b2'),
     ('views', 0, 'd41d8cd98f00b204e9800998ecf8427e')
 ),
 comparison as (
