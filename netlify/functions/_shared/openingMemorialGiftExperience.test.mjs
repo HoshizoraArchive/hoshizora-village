@@ -25,7 +25,7 @@ function includes(source, fragment) {
 }
 
 test("Opening Memorial acquisition creates one trusted Chia gift notification", () => {
-  includes(migration, "'profile_frame_gift'::text");
+  includes(migration, "'opening_memorial_gift'::text");
   includes(migration, "notifications_opening_memorial_gift_recipient_unique");
   includes(migration, "after insert on public.profile_frame_ownerships");
   includes(migration, "new.acquisition_source <> 'beta_resident'");
@@ -36,7 +36,7 @@ test("Opening Memorial acquisition creates one trusted Chia gift notification", 
 });
 
 test("existing beta residents are backfilled without sending unsolicited OS push", () => {
-  includes(migration, "new.type = 'profile_frame_gift'");
+  includes(migration, "new.type = 'opening_memorial_gift'");
   includes(migration, "from public.profile_frame_ownerships ownership");
   includes(migration, "cohort.cohort_key = 'beta_resident'");
 });
@@ -44,6 +44,7 @@ test("existing beta residents are backfilled without sending unsolicited OS push
 test("the gift is shown from a durable unread Re:Connect row and acknowledged once", () => {
   includes(main, 'import "./openingMemorialGiftExperience.js";');
   includes(main, 'import "./openingMemorialGiftExperience.css";');
+  includes(experience, 'OPENING_MEMORIAL_GIFT_TYPE = "opening_memorial_gift"');
   includes(experience, '.eq("type", OPENING_MEMORIAL_GIFT_TYPE)');
   includes(experience, '.eq("is_read", false)');
   includes(experience, '.update({ is_read: true })');
