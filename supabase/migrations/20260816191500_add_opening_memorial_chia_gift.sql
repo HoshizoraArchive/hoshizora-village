@@ -1,0 +1,175 @@
+begin;
+
+alter table public.notifications
+  drop constraint if exists notifications_type_check;
+
+alter table public.notifications
+  add constraint notifications_type_check
+  check (type = any (array[
+    'resonance'::text,
+    'archive'::text,
+    'star_letter'::text,
+    'star_letter_reply'::text,
+    'star_letter_resonance'::text,
+    'content_report'::text,
+    'chia_post'::text,
+    'ai_resident_mention'::text,
+    'profile_frame_gift'::text
+  ]));
+
+create unique index if not exists notifications_opening_memorial_gift_recipient_unique
+  on public.notifications (recipient_id)
+  where type = 'profile_frame_gift';
+
+create or replace function app_private.create_opening_memorial_gift_notification()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  chia_profile_id uuid;
+begin
+  if new.acquisition_source <> 'beta_resident' then
+    return new;
+  end if;
+
+  if not exists (
+    select 1
+    from public.profile_frames frame
+    where frame.id = new.frame_id
+      and frame.frame_key = 'opening_memorial_beta'
+  ) then
+    return new;
+  end if;
+
+  select chia.id
+  into chia_profile_id
+  from public.profiles chia
+  where chia.username = 'chia_hoshizora'
+  limit 1;
+
+  insert into public.notifications (
+    recipient_id,
+    actor_id,
+    type,
+    message
+  )
+  values (
+    new.profile_id,
+    chia_profile_id,
+    'profile_frame_gift',
+    '星空ちあからアイコンフレームが届きました！'
+  )
+  on conflict do nothing;
+
+  return new;
+end;
+$$;
+
+comment on function app_private.create_opening_memorial_gift_notification() is
+'Opening Memorialをbeta_residentとして新規取得した住民へ、星空ちあからの一度きりのRe:Connect贈呈通知を作成する。';
+
+revoke all on function app_private.create_opening_memorial_gift_notification()
+from public, anon, authenticated;
+
+drop trigger if exists profile_frame_ownerships_create_opening_memorial_gift_notification
+  on public.profile_frame_ownerships;
+create trigger profile_frame_ownerships_create_opening_memorial_gift_notification
+after insert on public.profile_frame_ownerships
+for each row
+execute function app_private.create_opening_memorial_gift_notification();
+
+-- The gift is an in-Village experience. Do not turn the backfill or future gift
+-- into an unsolicited OS/Web Push notification.
+create or replace function app_private.enqueue_push_notification_job()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.type = 'profile_frame_gift' then
+    return new;
+  end if;
+
+  if (
+    new.type = 'chia_post'
+    or (
+      new.type = 'ai_resident_mention'
+      and exists (
+        select 1
+        from public.profiles actor
+        where actor.id = new.actor_id
+          and actor.username = 'chia_hoshizora'
+      )
+    )
+  )
+  and not coalesce(
+    (
+      select recipient.notify_chia_posts
+      from public.profiles recipient
+      where recipient.id = new.recipient_id
+    ),
+    true
+  ) then
+    return new;
+  end if;
+
+  insert into public.push_notification_jobs (
+    notification_id,
+    recipient_id,
+    status,
+    attempt_count,
+    max_attempts,
+    next_attempt_at
+  )
+  values (
+    new.id,
+    new.recipient_id,
+    'queued',
+    0,
+    5,
+    now()
+  )
+  on conflict (notification_id) do nothing;
+
+  return new;
+end;
+$$;
+
+revoke all on function app_private.enqueue_push_notification_job()
+from public, anon, authenticated;
+
+-- Existing beta residents should receive the same one-time handoff on their
+-- next Village visit. The partial unique index keeps this backfill idempotent.
+insert into public.notifications (
+  recipient_id,
+  actor_id,
+  type,
+  message
+)
+select
+  ownership.profile_id,
+  (
+    select chia.id
+    from public.profiles chia
+    where chia.username = 'chia_hoshizora'
+    limit 1
+  ),
+  'profile_frame_gift',
+  '星空ちあからアイコンフレームが届きました！'
+from public.profile_frame_ownerships ownership
+join public.profile_frames frame
+  on frame.id = ownership.frame_id
+where frame.frame_key = 'opening_memorial_beta'
+  and ownership.acquisition_source = 'beta_resident'
+  and exists (
+    select 1
+    from public.profile_cohorts cohort
+    where cohort.profile_id = ownership.profile_id
+      and cohort.cohort_key = 'beta_resident'
+  )
+on conflict do nothing;
+
+commit;
