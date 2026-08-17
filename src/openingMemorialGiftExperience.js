@@ -154,6 +154,15 @@ async function showGiftForSession(session) {
   }
 }
 
+function queueGiftForSession(session) {
+  // Supabase currently warns that API work started directly inside
+  // onAuthStateChange can deadlock the shared auth client. Let the auth
+  // callback return first, then perform the notification lookup.
+  window.setTimeout(() => {
+    void showGiftForSession(session);
+  }, 0);
+}
+
 async function startOpeningMemorialGiftExperience() {
   if (typeof window === "undefined" || typeof document === "undefined" || isAdminRoute()) {
     return;
@@ -170,7 +179,7 @@ async function startOpeningMemorialGiftExperience() {
     }
 
     if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
-      void showGiftForSession(session);
+      queueGiftForSession(session);
     }
   });
 
