@@ -58,6 +58,11 @@ test("auth changes defer the gift lookup until the Supabase callback has returne
   includes(experience, "function queueGiftForSession(session)");
   includes(experience, "window.setTimeout(() => {");
   includes(experience, "queueGiftForSession(session);");
+  includes(experience, 'event === "INITIAL_SESSION"');
+  assert.ok(
+    !experience.includes("supabase.auth.getSession()"),
+    "gift experience must not start a second auth-session bootstrap",
+  );
   assert.ok(
     !experience.includes(
       'if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {\n      void showGiftForSession(session);',
