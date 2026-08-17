@@ -54,6 +54,18 @@ test("the gift is shown from a durable unread Re:Connect row and acknowledged on
   includes(experience, "/profile-frames/opening-memorial.png");
 });
 
+test("auth changes defer the gift lookup until the Supabase callback has returned", () => {
+  includes(experience, "function queueGiftForSession(session)");
+  includes(experience, "window.setTimeout(() => {");
+  includes(experience, "queueGiftForSession(session);");
+  assert.ok(
+    !experience.includes(
+      'if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {\n      void showGiftForSession(session);',
+    ),
+    "auth callback must not start the Supabase notification lookup directly",
+  );
+});
+
 test("gift presentation has an accessible modal shell and reduced-motion support", () => {
   includes(experience, 'overlay.setAttribute("role", "dialog")');
   includes(experience, 'overlay.setAttribute("aria-modal", "true")');
