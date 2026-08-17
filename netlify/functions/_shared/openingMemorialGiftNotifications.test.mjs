@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 const repositoryRoot = new URL("../../../", import.meta.url);
 const migrationSql = readFileSync(
-  new URL("supabase/migrations/20260817083000_add_opening_memorial_gift_notifications.sql", repositoryRoot),
+  new URL("supabase/migrations/20260817083827_add_opening_memorial_gift_notifications.sql", repositoryRoot),
   "utf8",
 );
 const experienceJs = readFileSync(new URL("src/openingMemorialGiftExperience.js", repositoryRoot), "utf8");
