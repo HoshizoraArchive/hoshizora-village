@@ -73,6 +73,9 @@ begin
 end;
 $$;
 
+revoke all on function app_private.create_opening_memorial_gift_notification() from public;
+revoke execute on function app_private.create_opening_memorial_gift_notification() from anon, authenticated;
+
 drop trigger if exists profile_frame_ownerships_create_opening_memorial_gift_notification
   on public.profile_frame_ownerships;
 
