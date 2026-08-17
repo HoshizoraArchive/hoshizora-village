@@ -43,8 +43,15 @@ jobs:
       - name: Verify production build
         run: npm run build
 
-      - name: Run browser E2E
-        run: npx playwright test
+      - name: Diagnose browser E2E by spec
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in e2e/*.spec.mjs; do
+            echo "::group::Playwright ${spec}"
+            timeout 90s npx playwright test "${spec}" --workers=1 --retries=0 --reporter=line
+            echo "::endgroup::"
+          done
 
       - name: Upload Playwright report on failure
         if: failure()
