@@ -55,7 +55,7 @@ test("historical baseline is the oldest unique migration", () => {
   assert.equal(migrationFilenames[0], baselineFilename);
   assert.equal(
     migrationFilenames.at(-1),
-    "20260817083000_add_opening_memorial_gift_notifications.sql",
+    "20260817083827_add_opening_memorial_gift_notifications.sql",
   );
 });
 
