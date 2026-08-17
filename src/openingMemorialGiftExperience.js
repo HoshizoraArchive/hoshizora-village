@@ -14,7 +14,7 @@ function findButtonByText(text) {
   );
 }
 
-function scrollToFrameEditor() {
+function scrollToFrameEditor(attempt = 0) {
   const frameLabel = Array.from(document.querySelectorAll("p")).find(
     (element) => element.textContent?.trim() === "アイコンフレーム",
   );
@@ -24,17 +24,19 @@ function scrollToFrameEditor() {
     return;
   }
 
-  const editButton = findButtonByText("編集");
-  if (editButton) {
-    editButton.click();
-    window.setTimeout(scrollToFrameEditor, 180);
+  if (attempt === 0) {
+    findButtonByText("編集")?.click();
+  }
+
+  if (attempt < 8) {
+    window.setTimeout(() => scrollToFrameEditor(attempt + 1), 180);
   }
 }
 
 function openMyFrames() {
   const myUniverseButton = document.querySelector('button[aria-label="My Universe"]');
   myUniverseButton?.click();
-  window.setTimeout(scrollToFrameEditor, 180);
+  window.setTimeout(() => scrollToFrameEditor(0), 180);
 }
 
 async function markGiftRead(notificationId) {
@@ -236,7 +238,9 @@ function enhanceGiftCards() {
     button.className =
       "mt-3 min-h-10 rounded-2xl border border-comet/30 bg-comet/10 px-4 text-xs font-black text-comet transition hover:bg-comet/15";
     button.addEventListener("click", () => {
-      findButtonByText("既読にする")?.click();
+      Array.from(card.querySelectorAll("button")).find(
+        (cardButton) => cardButton.textContent?.trim() === "既読にする",
+      )?.click();
       openMyFrames();
     });
     card.append(button);
@@ -261,7 +265,11 @@ async function refreshSession() {
   if (currentUserId) window.setTimeout(() => void maybeShowGift(), 700);
 }
 
-if (typeof window !== "undefined" && typeof document !== "undefined") {
+if (
+  typeof window !== "undefined" &&
+  typeof document !== "undefined" &&
+  !window.location.pathname.startsWith("/admin/")
+) {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", startObserver, { once: true });
   } else {
