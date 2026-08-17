@@ -48,7 +48,7 @@ assertion as (
     rows = 74
     and distinct_versions = 74
     and first_version = '20260524'
-    and latest_version = '20260817083000'
+    and latest_version = '20260817083827'
     and duplicate_versions = 0
     and baseline_rows = 1
     and missing_core_relations = 0
