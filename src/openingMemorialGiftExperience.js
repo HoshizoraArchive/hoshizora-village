@@ -155,21 +155,17 @@ async function showGiftForSession(session) {
 }
 
 function queueGiftForSession(session) {
-  // Supabase currently warns that API work started directly inside
-  // onAuthStateChange can deadlock the shared auth client. Let the auth
-  // callback return first, then perform the notification lookup.
+  // Supabase auth callbacks must return before starting another Supabase API call.
+  // Deferring also keeps this feature from competing with the app's own session bootstrap.
   window.setTimeout(() => {
     void showGiftForSession(session);
   }, 0);
 }
 
-async function startOpeningMemorialGiftExperience() {
+function startOpeningMemorialGiftExperience() {
   if (typeof window === "undefined" || typeof document === "undefined" || isAdminRoute()) {
     return;
   }
-
-  const { data } = await supabase.auth.getSession();
-  await showGiftForSession(data?.session ?? null);
 
   const authState = supabase.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT") {
@@ -189,10 +185,10 @@ async function startOpeningMemorialGiftExperience() {
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
-      void startOpeningMemorialGiftExperience();
+      startOpeningMemorialGiftExperience();
     }, { once: true });
   } else {
-    void startOpeningMemorialGiftExperience();
+    startOpeningMemorialGiftExperience();
   }
 
   window.addEventListener("beforeunload", () => {
