@@ -51,6 +51,7 @@ test("Village experience shows the gift once and keeps a Re:Connect frame action
 test("frame action waits for the real profile editor instead of assuming a 180ms render", () => {
   assert.match(experienceJs, /const FRAME_NAVIGATION_TIMEOUT_MS = 12_000/);
   assert.match(experienceJs, /new MutationObserver\(check\)/);
+  assert.match(experienceJs, /button\.textContent\?\.trim\(\) === "プロフィールを編集"/);
   assert.match(experienceJs, /button\.textContent\?\.trim\(\) === "編集"/);
   assert.match(experienceJs, /!button\.disabled/);
   assert.match(experienceJs, /myUniverseButton\?\.getAttribute\("aria-current"\) !== "page"/);
