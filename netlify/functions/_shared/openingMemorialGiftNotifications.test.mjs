@@ -45,8 +45,18 @@ test("Village experience shows the gift once and keeps a Re:Connect frame action
   assert.match(experienceJs, /この街の最初期を一緒に歩いてくれた証です/);
   assert.match(experienceJs, /data-opening-memorial-frame-button/);
   assert.match(experienceJs, /button\[aria-label="My Universe"\]/);
-  assert.match(experienceJs, /const editButton = findButtonByText\("編集"\)/);
-  assert.match(experienceJs, /editButton\.click\(\)/);
-  assert.match(experienceJs, /scrollToFrameEditor\(1\)/);
   assert.match(mainJsx, /import "\.\/openingMemorialGiftExperience\.js";/);
+});
+
+test("frame action waits for the real profile editor instead of assuming a 180ms render", () => {
+  assert.match(experienceJs, /const FRAME_NAVIGATION_TIMEOUT_MS = 12_000/);
+  assert.match(experienceJs, /new MutationObserver\(check\)/);
+  assert.match(experienceJs, /button\.textContent\?\.trim\(\) === "編集"/);
+  assert.match(experienceJs, /!button\.disabled/);
+  assert.match(experienceJs, /myUniverseButton\?\.getAttribute\("aria-current"\) !== "page"/);
+  assert.match(experienceJs, /await waitForDomMatch\(\(\) => findReadyProfileEditButton\(myUniverseButton\)\)/);
+  assert.match(experienceJs, /editButton\.click\(\)/);
+  assert.match(experienceJs, /await waitForDomMatch\(findFrameEditorLabel\)/);
+  assert.match(experienceJs, /scrollFrameEditorIntoView\(frameLabel\)/);
+  assert.doesNotMatch(experienceJs, /attempt < 8/);
 });
