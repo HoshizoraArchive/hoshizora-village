@@ -37,6 +37,7 @@ test("existing beta owners are backfilled exactly through the same notification 
 
 test("Village experience shows the gift once and keeps a Re:Connect frame action", () => {
   assert.match(experienceJs, /const GIFT_TYPE = "opening_memorial_gift"/);
+  assert.match(experienceJs, /notification\.type !== GIFT_TYPE/);
   assert.match(experienceJs, /\.eq\("is_read", false\)/);
   assert.match(experienceJs, /\.update\(\{ is_read: true \}\)/);
   assert.match(experienceJs, /アイコンフレームが届きました！/);
