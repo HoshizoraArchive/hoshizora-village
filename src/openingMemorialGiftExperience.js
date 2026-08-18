@@ -27,7 +27,8 @@ function findReadyProfileEditButton(myUniverseButton) {
 
   return Array.from(document.querySelectorAll("button")).find(
     (button) =>
-      button.textContent?.trim() === "編集" &&
+      (button.textContent?.trim() === "プロフィールを編集" ||
+        button.textContent?.trim() === "編集") &&
       !button.disabled &&
       isVisibleElement(button),
   ) ?? null;
