@@ -3,48 +3,108 @@ import { supabase } from "./lib/supabaseClient";
 const GIFT_TYPE = "opening_memorial_gift";
 const MODAL_ATTRIBUTE = "data-opening-memorial-gift-modal";
 const CARD_BUTTON_ATTRIBUTE = "data-opening-memorial-frame-button";
+const FRAME_NAVIGATION_TIMEOUT_MS = 12_000;
+const FRAME_NAVIGATION_POLL_MS = 120;
 let currentUserId = null;
 let sessionCheckedUserId = null;
 let activeNotificationId = null;
 let observer = null;
+let frameNavigationSequence = 0;
 
-function findButtonByText(text) {
-  return Array.from(document.querySelectorAll("button")).find(
-    (button) => button.textContent?.trim() === text,
-  );
+function isVisibleElement(element) {
+  return element instanceof HTMLElement && element.getClientRects().length > 0;
 }
 
-function scrollToFrameEditor(attempt = 0) {
-  const frameLabel = Array.from(document.querySelectorAll("p")).find(
-    (element) => element.textContent?.trim() === "アイコンフレーム",
-  );
+function findFrameEditorLabel() {
+  return Array.from(document.querySelectorAll("p")).find(
+    (element) =>
+      element.textContent?.trim() === "アイコンフレーム" && isVisibleElement(element),
+  ) ?? null;
+}
 
-  if (frameLabel) {
-    frameLabel.closest("div.rounded-2xl")?.scrollIntoView({ behavior: "smooth", block: "center" });
+function findReadyProfileEditButton(myUniverseButton) {
+  if (myUniverseButton?.getAttribute("aria-current") !== "page") return null;
+
+  return Array.from(document.querySelectorAll("button")).find(
+    (button) =>
+      (button.textContent?.trim() === "プロフィールを編集" ||
+        button.textContent?.trim() === "編集") &&
+      !button.disabled &&
+      isVisibleElement(button),
+  ) ?? null;
+}
+
+function waitForDomMatch(findMatch, timeoutMs = FRAME_NAVIGATION_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    const immediateMatch = findMatch();
+    if (immediateMatch) {
+      resolve(immediateMatch);
+      return;
+    }
+
+    let settled = false;
+    let mutationObserver = null;
+    let pollId = null;
+    let timeoutId = null;
+
+    const finish = (match) => {
+      if (settled) return;
+      settled = true;
+      mutationObserver?.disconnect();
+      if (pollId !== null) window.clearInterval(pollId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      resolve(match ?? null);
+    };
+
+    const check = () => {
+      const match = findMatch();
+      if (match) finish(match);
+    };
+
+    mutationObserver = new MutationObserver(check);
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["aria-current", "class", "disabled", "hidden"],
+    });
+    pollId = window.setInterval(check, FRAME_NAVIGATION_POLL_MS);
+    timeoutId = window.setTimeout(() => finish(null), timeoutMs);
+  });
+}
+
+function scrollFrameEditorIntoView(frameLabel) {
+  const target = frameLabel?.closest("div.rounded-2xl") ?? frameLabel;
+  target?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function openMyFrames() {
+  const navigationSequence = ++frameNavigationSequence;
+  const myUniverseButton = document.querySelector('button[aria-label="My Universe"]');
+  if (!(myUniverseButton instanceof HTMLButtonElement)) return;
+
+  myUniverseButton.click();
+
+  const existingFrameLabel = findFrameEditorLabel();
+  if (existingFrameLabel) {
+    scrollFrameEditorIntoView(existingFrameLabel);
     return;
   }
 
-  if (attempt === 0) {
-    findButtonByText("編集")?.click();
-  }
+  const editButton = await waitForDomMatch(() => findReadyProfileEditButton(myUniverseButton));
+  if (
+    navigationSequence !== frameNavigationSequence ||
+    !(editButton instanceof HTMLButtonElement) ||
+    myUniverseButton.getAttribute("aria-current") !== "page"
+  ) return;
 
-  if (attempt < 8) {
-    window.setTimeout(() => scrollToFrameEditor(attempt + 1), 180);
-  }
-}
+  editButton.click();
 
-function openMyFrames() {
-  const myUniverseButton = document.querySelector('button[aria-label="My Universe"]');
-  myUniverseButton?.click();
-  window.setTimeout(() => {
-    const editButton = findButtonByText("編集");
-    if (editButton) {
-      editButton.click();
-      window.setTimeout(() => scrollToFrameEditor(1), 180);
-      return;
-    }
-    scrollToFrameEditor(0);
-  }, 180);
+  const frameLabel = await waitForDomMatch(findFrameEditorLabel);
+  if (navigationSequence !== frameNavigationSequence || !frameLabel) return;
+
+  scrollFrameEditorIntoView(frameLabel);
 }
 
 async function markGiftRead(notificationId) {
@@ -71,7 +131,7 @@ function closeGiftModal({ openFrames = false } = {}) {
   const notificationId = activeNotificationId;
   removeModal();
   if (notificationId) void markGiftRead(notificationId);
-  if (openFrames) openMyFrames();
+  if (openFrames) void openMyFrames();
 }
 
 function createGiftModal(notification) {
@@ -253,7 +313,7 @@ function enhanceGiftCards() {
       Array.from(card.querySelectorAll("button")).find(
         (cardButton) => cardButton.textContent?.trim() === "既読にする",
       )?.click();
-      openMyFrames();
+      void openMyFrames();
     });
     card.append(button);
   }
