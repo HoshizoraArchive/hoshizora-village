@@ -36,7 +36,15 @@ function scrollToFrameEditor(attempt = 0) {
 function openMyFrames() {
   const myUniverseButton = document.querySelector('button[aria-label="My Universe"]');
   myUniverseButton?.click();
-  window.setTimeout(() => scrollToFrameEditor(0), 180);
+  window.setTimeout(() => {
+    const editButton = findButtonByText("編集");
+    if (editButton) {
+      editButton.click();
+      window.setTimeout(() => scrollToFrameEditor(1), 180);
+      return;
+    }
+    scrollToFrameEditor(0);
+  }, 180);
 }
 
 async function markGiftRead(notificationId) {

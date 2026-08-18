@@ -45,5 +45,8 @@ test("Village experience shows the gift once and keeps a Re:Connect frame action
   assert.match(experienceJs, /この街の最初期を一緒に歩いてくれた証です/);
   assert.match(experienceJs, /data-opening-memorial-frame-button/);
   assert.match(experienceJs, /button\[aria-label="My Universe"\]/);
+  assert.match(experienceJs, /const editButton = findButtonByText\("編集"\)/);
+  assert.match(experienceJs, /editButton\.click\(\)/);
+  assert.match(experienceJs, /scrollToFrameEditor\(1\)/);
   assert.match(mainJsx, /import "\.\/openingMemorialGiftExperience\.js";/);
 });
