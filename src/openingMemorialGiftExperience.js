@@ -67,7 +67,11 @@ function closeGiftModal({ openFrames = false } = {}) {
 }
 
 function createGiftModal(notification) {
-  if (!notification?.id || document.querySelector(`[${MODAL_ATTRIBUTE}]`)) return;
+  if (
+    !notification?.id ||
+    notification.type !== GIFT_TYPE ||
+    document.querySelector(`[${MODAL_ATTRIBUTE}]`)
+  ) return;
 
   activeNotificationId = notification.id;
 
