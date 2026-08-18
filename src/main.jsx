@@ -15,6 +15,7 @@ import "./signupOpenTracking.js";
 import "./buildVersionWatcher.js";
 import "./chiaNotificationExperience.js";
 import "./chiaPostNotifications.js";
+import "./openingMemorialGiftExperience.js";
 import "./reconnectNotificationPlatformCopy.js";
 import "./myStarChartPreviewExperience.js";
 import "./starLetterProfileNavigation.js";
