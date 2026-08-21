@@ -139,7 +139,13 @@ test.describe("星空Village browser smoke", () => {
   test("会員登録成功後は再登録できない確認待ち画面へ進む", async ({ page }) => {
     await mockSupabaseAsEmptyVillage(page);
     let signupRequests = 0;
+    let signupOpenRequests = 0;
     let signupRedirectTo = "";
+
+    await page.route("**/api/signup-open", async (route) => {
+      signupOpenRequests += 1;
+      await route.fulfill({ status: 204, body: "" });
+    });
 
     await page.route("**/__supabase/auth/v1/signup**", async (route) => {
       signupRequests += 1;
@@ -169,7 +175,30 @@ test.describe("星空Village browser smoke", () => {
     await expect(page.getByRole("button", { name: "入村する" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /秒後に再送できます/ })).toBeDisabled();
     expect(signupRequests).toBe(1);
+    expect(signupOpenRequests).toBe(1);
     expect(signupRedirectTo).toBe(new URL(page.url()).origin);
+  });
+
+  test("signup-open計測のrate limit時も会員登録画面を利用できる", async ({ page }) => {
+    await mockSupabaseAsEmptyVillage(page);
+    let signupOpenRequests = 0;
+
+    await page.route("**/api/signup-open", async (route) => {
+      signupOpenRequests += 1;
+      await route.fulfill({ status: 429, body: "" });
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "入村手続き（会員登録）", exact: true }).click();
+
+    await expect(page.getByLabel("メールアドレス", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("パスワード", { exact: true })).toBeVisible();
+    await page.getByLabel("メールアドレス", { exact: true }).fill("rate-limit-safe@example.com");
+    await page.getByLabel("パスワード", { exact: true }).fill("safe-password");
+    await page.getByLabel("利用規約とプライバシーポリシーに同意する").check();
+    await page.getByLabel("私は18歳以上であることを確認します").check();
+    await expect(page.getByRole("button", { name: "入村する" })).toBeEnabled();
+    expect(signupOpenRequests).toBe(1);
   });
 
   test("初回会員登録のrate limitは登録完了扱いにせず再試行可能にする", async ({ page }) => {

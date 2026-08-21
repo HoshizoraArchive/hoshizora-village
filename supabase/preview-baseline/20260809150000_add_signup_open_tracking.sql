@@ -77,8 +77,10 @@ begin
 end;
 $$;
 
-revoke all on function public.record_signup_open(uuid, text, text, timestamptz) from public;
-grant execute on function public.record_signup_open(uuid, text, text, timestamptz) to anon, authenticated;
+revoke all on function public.record_signup_open(uuid, text, text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.record_signup_open(uuid, text, text, timestamptz)
+  to service_role;
 
 drop function if exists public.get_signup_open_dashboard(date);
 create function public.get_signup_open_dashboard(p_day date default null)

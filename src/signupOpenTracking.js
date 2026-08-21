@@ -1,5 +1,3 @@
-import { supabase } from "./lib/supabaseClient";
-
 const SIGNUP_BUTTON_SELECTOR = 'button[aria-label="入村手続き（会員登録）"]';
 const VISITOR_ID_STORAGE_KEY = "hoshizora.signup-open.visitor-id";
 const RECORDED_STORAGE_KEY = "hoshizora.signup-open.recorded";
@@ -97,15 +95,21 @@ async function recordSignupOpen(clientOpenedAt = new Date()) {
   recording = true;
 
   try {
-    const { error } = await supabase.rpc("record_signup_open", {
-      p_visitor_id: getVisitorId(),
-      p_app_mode: getAppMode(),
-      p_platform: getPlatformKind(),
-      p_client_opened_at: clientOpenedAt.toISOString(),
+    const response = await fetch("/api/signup-open", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        visitorId: getVisitorId(),
+        appMode: getAppMode(),
+        platform: getPlatformKind(),
+        clientOpenedAt: clientOpenedAt.toISOString(),
+      }),
     });
 
-    if (error) {
-      console.warn("[signup-open] Failed to record signup screen open.", error.code ?? "unknown_error");
+    if (!response.ok) {
+      console.warn("[signup-open] Failed to record signup screen open.", response.status);
       return;
     }
 
