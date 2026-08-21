@@ -21,7 +21,9 @@ function restoreArchiveButton() {
   }
 
   const originallyDisabled = activeArchiveButton.getAttribute(ORIGINAL_DISABLED_ATTRIBUTE) === "true";
-  activeArchiveButton.disabled = originallyDisabled;
+  if (activeArchiveButton.disabled !== originallyDisabled) {
+    activeArchiveButton.disabled = originallyDisabled;
+  }
   activeArchiveButton.removeAttribute(GATED_ATTRIBUTE);
   activeArchiveButton.removeAttribute(ORIGINAL_DISABLED_ATTRIBUTE);
   activeArchiveButton = null;
@@ -48,7 +50,9 @@ function synchronizeArchiveGate() {
     if (!archiveButton.hasAttribute(ORIGINAL_DISABLED_ATTRIBUTE)) {
       archiveButton.setAttribute(ORIGINAL_DISABLED_ATTRIBUTE, String(archiveButton.disabled));
     }
-    archiveButton.disabled = true;
+    if (!archiveButton.disabled) {
+      archiveButton.disabled = true;
+    }
     archiveButton.setAttribute(GATED_ATTRIBUTE, "true");
     return;
   }

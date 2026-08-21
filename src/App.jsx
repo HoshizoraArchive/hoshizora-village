@@ -685,10 +685,26 @@ function revokePostVideoDraft(draft) {
   }
 }
 
+function revokePostVideoTrimDraft(draft) {
+  if (draft?.previewUrl) {
+    URL.revokeObjectURL(draft.previewUrl);
+  }
+}
+
 function revokePostThumbnailDraft(draft) {
   if (draft?.previewUrl) {
     URL.revokeObjectURL(draft.previewUrl);
   }
+}
+
+function revokePostMediaDrafts({ imageDrafts, thumbnailDraft, videoDraft, videoTrimDraft }) {
+  for (const draft of imageDrafts) {
+    revokePostImageDraft(draft);
+  }
+
+  revokePostVideoDraft(videoDraft);
+  revokePostThumbnailDraft(thumbnailDraft);
+  revokePostVideoTrimDraft(videoTrimDraft);
 }
 
 function formatMediaDuration(seconds) {
@@ -2007,6 +2023,7 @@ function App() {
   const postThumbnailDraftRef = useRef(null);
   const [postVideoPreparing, setPostVideoPreparing] = useState(false);
   const [postVideoTrimDraft, setPostVideoTrimDraft] = useState(null);
+  const postVideoTrimDraftRef = useRef(null);
   const [postVideoTrimStart, setPostVideoTrimStart] = useState(0);
   const [postVideoTrimLength, setPostVideoTrimLength] = useState(METEOR_VIDEO_MAX_DURATION_SECONDS);
   const [postVideoTrimProgress, setPostVideoTrimProgress] = useState(0);
@@ -2290,14 +2307,6 @@ function App() {
 
   useEffect(() => {
     return () => {
-      if (postVideoTrimDraft?.previewUrl) {
-        URL.revokeObjectURL(postVideoTrimDraft.previewUrl);
-      }
-    };
-  }, [postVideoTrimDraft]);
-
-  useEffect(() => {
-    return () => {
       if (postCoverCropPreviewUrl) {
         URL.revokeObjectURL(postCoverCropPreviewUrl);
       }
@@ -2433,14 +2442,18 @@ function App() {
     postThumbnailDraftRef.current = postThumbnailDraft;
   }, [postThumbnailDraft]);
 
+  useEffect(() => {
+    postVideoTrimDraftRef.current = postVideoTrimDraft;
+  }, [postVideoTrimDraft]);
+
   useEffect(
     () => () => {
-      for (const draft of postImageDraftsRef.current) {
-        revokePostImageDraft(draft);
-      }
-
-      revokePostVideoDraft(postVideoDraftRef.current);
-      revokePostThumbnailDraft(postThumbnailDraftRef.current);
+      revokePostMediaDrafts({
+        imageDrafts: postImageDraftsRef.current,
+        thumbnailDraft: postThumbnailDraftRef.current,
+        videoDraft: postVideoDraftRef.current,
+        videoTrimDraft: postVideoTrimDraftRef.current,
+      });
     },
     [],
   );
@@ -6148,27 +6161,29 @@ function App() {
   }
 
   function clearPostImageDrafts() {
-    setPostImageDrafts((currentDrafts) => {
-      for (const draft of currentDrafts) {
-        revokePostImageDraft(draft);
-      }
+    const currentDrafts = postImageDraftsRef.current;
 
-      return [];
-    });
+    postImageDraftsRef.current = [];
+    setPostImageDrafts([]);
+    for (const draft of currentDrafts) {
+      revokePostImageDraft(draft);
+    }
   }
 
   function clearPostVideoDraft() {
-    setPostVideoDraft((currentDraft) => {
-      revokePostVideoDraft(currentDraft);
-      return null;
-    });
+    const currentDraft = postVideoDraftRef.current;
+
+    postVideoDraftRef.current = null;
+    setPostVideoDraft(null);
+    revokePostVideoDraft(currentDraft);
   }
 
   function clearPostThumbnailDraft() {
-    setPostThumbnailDraft((currentDraft) => {
-      revokePostThumbnailDraft(currentDraft);
-      return null;
-    });
+    const currentDraft = postThumbnailDraftRef.current;
+
+    postThumbnailDraftRef.current = null;
+    setPostThumbnailDraft(null);
+    revokePostThumbnailDraft(currentDraft);
   }
 
   function resetPostCoverCrop() {
@@ -6193,7 +6208,11 @@ function App() {
   }
 
   function clearPostVideoTrimDraft() {
+    const currentDraft = postVideoTrimDraftRef.current;
+
+    postVideoTrimDraftRef.current = null;
     setPostVideoTrimDraft(null);
+    revokePostVideoTrimDraft(currentDraft);
     setPostVideoTrimStart(0);
     setPostVideoTrimLength(METEOR_VIDEO_MAX_DURATION_SECONDS);
     setPostVideoTrimProgress(0);
@@ -6207,20 +6226,27 @@ function App() {
     try {
       const generatedCoverDraft = await createVideoCoverFile(file, durationSeconds);
 
-      setPostThumbnailDraft((currentDraft) => {
-        revokePostThumbnailDraft(currentDraft);
-        return generatedCoverDraft;
-      });
+      if (!appMountedRef.current) {
+        revokePostThumbnailDraft(generatedCoverDraft);
+        return;
+      }
+
+      const currentDraft = postThumbnailDraftRef.current;
+      postThumbnailDraftRef.current = generatedCoverDraft;
+      setPostThumbnailDraft(generatedCoverDraft);
+      revokePostThumbnailDraft(currentDraft);
     } catch (thumbnailError) {
       logSafeError(ERROR_OPERATION.VIDEO_THUMBNAIL, thumbnailError);
     }
   }
 
   async function applySelectedPostVideo(file, metadata) {
-    setPostVideoDraft((currentDraft) => {
-      revokePostVideoDraft(currentDraft);
-      return createPostVideoDraft(file, metadata);
-    });
+    const nextDraft = createPostVideoDraft(file, metadata);
+    const currentDraft = postVideoDraftRef.current;
+
+    postVideoDraftRef.current = nextDraft;
+    setPostVideoDraft(nextDraft);
+    revokePostVideoDraft(currentDraft);
     clearPostThumbnailDraft();
     await prepareAutomaticVideoCoverDraft(file, metadata.durationSeconds);
   }
@@ -6230,19 +6256,17 @@ function App() {
       METEOR_VIDEO_MAX_DURATION_SECONDS,
       Math.max(0.5, Number(metadata.durationSeconds) || METEOR_VIDEO_MAX_DURATION_SECONDS),
     );
+    const nextDraft = {
+      durationSeconds: metadata.durationSeconds,
+      file,
+      name: getSafeDisplayFileName(file.name, "選択した星映"),
+      previewUrl: URL.createObjectURL(file),
+    };
+    const currentDraft = postVideoTrimDraftRef.current;
 
-    setPostVideoTrimDraft((currentDraft) => {
-      if (currentDraft?.previewUrl) {
-        URL.revokeObjectURL(currentDraft.previewUrl);
-      }
-
-      return {
-        durationSeconds: metadata.durationSeconds,
-        file,
-        name: getSafeDisplayFileName(file.name, "選択した星映"),
-        previewUrl: URL.createObjectURL(file),
-      };
-    });
+    postVideoTrimDraftRef.current = nextDraft;
+    setPostVideoTrimDraft(nextDraft);
+    revokePostVideoTrimDraft(currentDraft);
     setPostVideoTrimStart(0);
     setPostVideoTrimLength(initialLengthSeconds);
     setPostVideoTrimProgress(0);
@@ -6322,11 +6346,16 @@ function App() {
         createVideoCoverFileName(postCoverCropFile.name),
         METEOR_VIDEO_THUMBNAIL_TYPE,
       );
+      if (!appMountedRef.current) {
+        return;
+      }
 
-      setPostThumbnailDraft((currentDraft) => {
-        revokePostThumbnailDraft(currentDraft);
-        return createPostThumbnailDraft(coverFile, { displayName: "星映の表紙" });
-      });
+      const nextDraft = createPostThumbnailDraft(coverFile, { displayName: "星映の表紙" });
+      const currentDraft = postThumbnailDraftRef.current;
+
+      postThumbnailDraftRef.current = nextDraft;
+      setPostThumbnailDraft(nextDraft);
+      revokePostThumbnailDraft(currentDraft);
       setPostMessage("星映の表紙を選びました。");
       clearPostCoverCropDraft();
     } catch (cropError) {
@@ -6477,42 +6506,42 @@ function App() {
       return;
     }
 
-    setPostImageDrafts((currentDrafts) => {
-      const remainingSlots = METEOR_IMAGE_MAX_COUNT - currentDrafts.length;
-      const nextDrafts = [...currentDrafts];
-      const errors = [];
+    const currentDrafts = postImageDraftsRef.current;
+    const remainingSlots = METEOR_IMAGE_MAX_COUNT - currentDrafts.length;
+    const nextDrafts = [...currentDrafts];
+    const errors = [];
 
-      if (remainingSlots <= 0) {
-        setPostError("星影は4枚まで放流できます。");
-        return currentDrafts;
+    if (remainingSlots <= 0) {
+      setPostError("星影は4枚まで放流できます。");
+      return;
+    }
+
+    for (const file of selectedFiles) {
+      if (nextDrafts.length >= METEOR_IMAGE_MAX_COUNT) {
+        errors.push("星影は4枚まで放流できます。");
+        break;
       }
 
-      for (const file of selectedFiles) {
-        if (nextDrafts.length >= METEOR_IMAGE_MAX_COUNT) {
-          errors.push("星影は4枚まで放流できます。");
-          break;
-        }
-
-        if (!METEOR_IMAGE_ALLOWED_TYPES[file.type]) {
-          errors.push("画像はjpg / jpeg / png / webpから選んでください。HEIC / HEIFは今回は未対応です。");
-          continue;
-        }
-
-        if (file.size > METEOR_IMAGE_MAX_SIZE_BYTES) {
-          errors.push("画像は1枚8MBまで選べます。");
-          continue;
-        }
-
-        nextDrafts.push(createPostImageDraft(file));
+      if (!METEOR_IMAGE_ALLOWED_TYPES[file.type]) {
+        errors.push("画像はjpg / jpeg / png / webpから選んでください。HEIC / HEIFは今回は未対応です。");
+        continue;
       }
 
-      if (selectedFiles.length > remainingSlots) {
-        errors.push("5枚目以降の星影は追加していません。");
+      if (file.size > METEOR_IMAGE_MAX_SIZE_BYTES) {
+        errors.push("画像は1枚8MBまで選べます。");
+        continue;
       }
 
-      setPostError([...new Set(errors)].join(" "));
-      return nextDrafts;
-    });
+      nextDrafts.push(createPostImageDraft(file));
+    }
+
+    if (selectedFiles.length > remainingSlots) {
+      errors.push("5枚目以降の星影は追加していません。");
+    }
+
+    postImageDraftsRef.current = nextDrafts;
+    setPostImageDrafts(nextDrafts);
+    setPostError([...new Set(errors)].join(" "));
   }
 
   async function handlePostVideoFileChange(event) {
@@ -6635,11 +6664,13 @@ function App() {
       return;
     }
 
-    setPostImageDrafts((currentDrafts) => {
-      const targetDraft = currentDrafts.find((draft) => draft.id === draftId);
-      revokePostImageDraft(targetDraft);
-      return currentDrafts.filter((draft) => draft.id !== draftId);
-    });
+    const currentDrafts = postImageDraftsRef.current;
+    const targetDraft = currentDrafts.find((draft) => draft.id === draftId);
+    const nextDrafts = currentDrafts.filter((draft) => draft.id !== draftId);
+
+    postImageDraftsRef.current = nextDrafts;
+    setPostImageDrafts(nextDrafts);
+    revokePostImageDraft(targetDraft);
   }
 
   function handleMovePostImageDraft(draftId, direction) {
