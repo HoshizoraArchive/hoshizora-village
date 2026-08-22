@@ -224,7 +224,7 @@ expected(category, item_count, fingerprint) as (
     ('columns', 316, '970facc834fe96c0e1b4eefadc288011'),
     ('constraints', 240, '21a226e084ecb5202760f14aac34ff31'),
     ('enums', 5, '08c45d6b2c72748be6bc31b1c21d7b6c'),
-    ('function_grants', 123, '83fd02c21bd29bd41540ed3ca66f82d7'),
+    ('function_grants', 121, '352d76833f9229bf67314b94ade6c22d'),
     ('functions', 109, 'd0e4310df05c6919e894a25286f713c3'),
     ('indexes', 157, '9ec3a8be85c20ed92c797789a3a26744'),
     ('policies', 73, 'd0ce97d4d8e908e7eadfe23dbd5a0d27'),

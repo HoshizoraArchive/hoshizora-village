@@ -50,12 +50,12 @@ test("historical core baseline is the canonical audited Git blob", () => {
 });
 
 test("historical baseline is the oldest unique migration", () => {
-  assert.equal(migrationFilenames.length, 74);
-  assert.equal(new Set(migrationVersions).size, 74);
+  assert.equal(migrationFilenames.length, 75);
+  assert.equal(new Set(migrationVersions).size, 75);
   assert.equal(migrationFilenames[0], baselineFilename);
   assert.equal(
     migrationFilenames.at(-1),
-    "20260817083827_add_opening_memorial_gift_notifications.sql",
+    "20260821140747_protect_signup_open_rpc.sql",
   );
 });
 
