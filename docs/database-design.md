@@ -449,13 +449,15 @@ RLS方針:
 RLS方針:
 
 - 公開中かつ削除されていない流星便、または投稿者本人の流星便に紐づく共鳴はselect可能
-- ログインユーザーのみ、自分の共鳴をinsert可能
+- 共鳴のinsertは`public.add_post_resonance_v1`だけを正規経路とし、browser roleのtable直接insertは許可しない
 - 自分の共鳴のみdelete可能
 
 補足:
 
 - 初期MVPでは、同じユーザーが同じ流星便に何度も共鳴できる設計です。
 - `resonances` に `unique(post_id, profile_id)` は追加しません。
+- 短時間大量投入だけを抑えるため、RPCは同一ユーザーをtransaction advisory lockで直列化し、同一ユーザー・同一流星便で10秒20件、同一ユーザー全体で60秒60件まで許可します。
+- rate-limit判定は既存の`created_at`と`resonances_profile_created_at_idx`を使用し、新しい状態tableは持ちません。
 - 共鳴が作成されると、DBトリガーで流星便の作者にRe:Connect通知を作成します。
 - 共鳴通知は、同じ `recipient_id` / `actor_id` / `post_id` の組み合わせにつき1件だけ作成します。
 

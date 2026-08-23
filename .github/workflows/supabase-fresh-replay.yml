@@ -51,6 +51,8 @@ jobs:
           db_container="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -n 1)"
           test -n "$db_container"
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/fresh-replay-assertions.sql
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/resonance-rate-limit-assertions.sql
+          bash supabase/tests/resonance-rate-limit-concurrency.sh "$db_container"
           catalog_output="$(docker exec -i "$db_container" psql -qAt -F '|' -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/final-schema-fingerprints.sql)"
           printf '%s\n' "$catalog_output"
           if test "$(printf '%s\n' "$catalog_output" | awk -F '|' '$7 != "0" { bad++ } END { print bad + 0 }')" -ne 0; then
@@ -64,6 +66,8 @@ jobs:
           db_container="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -n 1)"
           test -n "$db_container"
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/fresh-replay-assertions.sql
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/resonance-rate-limit-assertions.sql
+          bash supabase/tests/resonance-rate-limit-concurrency.sh "$db_container"
           catalog_output="$(docker exec -i "$db_container" psql -qAt -F '|' -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/final-schema-fingerprints.sql)"
           printf '%s\n' "$catalog_output"
           if test "$(printf '%s\n' "$catalog_output" | awk -F '|' '$7 != "0" { bad++ } END { print bad + 0 }')" -ne 0; then
