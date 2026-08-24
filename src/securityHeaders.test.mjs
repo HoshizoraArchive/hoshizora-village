@@ -11,7 +11,7 @@ const EXPECTED_CSP = [
   "img-src 'self' blob: https:",
   "media-src 'self' blob: https://dhfecpymvmursozfgjlr.supabase.co https://qskeezefmvnutuzpevbc.supabase.co",
   "connect-src 'self' https://dhfecpymvmursozfgjlr.supabase.co wss://dhfecpymvmursozfgjlr.supabase.co https://qskeezefmvnutuzpevbc.supabase.co wss://qskeezefmvnutuzpevbc.supabase.co",
-  "frame-src https://www.youtube-nocookie.com",
+  "frame-src https://www.youtube-nocookie.com https://app.netlify.com",
   "worker-src 'self' blob:",
   "font-src 'self'",
   "object-src 'none'",
@@ -50,7 +50,7 @@ test("CSP does not allow inline scripts or eval and keeps the audited runtime ca
   assert.match(EXPECTED_CSP, /style-src 'self' 'unsafe-inline'/);
   assert.match(EXPECTED_CSP, /img-src 'self' blob: https:/);
   assert.match(EXPECTED_CSP, /worker-src 'self' blob:/);
-  assert.match(EXPECTED_CSP, /frame-src https:\/\/www\.youtube-nocookie\.com/);
+  assert.match(EXPECTED_CSP, /frame-src https:\/\/www\.youtube-nocookie\.com https:\/\/app\.netlify\.com/);
 });
 
 test("HSTS stays reversible and existing compatibility headers remain", () => {
