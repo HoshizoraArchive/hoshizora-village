@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.10.0",
-    "@netlify/blobs": "^10.7.10",
+    "@netlify/blobs": "^10.7.13",
     "@supabase/supabase-js": "^2.106.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
