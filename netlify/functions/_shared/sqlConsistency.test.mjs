@@ -556,7 +556,7 @@ test("AI observation MVP verification SQL checks stale recovery RPC grants", () 
   assert.equal(observationMvpVerificationSql.includes("stale_processing_candidates"), true);
 });
 
-test("post_media Storage path checks do not depend on app_private helper functions", () => {
+test("post_media path checks stay direct while RLS-only private helpers remain explicit", () => {
   assert.equal(migrationSql.includes(forbiddenStorageHelperToken), false, "migration still references private Storage path helper");
   assert.equal(schemaSql.includes(forbiddenStorageHelperToken), false, "schema.sql still references private Storage path helper");
   assert.equal(
@@ -581,8 +581,8 @@ test("post_media Storage path checks do not depend on app_private helper functio
 
   assert.deepEqual(
     authenticatedPrivateFunctions,
-    ["guide_section_is_public", "is_black_hole_between", "is_black_hole_protected"],
-    "only RLS-only visibility and protection helpers may be executable by authenticated",
+    ["guide_section_is_public", "is_black_hole_between", "is_black_hole_protected", "is_storage_upload_reserved"],
+    "only RLS-only visibility, protection, and upload-gate helpers may be executable by authenticated",
   );
 });
 

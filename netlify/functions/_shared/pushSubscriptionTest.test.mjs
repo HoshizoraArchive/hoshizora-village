@@ -3,8 +3,9 @@ import test from "node:test";
 import { pushErrorResponse } from "./pushNotifications.mjs";
 import { buildPushSubscriptionTestPayload, sendPushSubscriptionTest } from "./pushSubscriptionTest.mjs";
 
-function createTestSupabase({ data, error = null }) {
+function createTestSupabase({ data, error = null, reserveError = null }) {
   const filters = [];
+  const rpcCalls = [];
   const updates = [];
   const query = {
     select() {
@@ -32,11 +33,16 @@ function createTestSupabase({ data, error = null }) {
 
   return {
     filters,
+    rpcCalls,
     updates,
     supabase: {
       from(table) {
         assert.equal(table, "push_subscriptions");
         return query;
+      },
+      async rpc(name, args) {
+        rpcCalls.push([name, args]);
+        return { data: reserveError ? null : true, error: reserveError };
       },
     },
   };
@@ -75,6 +81,9 @@ test("server Push test targets only the current account's exact subscription, ne
     ["eq", "auth", subscription.auth],
     ["is", "disabled_at", null],
   ]);
+  assert.deepEqual(mock.rpcCalls, [
+    ["reserve_push_subscription_test_v1", { p_profile_id: "current-profile-id" }],
+  ]);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].target.endpoint, subscription.endpoint);
   assert.match(sent[0].payload, /おはちあ！ 星空Villageの通知が届いたよ💕/);
@@ -98,6 +107,38 @@ test("server Push test refuses an old-account or key-mismatched record without s
     (error) => error?.code === "PUSH_SUBSCRIPTION_NOT_REGISTERED" && error?.status === 409,
   );
   assert.equal(sent, false);
+  assert.deepEqual(mock.rpcCalls, []);
+});
+
+test("server Push test rejects the sixth hourly reservation before provider delivery", async () => {
+  const mock = createTestSupabase({
+    data: {
+      id: "current-subscription-id",
+      ...subscription,
+    },
+    reserveError: {
+      code: "P0001",
+      message: "push test rate limit exceeded",
+    },
+  });
+  let sent = false;
+
+  await assert.rejects(
+    sendPushSubscriptionTest({
+      profileId: "current-profile-id",
+      subscription,
+      supabase: mock.supabase,
+      webPushClient: {
+        async sendNotification() {
+          sent = true;
+        },
+      },
+    }),
+    (error) => error?.code === "PUSH_TEST_RATE_LIMITED" && error?.status === 429,
+  );
+
+  assert.equal(sent, false);
+  assert.equal(mock.rpcCalls.length, 1);
 });
 
 for (const [statusCode, expectedCode] of [

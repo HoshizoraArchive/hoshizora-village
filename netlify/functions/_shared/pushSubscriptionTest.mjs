@@ -40,6 +40,26 @@ export async function sendPushSubscriptionTest({ profileId, subscription, supaba
     throw pushHttpError(409, "PUSH_SUBSCRIPTION_NOT_REGISTERED", "この端末は現在のアカウントに登録されていません。");
   }
 
+  const { data: reserved, error: reserveError } = await supabase.rpc(
+    "reserve_push_subscription_test_v1",
+    { p_profile_id: profileId },
+  );
+
+  if (reserveError) {
+    if (
+      reserveError.code === "P0001" &&
+      String(reserveError.message ?? "").includes("push test rate limit exceeded")
+    ) {
+      throw pushHttpError(429, "PUSH_TEST_RATE_LIMITED", "テスト通知は1時間に5回まで送れます。時間をおいてもう一度お試しください。");
+    }
+
+    throw pushHttpError(503, "PUSH_TEST_RESERVATION_FAILED", "テスト通知の送信準備に失敗しました。");
+  }
+
+  if (reserved !== true) {
+    throw pushHttpError(503, "PUSH_TEST_RESERVATION_FAILED", "テスト通知の送信準備に失敗しました。");
+  }
+
   try {
     await webPushClient.sendNotification(toWebPushSubscription(data), buildPushSubscriptionTestPayload());
   } catch (error) {

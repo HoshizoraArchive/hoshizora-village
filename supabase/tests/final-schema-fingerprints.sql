@@ -1,7 +1,7 @@
 -- H-3 FINAL-B / READ ONLY.
 -- Compares schema/catalog metadata only. It never reads application, Auth, or
--- Storage object rows. The baseline was measured from Production after the
--- 20260817083000 Opening Memorial gift-notification migration.
+-- Storage object rows. Expected values describe the canonical 77-migration
+-- chain ending at 20260824122431; they are not a Production-data snapshot.
 
 begin;
 set transaction read only;
@@ -220,20 +220,20 @@ actual as (
 ),
 expected(category, item_count, fingerprint) as (
   values
-    ('column_grants', 41, 'fbff28e73cd9b2492a06fe59cf80fb53'),
+    ('column_grants', 38, '8f4f63d25fb12eceb6f77b09a7c6a731'),
     ('columns', 316, '970facc834fe96c0e1b4eefadc288011'),
     ('constraints', 240, '21a226e084ecb5202760f14aac34ff31'),
     ('enums', 5, '08c45d6b2c72748be6bc31b1c21d7b6c'),
-    ('function_grants', 121, '352d76833f9229bf67314b94ade6c22d'),
-    ('functions', 109, 'a734383a26affa29c0777a416ff13919'),
+    ('function_grants', 124, '09dc74bedf38df722d8ab8d2a49c5982'),
+    ('functions', 125, 'acb44e9a7a57ba09f749bc6d1673a03b'),
     ('indexes', 158, 'd5cfe849cbc538b4875d6d6a02f6b166'),
-    ('policies', 72, '3984a346995979cf2c11ce6f0e58d9dd'),
+    ('policies', 66, '1bfa67252479070affee4348321d7062'),
     ('profile_identity_policy_contract', 3, '3166d0b171746fb5a5143b303d2a1892'),
-    ('relation_grants', 400, 'a6244f4f6dd3d82c01f4e3cffce0fad8'),
+    ('relation_grants', 395, '5599577b59048191bbea62b66aef1063'),
     ('schema_grants', 4, '854909e6b7d3b8f0a3b6afa9f3029567'),
     ('sequence_grants', 0, 'd41d8cd98f00b204e9800998ecf8427e'),
     ('tables', 37, 'c719260c1c397aff56bfd6c9ebe3d992'),
-    ('triggers', 42, '519ab5a81482b4eb900d0a8db89c12b2'),
+    ('triggers', 51, '43b9b779db6446190d546ba9c0f79169'),
     ('views', 0, 'd41d8cd98f00b204e9800998ecf8427e')
 ),
 comparison as (
