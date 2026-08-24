@@ -12,6 +12,9 @@
 [[headers]]
   for = "/*"
   [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: https:; media-src 'self' blob: https://dhfecpymvmursozfgjlr.supabase.co https://qskeezefmvnutuzpevbc.supabase.co; connect-src 'self' https://dhfecpymvmursozfgjlr.supabase.co wss://dhfecpymvmursozfgjlr.supabase.co https://qskeezefmvnutuzpevbc.supabase.co wss://qskeezefmvnutuzpevbc.supabase.co; frame-src https://www.youtube-nocookie.com; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'"
+    Permissions-Policy = "bluetooth=(), camera=(), display-capture=(), geolocation=(), microphone=(), payment=(), serial=(), usb=(), fullscreen=(self \"https://www.youtube-nocookie.com\")"
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=31536000"
