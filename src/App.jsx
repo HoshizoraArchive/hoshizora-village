@@ -578,18 +578,24 @@ function getMeteorVideoExtension(file) {
   return METEOR_VIDEO_ALLOWED_TYPES[file?.type] ?? null;
 }
 
-function createMeteorMediaPath(userId, uploadBatchId, sortOrder, file) {
-  const extension = getMeteorImageExtension(file) || "jpg";
-  return `${userId}/${uploadBatchId}/${sortOrder}-${createClientId()}.${extension}`;
-}
+async function reserveStorageUploadPath(bucket, extension) {
+  const { data, error } = await supabase.rpc("reserve_storage_upload_v1", {
+    p_bucket_id: bucket,
+    p_extension: extension,
+  });
 
-function createMeteorVideoPath(userId, uploadBatchId, file) {
-  const extension = getMeteorVideoExtension(file) || "mp4";
-  return `${userId}/${uploadBatchId}/video-${createClientId()}.${extension}`;
-}
+  if (error) {
+    return { error, path: null };
+  }
 
-function createMeteorVideoThumbnailPath(userId, uploadBatchId, extension = METEOR_VIDEO_THUMBNAIL_EXTENSION) {
-  return `${userId}/${uploadBatchId}/thumbnail-${createClientId()}.${extension}`;
+  if (typeof data !== "string" || !data) {
+    return {
+      error: new Error("Storage upload reservation did not return a path."),
+      path: null,
+    };
+  }
+
+  return { error: null, path: data };
 }
 
 function getSafeDisplayFileName(name, fallback) {
@@ -1114,21 +1120,6 @@ async function readPostMediaForPostIds(postIds) {
   }
 
   return { mediaByPostId, error: null };
-}
-
-async function insertPostMediaRows(mediaRows) {
-  const result = await supabase.from("post_media").insert(mediaRows).select(POST_MEDIA_SELECT_COLUMNS);
-
-  if (
-    result.error &&
-    isMissingVideoPostMediaColumnError(result.error) &&
-    mediaRows.every((row) => row.media_type === "image")
-  ) {
-    const legacyRows = mediaRows.map(({ duration_seconds, thumbnail_storage_path, ...row }) => row);
-    return supabase.from("post_media").insert(legacyRows).select(POST_MEDIA_LEGACY_SELECT_COLUMNS);
-  }
-
-  return result;
 }
 
 function attachMediaToPosts(posts, mediaByPostId) {
@@ -5923,7 +5914,17 @@ function App() {
       }
 
       uploadAvatar = async () => {
-        const filePath = `${mutationSession.userId}/avatar-cropped-${Date.now()}.${AVATAR_CROP_OUTPUT_EXTENSION}`;
+        const reservation = await reserveStorageUploadPath(
+          AVATAR_BUCKET,
+          AVATAR_CROP_OUTPUT_EXTENSION,
+        );
+        assertCurrentDataMutationSession(mutationSession);
+
+        if (reservation.error) {
+          return { error: reservation.error };
+        }
+
+        const filePath = reservation.path;
         const { error } = await avatarStorage.upload(filePath, nextCroppedAvatarBlob, {
           cacheControl: "3600",
           contentType: AVATAR_CROP_OUTPUT_TYPE,
@@ -6860,12 +6861,21 @@ function App() {
     let createdPostId = null;
 
     try {
-      const uploadBatchId = createClientId();
       let videoMediaRow = null;
 
       if (hasVideo) {
         setPostUploadProgress("星映を送信中");
-        const videoStoragePath = createMeteorVideoPath(session.user.id, uploadBatchId, videoDraft.file);
+        const videoReservation = await reserveStorageUploadPath(
+          METEOR_VIDEO_BUCKET,
+          getMeteorVideoExtension(videoDraft.file) || "mp4",
+        );
+
+        if (videoReservation.error) {
+          logSafeError(ERROR_OPERATION.STORAGE_UPLOAD, videoReservation.error);
+          throw createUserFacingError("星映の送信に失敗しました。時間をおいてもう一度試してください。");
+        }
+
+        const videoStoragePath = videoReservation.path;
         const { error: videoUploadError } = await supabase.storage.from(METEOR_VIDEO_BUCKET).upload(videoStoragePath, videoDraft.file, {
           cacheControl: "3600",
           contentType: videoDraft.file.type,
@@ -6886,7 +6896,17 @@ function App() {
 
         if (thumbnailDraft) {
           const thumbnailExtension = getMeteorImageExtension(thumbnailDraft.file) || "jpg";
-          thumbnailStoragePath = createMeteorVideoThumbnailPath(session.user.id, uploadBatchId, thumbnailExtension);
+          const thumbnailReservation = await reserveStorageUploadPath(
+            METEOR_MEDIA_BUCKET,
+            thumbnailExtension,
+          );
+
+          if (thumbnailReservation.error) {
+            logSafeError(ERROR_OPERATION.STORAGE_UPLOAD, thumbnailReservation.error);
+            throw createUserFacingError("星映の表紙の送信に失敗しました。時間をおいてもう一度試してください。");
+          }
+
+          thumbnailStoragePath = thumbnailReservation.path;
           const { error: thumbnailUploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(thumbnailStoragePath, thumbnailDraft.file, {
             cacheControl: "3600",
             contentType: thumbnailDraft.file.type,
@@ -6904,7 +6924,16 @@ function App() {
         } else {
           try {
             const thumbnailBlob = await createVideoCoverBlob(videoDraft.file, videoDraft.durationSeconds);
-            thumbnailStoragePath = createMeteorVideoThumbnailPath(session.user.id, uploadBatchId);
+            const thumbnailReservation = await reserveStorageUploadPath(
+              METEOR_MEDIA_BUCKET,
+              METEOR_VIDEO_THUMBNAIL_EXTENSION,
+            );
+
+            if (thumbnailReservation.error) {
+              throw thumbnailReservation.error;
+            }
+
+            thumbnailStoragePath = thumbnailReservation.path;
             const { error: generatedThumbnailUploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(thumbnailStoragePath, thumbnailBlob, {
               cacheControl: "3600",
               contentType: METEOR_VIDEO_THUMBNAIL_TYPE,
@@ -6940,7 +6969,17 @@ function App() {
         for (const [index, draft] of imageDrafts.entries()) {
           setPostUploadProgress(`${index + 1} / ${imageDrafts.length}枚を送信中`);
 
-          const storagePath = createMeteorMediaPath(session.user.id, uploadBatchId, index, draft.file);
+          const imageReservation = await reserveStorageUploadPath(
+            METEOR_MEDIA_BUCKET,
+            getMeteorImageExtension(draft.file) || "jpg",
+          );
+
+          if (imageReservation.error) {
+            logSafeError(ERROR_OPERATION.STORAGE_UPLOAD, imageReservation.error);
+            throw createUserFacingError("星影の送信に失敗しました。時間をおいてもう一度試してください。");
+          }
+
+          const storagePath = imageReservation.path;
           const { error: uploadError } = await supabase.storage.from(METEOR_MEDIA_BUCKET).upload(storagePath, draft.file, {
             cacheControl: "3600",
             contentType: draft.file.type,
