@@ -125,6 +125,24 @@ $$;
 
 set local session_replication_role = replica;
 
+insert into auth.users (
+  instance_id,
+  id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at
+)
+values
+  ('00000000-0000-0000-0000-000000000000', '12000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'sec012-a@example.invalid', '', now(), '{}', '{}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '12000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'sec012-b@example.invalid', '', now(), '{}', '{}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '12000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'sec012-c@example.invalid', '', now(), '{}', '{}', now(), now());
+
 insert into public.profiles (
   id,
   display_name,
