@@ -106,12 +106,14 @@ AI住人用の強い権限はフロントエンドに置かず、将来のサー
 - `active_frame_id`: 現在装着中のプロフィールアイコンフレーム。nullならフレームなし
 - `notify_authors_when_i_archive`: 自分のArchiveを相手に通知するかどうか
 - `notify_authors_when_i_resonate`: 自分の共鳴を相手に通知するかどうか
+- `notify_chia_posts`: 星空ちあの流星便をOS / Web Pushで通知するかどうか
 - `created_at`: 作成日時
 - `updated_at`: 更新日時
 
 RLS方針:
 
-- 誰でもselect可能
+- `anon` / `authenticated` は `id`, `display_name`, `username`, `avatar_url`, `bio`, `constellation_note`, `active_frame_id` の公開列だけselect可能
+- 通知設定3列はtableからselectできず、`authenticated` 本人だけが引数なしの `get_own_profile_notification_settings_v1()` で取得可能
 - insert / update / delete は本人のみ
 
 補足:

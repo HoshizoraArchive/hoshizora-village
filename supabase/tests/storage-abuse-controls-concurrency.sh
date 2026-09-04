@@ -139,6 +139,21 @@ run_storage_burst() {
         --data "{\"p_bucket_id\":\"$bucket\",\"p_extension\":\"$extension\"}" \
         "$api_url/rest/v1/rpc/reserve_storage_upload_v1")"
 
+      # A just-issued local JWT can briefly reach one PostgREST worker before
+      # that worker's clock has caught up. PGRST303 is rejected before the RPC
+      # executes, so retry that exact pre-execution failure once.
+      if [[ "$http_code" != '200' ]] \
+        && grep -Fq '"code":"PGRST303"' "$request_log" \
+        && grep -Fq 'JWT issued at future' "$request_log"; then
+        sleep 1
+        http_code="$(curl -sS -o "$request_log" -w '%{http_code}' -X POST \
+          -H "apikey: $anon_key" \
+          -H "Authorization: Bearer $access_token" \
+          -H 'Content-Type: application/json' \
+          --data "{\"p_bucket_id\":\"$bucket\",\"p_extension\":\"$extension\"}" \
+          "$api_url/rest/v1/rpc/reserve_storage_upload_v1")"
+      fi
+
       if [[ "$http_code" == '200' ]]; then
         jq -er 'select(type == "string" and length > 0)' "$request_log" \
           >"$result_dir/$bucket-reservation-$request_number.path"

@@ -271,15 +271,11 @@ async function syncSetting() {
 
   settingSyncInFlight = true;
   try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("notify_chia_posts")
-      .eq("id", currentUserId)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("get_own_profile_notification_settings_v1");
 
     if (error || document.querySelector(`[${SETTING_ATTRIBUTE}]`)) return;
 
-    starChartAnchor.insertAdjacentElement("afterend", buildProfileToggle(data?.notify_chia_posts !== false));
+    starChartAnchor.insertAdjacentElement("afterend", buildProfileToggle(data?.[0]?.notify_chia_posts !== false));
   } finally {
     settingSyncInFlight = false;
   }

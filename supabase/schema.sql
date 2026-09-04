@@ -229,6 +229,7 @@ create table if not exists public.profiles (
   active_frame_id uuid references public.profile_frames(id) on delete set null,
   notify_authors_when_i_archive boolean not null default true,
   notify_authors_when_i_resonate boolean not null default true,
+  notify_chia_posts boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -238,6 +239,7 @@ comment on column public.profiles.constellation_note is 'わたしの星座を�
 comment on column public.profiles.active_frame_id is '現在装着中のプロフィールアイコンフレーム。nullならフレームなし。';
 comment on column public.profiles.notify_authors_when_i_archive is '自分が誰かの流星便をArchiveした時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
 comment on column public.profiles.notify_authors_when_i_resonate is '自分が誰かの流星便に共鳴した時、相手にRe:Connect通知を送るかどうか。デフォルトON。';
+comment on column public.profiles.notify_chia_posts is '星空ちあの流星便をOS/Web Pushで受け取るか。Village内Re:Connectとバナーはこの設定に関係なく表示する。';
 
 -- Profile identity classification, semantic roles, and historical cohorts.
 create table if not exists public.profile_kinds (
@@ -9175,6 +9177,52 @@ drop policy if exists post_meteor_tags_insert_by_post_author
 on public.post_meteor_tags;
 drop policy if exists post_meteor_tags_delete_by_post_author
 on public.post_meteor_tags;
+
+-- Keep profiles row visibility in RLS while exposing only public profile
+-- presentation columns to browser roles.
+revoke select on table public.profiles from public, anon, authenticated;
+revoke select (
+  notify_authors_when_i_archive,
+  notify_authors_when_i_resonate,
+  notify_chia_posts
+) on table public.profiles from public, anon, authenticated;
+
+grant select (
+  id,
+  display_name,
+  username,
+  avatar_url,
+  bio,
+  constellation_note,
+  active_frame_id
+) on table public.profiles to anon, authenticated;
+
+create or replace function public.get_own_profile_notification_settings_v1()
+returns table (
+  notify_authors_when_i_archive boolean,
+  notify_authors_when_i_resonate boolean,
+  notify_chia_posts boolean
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    profile.notify_authors_when_i_archive,
+    profile.notify_authors_when_i_resonate,
+    profile.notify_chia_posts
+  from public.profiles profile
+  where profile.id = (select auth.uid());
+$$;
+
+comment on function public.get_own_profile_notification_settings_v1() is
+  '認証中の本人について、3つの通知設定だけを返す。対象profile IDは引数で指定できない。';
+
+revoke all on function public.get_own_profile_notification_settings_v1()
+from public, anon, authenticated, service_role;
+grant execute on function public.get_own_profile_notification_settings_v1()
+to authenticated;
 
 comment on table app_private.storage_upload_reservations is
   'Storage APIのRLS事前検査はrollbackされるため、DB RPCでquotaを消費した一時pathだけをupload可能にする内部予約。実object INSERT triggerで一度限りに使用済み化する。';

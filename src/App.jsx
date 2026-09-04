@@ -2955,37 +2955,20 @@ function App() {
         : data;
 
       if (data?.id) {
-        const { data: archiveSettingsData, error: archiveSettingsError } = await supabase
-          .from("profiles")
-          .select("notify_authors_when_i_archive")
-          .eq("id", userId)
-          .maybeSingle();
+        const { data: notificationSettingsRows, error: notificationSettingsError } = await supabase
+          .rpc("get_own_profile_notification_settings_v1");
 
         if (!isMounted) {
           return;
         }
 
-        if (!archiveSettingsError && typeof archiveSettingsData?.notify_authors_when_i_archive === "boolean") {
+        const notificationSettings = notificationSettingsRows?.[0];
+
+        if (!notificationSettingsError && notificationSettings) {
           nextProfile = {
             ...nextProfile,
-            notify_authors_when_i_archive: archiveSettingsData.notify_authors_when_i_archive,
-          };
-        }
-
-        const { data: resonanceSettingsData, error: resonanceSettingsError } = await supabase
-          .from("profiles")
-          .select("notify_authors_when_i_resonate")
-          .eq("id", userId)
-          .maybeSingle();
-
-        if (!isMounted) {
-          return;
-        }
-
-        if (!resonanceSettingsError && typeof resonanceSettingsData?.notify_authors_when_i_resonate === "boolean") {
-          nextProfile = {
-            ...nextProfile,
-            notify_authors_when_i_resonate: resonanceSettingsData.notify_authors_when_i_resonate,
+            notify_authors_when_i_archive: notificationSettings.notify_authors_when_i_archive,
+            notify_authors_when_i_resonate: notificationSettings.notify_authors_when_i_resonate,
           };
         }
       }
@@ -6066,12 +6049,10 @@ function App() {
     setProfileMessage("");
     setProfileError("");
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("profiles")
       .update({ [field]: nextSetting })
-      .eq("id", session.user.id)
-      .select(`id, ${field}`)
-      .maybeSingle();
+      .eq("id", session.user.id);
 
     setProfileSaving(false);
 
@@ -6084,7 +6065,7 @@ function App() {
       return;
     }
 
-    const savedSetting = data?.[field] ?? nextSetting;
+    const savedSetting = nextSetting;
 
     setProfile((currentProfile) =>
       currentProfile
