@@ -1,4 +1,5 @@
 import webPush from "web-push";
+import { isAllowedPushServiceEndpoint } from "./_shared/pushEndpointSecurity.mjs";
 import { createSupabaseAdminClient } from "./_shared/supabaseAdmin.mjs";
 import {
   PUSH_DELIVERY_BATCH_SIZE,
@@ -159,6 +160,17 @@ export async function processPushNotificationJob({ supabase, webPushClient, job 
   let permanentError = null;
 
   for (const subscription of subscriptions) {
+    if (!isAllowedPushServiceEndpoint(subscription.endpoint)) {
+      logPushDeliveryFailure({
+        code: "PUSH_ENDPOINT_NOT_ALLOWED",
+        error: null,
+        endpoint: subscription.endpoint,
+      });
+      disabled += 1;
+      await disableSubscription(supabase, subscription.id, nowIso);
+      continue;
+    }
+
     try {
       await webPushClient.sendNotification(toWebPushSubscription(subscription), payload);
       sent += 1;
