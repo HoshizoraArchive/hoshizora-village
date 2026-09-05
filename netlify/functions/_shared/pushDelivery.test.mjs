@@ -80,21 +80,33 @@ test("buildPushPayload falls back for every current notification type", () => {
   assert.equal(JSON.parse(buildPushPayload({ type: "unknown", message: "" })).body, "Re:Connectに新しい通知があります。");
 });
 
-test("toWebPushSubscription only exposes endpoint and Web Push keys", () => {
+test("toWebPushSubscription only exposes endpoint and Web Push keys for an allowed Push service", () => {
   assert.deepEqual(
     toWebPushSubscription({
-      endpoint: "https://push.example/sub",
+      endpoint: "https://fcm.googleapis.com/fcm/send/subscription-id",
       p256dh: "p256dh-key",
       auth: "auth-key",
       disabled_at: null,
     }),
     {
-      endpoint: "https://push.example/sub",
+      endpoint: "https://fcm.googleapis.com/fcm/send/subscription-id",
       keys: {
         p256dh: "p256dh-key",
         auth: "auth-key",
       },
     },
+  );
+});
+
+test("toWebPushSubscription rejects an untrusted network target before web-push can send", () => {
+  assert.throws(
+    () =>
+      toWebPushSubscription({
+        endpoint: "https://127.0.0.1/internal",
+        p256dh: "p256dh-key",
+        auth: "auth-key",
+      }),
+    (error) => error?.code === "PUSH_ENDPOINT_NOT_ALLOWED" && error?.statusCode === 400,
   );
 });
 
@@ -105,6 +117,7 @@ test("Push delivery classifies invalid and transient send failures", () => {
   assert.equal(isTransientPushError({ statusCode: 429 }), true);
   assert.equal(isTransientPushError({ statusCode: 503 }), true);
   assert.equal(isTransientPushError({ statusCode: 410 }), false);
+  assert.equal(getPushErrorCode({ code: "PUSH_ENDPOINT_NOT_ALLOWED", statusCode: 400 }), "PUSH_ENDPOINT_NOT_ALLOWED");
   assert.equal(getPushErrorCode({ statusCode: 410 }), "PUSH_SUBSCRIPTION_GONE");
   assert.equal(getPushErrorCode({ statusCode: 503 }), "PUSH_SEND_TEMPORARY_FAILURE");
   assert.equal(getPushErrorCode({ statusCode: 401 }), "PUSH_AUTH_FAILED");
