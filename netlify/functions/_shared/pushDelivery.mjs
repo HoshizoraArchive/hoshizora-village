@@ -1,4 +1,8 @@
 import { createECDH, timingSafeEqual } from "node:crypto";
+import {
+  getAllowedPushServiceKind,
+  isAllowedPushServiceEndpoint,
+} from "./pushEndpointSecurity.mjs";
 import { pushHttpError, readEnv, readVapidPublicKey } from "./pushNotifications.mjs";
 
 export const PUSH_DELIVERY_BATCH_SIZE = 20;
@@ -109,6 +113,13 @@ export function buildPushPayload(notification) {
 }
 
 export function toWebPushSubscription(subscription) {
+  if (!isAllowedPushServiceEndpoint(subscription?.endpoint)) {
+    const error = new Error("Push endpoint is not an allowed Web Push service.");
+    error.code = "PUSH_ENDPOINT_NOT_ALLOWED";
+    error.statusCode = 400;
+    throw error;
+  }
+
   return {
     endpoint: subscription.endpoint,
     keys: {
@@ -134,6 +145,10 @@ export function isTransientPushError(error) {
 }
 
 export function getPushErrorCode(error) {
+  if (error?.code === "PUSH_ENDPOINT_NOT_ALLOWED") {
+    return "PUSH_ENDPOINT_NOT_ALLOWED";
+  }
+
   if (isGonePushSubscriptionError(error)) {
     return "PUSH_SUBSCRIPTION_GONE";
   }
@@ -152,25 +167,7 @@ export function getPushErrorCode(error) {
 }
 
 function getPushServiceKind(endpoint) {
-  try {
-    const hostname = new URL(endpoint).hostname.toLowerCase();
-
-    if (hostname.endsWith("fcm.googleapis.com")) {
-      return "fcm";
-    }
-
-    if (hostname.endsWith("push.services.mozilla.com")) {
-      return "mozilla";
-    }
-
-    if (hostname.endsWith("push.apple.com")) {
-      return "apple";
-    }
-  } catch {
-    // Do not log an untrusted endpoint when classifying a failed Push request.
-  }
-
-  return "other";
+  return getAllowedPushServiceKind(endpoint) ?? "other";
 }
 
 export function logPushDeliveryFailure({ code, error, endpoint }) {

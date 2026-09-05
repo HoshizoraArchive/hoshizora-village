@@ -71,7 +71,9 @@ export default async function handler(request) {
     };
     const supabase = createSupabaseAdminClient(config);
     const user = await requireAuthenticatedUser({ request, supabase });
-    const subscription = await readPushSubscriptionPayload(request);
+    const subscription = await readPushSubscriptionPayload(request, {
+      requireTrustedEndpoint: true,
+    });
     authenticatedContext = { supabase, userId: user.id };
 
     configureWebPush(webPush, config);

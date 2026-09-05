@@ -1,3 +1,5 @@
+import { isAllowedPushServiceEndpoint } from "./pushEndpointSecurity.mjs";
+
 const MAX_JSON_BODY_BYTES = 8192;
 const MAX_ENDPOINT_LENGTH = 2048;
 const MAX_P256DH_LENGTH = 512;
@@ -136,7 +138,10 @@ function validateKey(value, maxLength) {
   return trimmed;
 }
 
-export async function readPushSubscriptionPayload(request) {
+export async function readPushSubscriptionPayload(
+  request,
+  { requireTrustedEndpoint = false } = {},
+) {
   const contentType = request.headers.get("content-type") ?? "";
 
   if (!contentType.toLowerCase().includes("application/json")) {
@@ -177,8 +182,18 @@ export async function readPushSubscriptionPayload(request) {
 
   assertAllowedKeys(subscription.keys, ["p256dh", "auth"], "Push subscription keys");
 
+  const endpoint = validateEndpoint(subscription.endpoint);
+
+  if (requireTrustedEndpoint && !isAllowedPushServiceEndpoint(endpoint)) {
+    throw pushHttpError(
+      400,
+      "PUSH_ENDPOINT_NOT_ALLOWED",
+      "この端末の通知サービスには対応していません。",
+    );
+  }
+
   return {
-    endpoint: validateEndpoint(subscription.endpoint),
+    endpoint,
     p256dh: validateKey(subscription.keys.p256dh, MAX_P256DH_LENGTH),
     auth: validateKey(subscription.keys.auth, MAX_AUTH_LENGTH),
   };

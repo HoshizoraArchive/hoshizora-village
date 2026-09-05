@@ -50,7 +50,7 @@ function createTestSupabase({ data, error = null, reserveError = null }) {
 
 const subscription = {
   auth: "current-auth",
-  endpoint: "https://push.example.test/current-device",
+  endpoint: "https://fcm.googleapis.com/fcm/send/current-device",
   p256dh: "current-p256dh",
 };
 
