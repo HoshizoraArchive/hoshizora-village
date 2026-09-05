@@ -40,7 +40,9 @@ export default async function handler(request) {
     const config = readPushSupabaseConfig();
     const supabase = createSupabaseAdminClient(config);
     const user = await requireAuthenticatedUser({ request, supabase });
-    const subscription = await readPushSubscriptionPayload(request);
+    const subscription = await readPushSubscriptionPayload(request, {
+      requireTrustedEndpoint: true,
+    });
     const now = new Date().toISOString();
     const userAgent = normalizeUserAgent(request.headers.get("user-agent") ?? "");
 
