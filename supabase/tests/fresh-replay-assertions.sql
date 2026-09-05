@@ -1,6 +1,6 @@
 -- H-3 FINAL-B / LOCAL ONLY / READ ONLY.
 -- Fails when the isolated local replay ledger or required core objects differ
--- from the audited 78-migration chain.
+-- from the audited 79-migration chain.
 
 begin;
 set transaction read only;
@@ -67,10 +67,10 @@ actual as (
 ),
 assertion as (
   select 1 / ((
-    rows = 78
-    and distinct_versions = 78
+    rows = 79
+    and distinct_versions = 79
     and first_version = '20260524'
-    and latest_version = '20260903175156'
+    and latest_version = '20260905031500'
     and duplicate_versions = 0
     and baseline_rows = 1
     and missing_core_relations = 0
