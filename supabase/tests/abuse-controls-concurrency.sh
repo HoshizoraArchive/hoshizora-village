@@ -250,14 +250,22 @@ fi
 
 printf 'abuse_control_state=%s\n' "$database_state"
 
-# Account transfer is an existing supported path. Moving one active endpoint
-# must atomically move both total and active usage instead of blocking transfer.
+# Account transfer is an existing supported path. The concurrent burst does
+# not deterministically preserve endpoint /1, so move one active row that
+# actually survived the burst and verify both counters move atomically.
 docker exec "$db_container" psql -qAt -U postgres -d postgres -v ON_ERROR_STOP=1 -c "
   begin;
   set local role service_role;
   update public.push_subscriptions
   set profile_id = '$push_transfer_actor'
-  where endpoint = 'https://push.example.invalid/1';
+  where id = (
+    select id
+    from public.push_subscriptions
+    where profile_id = '$push_actor'
+      and disabled_at is null
+    order by endpoint
+    limit 1
+  );
   commit;
 " >/dev/null
 
