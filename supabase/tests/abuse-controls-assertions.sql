@@ -169,4 +169,116 @@ begin
 end;
 $$;
 
+-- Archive state may be toggled freely, but the same actor must not be able to
+-- generate repeated author notifications/Push jobs for the same post inside
+-- the 24-hour cooldown window.
+set local session_replication_role = replica;
+
+insert into auth.users (
+  instance_id,
+  id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at
+)
+values
+  ('00000000-0000-0000-0000-000000000000', '51000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'archive-author@example.invalid', '', now(), '{}', '{}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '51000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'archive-actor@example.invalid', '', now(), '{}', '{}', now(), now());
+
+insert into public.profiles (
+  id,
+  display_name,
+  username,
+  notify_authors_when_i_archive
+)
+values
+  ('51000000-0000-4000-8000-000000000001', 'Archive Author', 'archive_author', true),
+  ('51000000-0000-4000-8000-000000000002', 'Archive Actor', 'archive_actor', true);
+
+insert into public.posts (
+  id,
+  author_id,
+  type,
+  body,
+  visibility
+)
+values (
+  '51000000-0000-4000-8000-000000000003',
+  '51000000-0000-4000-8000-000000000001',
+  'text',
+  'archive notification dedupe assertion',
+  'public'
+);
+
+set local session_replication_role = origin;
+
+insert into public.archives (profile_id, post_id)
+values (
+  '51000000-0000-4000-8000-000000000002',
+  '51000000-0000-4000-8000-000000000003'
+);
+
+delete from public.archives
+where profile_id = '51000000-0000-4000-8000-000000000002'
+  and post_id = '51000000-0000-4000-8000-000000000003';
+
+insert into public.archives (profile_id, post_id)
+values (
+  '51000000-0000-4000-8000-000000000002',
+  '51000000-0000-4000-8000-000000000003'
+);
+
+do $$
+begin
+  if (
+    select count(*)
+    from public.notifications
+    where recipient_id = '51000000-0000-4000-8000-000000000001'
+      and actor_id = '51000000-0000-4000-8000-000000000002'
+      and post_id = '51000000-0000-4000-8000-000000000003'
+      and type = 'archive'
+  ) <> 1 then
+    raise exception 'Archive re-toggle created a duplicate notification inside cooldown';
+  end if;
+end;
+$$;
+
+update public.notifications
+set created_at = created_at - interval '25 hours'
+where recipient_id = '51000000-0000-4000-8000-000000000001'
+  and actor_id = '51000000-0000-4000-8000-000000000002'
+  and post_id = '51000000-0000-4000-8000-000000000003'
+  and type = 'archive';
+
+delete from public.archives
+where profile_id = '51000000-0000-4000-8000-000000000002'
+  and post_id = '51000000-0000-4000-8000-000000000003';
+
+insert into public.archives (profile_id, post_id)
+values (
+  '51000000-0000-4000-8000-000000000002',
+  '51000000-0000-4000-8000-000000000003'
+);
+
+do $$
+begin
+  if (
+    select count(*)
+    from public.notifications
+    where recipient_id = '51000000-0000-4000-8000-000000000001'
+      and actor_id = '51000000-0000-4000-8000-000000000002'
+      and post_id = '51000000-0000-4000-8000-000000000003'
+      and type = 'archive'
+  ) <> 2 then
+    raise exception 'Archive notification did not resume after cooldown';
+  end if;
+end;
+$$;
+
 rollback;
