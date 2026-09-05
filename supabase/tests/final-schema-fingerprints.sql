@@ -1,7 +1,7 @@
 -- H-3 FINAL-B / READ ONLY.
 -- Compares schema/catalog metadata only. It never reads application, Auth, or
--- Storage object rows. Expected values describe the canonical 78-migration
--- chain ending at 20260903175156; they are not a Production-data snapshot.
+-- Storage object rows. Expected values describe the canonical 79-migration
+-- chain ending at 20260905031500; they are not a Production-data snapshot.
 
 begin;
 set transaction read only;
@@ -225,7 +225,7 @@ expected(category, item_count, fingerprint) as (
     ('constraints', 240, '21a226e084ecb5202760f14aac34ff31'),
     ('enums', 5, '08c45d6b2c72748be6bc31b1c21d7b6c'),
     ('function_grants', 125, 'e800eeb0a1a2ab985ad43e1155831f9f'),
-    ('functions', 126, '57593922e1485232362b58f84c6b5e08'),
+    ('functions', 126, 'e937b9dadb495c7737071cac85757e2d'),
     ('indexes', 158, 'd5cfe849cbc538b4875d6d6a02f6b166'),
     ('policies', 66, '1bfa67252479070affee4348321d7062'),
     ('profile_identity_policy_contract', 3, '3166d0b171746fb5a5143b303d2a1892'),
