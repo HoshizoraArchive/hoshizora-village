@@ -1,19 +1,37 @@
 /*
- * 星空Village current mobile background artwork.
+ * 星空Village background artwork.
  *
- * The selected artwork is a portrait (9:16) asset, so this override is scoped
- * to phone/tablet widths. Desktop keeps the existing procedural background
- * until a matching landscape master is selected.
+ * Mobile/tablet uses the selected portrait (9:16) artwork.
+ * Desktop uses a separately selected landscape (16:9) artwork so neither
+ * viewport has to reuse an incompatible crop.
  *
- * IMPORTANT: iOS Safari is given the native WebP directly. Do not wrap the
- * WebP in SVG/data-URI layers for the runtime background. The build reconstructs
- * and verifies the exact selected WebP bytes before Vite copies it to dist.
+ * IMPORTANT: runtime backgrounds are native WebP files. Do not wrap them in
+ * SVG/data-URI layers. The build reconstructs and byte-verifies each selected
+ * WebP before Vite copies it to dist.
  */
 
 @media (max-width: 1023px) {
   .cosmic-background {
     background-color: #020615;
     background-image: url("/images/hoshizora-village-background-current.webp?v=20260803-bg75-integrity");
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  .cosmic-background .cosmic-haze,
+  .cosmic-background .stars-layer,
+  .cosmic-background .distant-stars,
+  .cosmic-background .distant-village,
+  .foreground-stardust {
+    display: none !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .cosmic-background {
+    background-color: #020615;
+    background-image: url("/images/hoshizora-village-background-desktop.webp?v=20260820-dragon-desktop-integrity");
     background-position: center center;
     background-repeat: no-repeat;
     background-size: cover;
