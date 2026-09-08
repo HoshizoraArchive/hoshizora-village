@@ -3,6 +3,24 @@
 
 begin;
 
+insert into auth.users (
+  instance_id,
+  id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at
+)
+values
+  ('00000000-0000-0000-0000-000000000000', '21000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'test-chia@example.invalid', '', now(), '{}', '{}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '21000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'test-human-a@example.invalid', '', now(), '{}', '{}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '21000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'test-human-b@example.invalid', '', now(), '{}', '{}', now(), now());
+
 insert into public.profiles (id, display_name, username)
 values
   ('21000000-0000-4000-8000-000000000001', 'Test Chia', 'test_chia'),
@@ -222,6 +240,62 @@ begin
     or coalesce((v_claim ->> 'claimed')::boolean, false) is true
   then
     raise exception 'blocked author was incorrectly claimed: %', v_claim;
+  end if;
+end;
+$$;
+
+-- If a villager blocks Chia after claim but before completion, completion must
+-- re-check the relationship and skip instead of sending a late reply.
+insert into public.star_letters (id, post_id, author_id, body)
+values (
+  '23000000-0000-4000-8000-000000000007',
+  '22000000-0000-4000-8000-000000000001',
+  '21000000-0000-4000-8000-000000000002',
+  '返信前にブラックホールするテスト'
+);
+
+do $$
+declare
+  v_claim jsonb;
+  v_complete jsonb;
+  v_run_id uuid;
+begin
+  v_claim := public.claim_chia_star_letter_reply_run(
+    '23000000-0000-4000-8000-000000000007',
+    '21000000-0000-4000-8000-000000000001'
+  );
+
+  if coalesce((v_claim ->> 'claimed')::boolean, false) is not true then
+    raise exception 'race test source was not claimed: %', v_claim;
+  end if;
+
+  v_run_id := (v_claim ->> 'run_id')::uuid;
+
+  insert into public.profile_blocks (blocker_id, blocked_id)
+  values (
+    '21000000-0000-4000-8000-000000000002',
+    '21000000-0000-4000-8000-000000000001'
+  );
+
+  v_complete := public.complete_chia_star_letter_reply_run(
+    v_run_id,
+    '21000000-0000-4000-8000-000000000001',
+    'reply',
+    'この返信は作成されてはいけません'
+  );
+
+  if v_complete ->> 'outcome' <> 'skipped' then
+    raise exception 'completion ignored a newly-created block: %', v_complete;
+  end if;
+
+  if exists (
+    select 1
+    from public.star_letters
+    where author_id = '21000000-0000-4000-8000-000000000001'
+      and parent_star_letter_id = '23000000-0000-4000-8000-000000000007'
+      and deleted_at is null
+  ) then
+    raise exception 'reply was inserted after the villager blocked Chia';
   end if;
 end;
 $$;
