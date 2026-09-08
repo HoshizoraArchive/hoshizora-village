@@ -179,6 +179,7 @@ declare
   v_source_star_letter_id uuid;
   v_source_author_id uuid;
   v_post_id uuid;
+  v_parent_star_letter_id uuid;
   v_post_author_id uuid;
   v_reply_star_letter_id uuid;
   v_body text := btrim(coalesce(p_body, ''));
@@ -217,15 +218,40 @@ begin
     return jsonb_build_object('outcome', 'invalid_status');
   end if;
 
-  select sl.author_id, sl.post_id, p.author_id
-  into v_source_author_id, v_post_id, v_post_author_id
+  select sl.author_id, sl.post_id, sl.parent_star_letter_id, p.author_id
+  into v_source_author_id, v_post_id, v_parent_star_letter_id, v_post_author_id
   from public.star_letters sl
   join public.posts p on p.id = sl.post_id
   where sl.id = v_source_star_letter_id
     and sl.deleted_at is null
     and p.deleted_at is null;
 
-  if not found or v_source_author_id = p_chia_profile_id or v_post_author_id <> p_chia_profile_id then
+  if not found
+    or v_source_author_id = p_chia_profile_id
+    or v_post_author_id <> p_chia_profile_id
+    or not exists (
+      select 1
+      from public.profile_kinds pk
+      where pk.profile_id = v_source_author_id
+        and pk.kind = 'human'
+    )
+    or (
+      v_parent_star_letter_id is not null
+      and not exists (
+        select 1
+        from public.star_letters parent
+        where parent.id = v_parent_star_letter_id
+          and parent.deleted_at is null
+          and parent.author_id = p_chia_profile_id
+      )
+    )
+    or exists (
+      select 1
+      from public.profile_blocks b
+      where (b.blocker_id = v_source_author_id and b.blocked_id = p_chia_profile_id)
+         or (b.blocker_id = p_chia_profile_id and b.blocked_id = v_source_author_id)
+    )
+  then
     update public.chia_star_letter_reply_runs
     set
       status = 'skipped',
