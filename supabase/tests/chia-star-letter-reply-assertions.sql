@@ -3,6 +3,11 @@
 
 begin;
 
+-- Auth user creation has Production-oriented consent triggers. These synthetic
+-- local fixtures only need to satisfy profiles.id -> auth.users.id, so mirror
+-- the established replay-test pattern and suppress triggers for this insert.
+set local session_replication_role = replica;
+
 insert into auth.users (
   instance_id,
   id,
@@ -20,6 +25,8 @@ values
   ('00000000-0000-0000-0000-000000000000', '21000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'test-chia@example.invalid', '', now(), '{}', '{}', now(), now()),
   ('00000000-0000-0000-0000-000000000000', '21000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'test-human-a@example.invalid', '', now(), '{}', '{}', now(), now()),
   ('00000000-0000-0000-0000-000000000000', '21000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'test-human-b@example.invalid', '', now(), '{}', '{}', now(), now());
+
+set local session_replication_role = origin;
 
 insert into public.profiles (id, display_name, username)
 values
