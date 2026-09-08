@@ -1,7 +1,7 @@
 -- H-3 FINAL-B / READ ONLY.
 -- Compares schema/catalog metadata only. It never reads application, Auth, or
--- Storage object rows. Expected values describe the canonical 80-migration
--- chain ending at 20260905035000; they are not a Production-data snapshot.
+-- Storage object rows. Expected values describe the canonical 81-migration
+-- chain ending at 20260908123500; they are not a Production-data snapshot.
 
 begin;
 set transaction read only;
@@ -221,18 +221,18 @@ actual as (
 expected(category, item_count, fingerprint) as (
   values
     ('column_grants', 52, '3c96a62a25d36a2aed49ca9b1b44c139'),
-    ('columns', 316, '970facc834fe96c0e1b4eefadc288011'),
-    ('constraints', 244, 'd30eb7958762f83f8e0d10f610c32cbd'),
+    ('columns', 326, '493d1a6cd64bcb18a6a78e42ea23d896'),
+    ('constraints', 251, '2114e8a83736c6561509e34e4e44aa60'),
     ('enums', 5, '08c45d6b2c72748be6bc31b1c21d7b6c'),
-    ('function_grants', 125, 'e800eeb0a1a2ab985ad43e1155831f9f'),
-    ('functions', 126, 'e937b9dadb495c7737071cac85757e2d'),
-    ('indexes', 158, 'd5cfe849cbc538b4875d6d6a02f6b166'),
+    ('function_grants', 128, 'bf0d39d0beee94226f0d920f09af67fd'),
+    ('functions', 129, 'df0752ff67ac0b0dbf9a128930382cec'),
+    ('indexes', 161, '4b949f74fc3d7b67a8ca3ee07d54e2e6'),
     ('policies', 66, '1bfa67252479070affee4348321d7062'),
     ('profile_identity_policy_contract', 3, '3166d0b171746fb5a5143b303d2a1892'),
-    ('relation_grants', 393, '8179dec893cd7f29da5ff436c55b3320'),
+    ('relation_grants', 401, '1bb77a6d4e66e1198a819b99d7d64e7a'),
     ('schema_grants', 4, '854909e6b7d3b8f0a3b6afa9f3029567'),
     ('sequence_grants', 0, 'd41d8cd98f00b204e9800998ecf8427e'),
-    ('tables', 37, 'c719260c1c397aff56bfd6c9ebe3d992'),
+    ('tables', 38, '27dca52960fcb5c008b11f3c993a2af6'),
     ('triggers', 51, '43b9b779db6446190d546ba9c0f79169'),
     ('views', 0, 'd41d8cd98f00b204e9800998ecf8427e')
 ),
