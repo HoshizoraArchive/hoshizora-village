@@ -55,6 +55,7 @@ jobs:
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/abuse-controls-assertions.sql
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/profile-column-privacy-assertions.sql
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/profile-text-limit-assertions.sql
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/chia-star-letter-reply-assertions.sql
           bash supabase/tests/resonance-rate-limit-concurrency.sh "$db_container"
           bash supabase/tests/abuse-controls-concurrency.sh "$db_container"
           bash supabase/tests/storage-abuse-controls-concurrency.sh "$db_container"
@@ -75,6 +76,7 @@ jobs:
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/abuse-controls-assertions.sql
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/profile-column-privacy-assertions.sql
           docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/profile-text-limit-assertions.sql
+          docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/tests/chia-star-letter-reply-assertions.sql
           bash supabase/tests/resonance-rate-limit-concurrency.sh "$db_container"
           bash supabase/tests/abuse-controls-concurrency.sh "$db_container"
           bash supabase/tests/storage-abuse-controls-concurrency.sh "$db_container"
