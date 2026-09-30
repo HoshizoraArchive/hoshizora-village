@@ -19,6 +19,7 @@ import AuthConfirmationPanel from "./AuthConfirmationPanel";
 import PasswordRecoveryPanel from "./PasswordRecoveryPanel";
 import ProfileTitleBadge from "./ProfileTitleBadge";
 import ProfileTitleEmblem from "./ProfileTitleEmblem";
+import { isPinnedPost, orderPostsWithPinnedFirst } from "./pinnedPosts.mjs";
 import {
   PROFILE_TITLES_RELATION_SELECT,
   getPrimaryProfileTitle,
@@ -237,7 +238,7 @@ const POST_MEDIA_LEGACY_SELECT_COLUMNS =
   "id, post_id, uploader_id, media_type, storage_path, sort_order, mime_type, size_bytes, created_at";
 const PROFILE_BASIC_SELECT_COLUMNS = "id, display_name, username, avatar_url";
 const PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME = `${PROFILE_BASIC_SELECT_COLUMNS}, active_frame_id`;
-const PROFILE_DETAIL_SELECT_COLUMNS = "id, display_name, username, avatar_url, bio, constellation_note";
+const PROFILE_DETAIL_SELECT_COLUMNS = "id, display_name, username, avatar_url, bio, constellation_note, pinned_post_id";
 const PROFILE_DETAIL_SELECT_COLUMNS_WITH_FRAME = `${PROFILE_DETAIL_SELECT_COLUMNS}, active_frame_id`;
 const PROFILE_FRAME_SELECT_COLUMNS =
   "id, frame_key, name, description, asset_path, acquisition_type, rarity, frame_scale, frame_offset_x, frame_offset_y, is_active, created_at, updated_at";
@@ -3257,10 +3258,15 @@ function App() {
       }
 
       const discoveredPostIds = new Set((postRows ?? []).map((post) => post.post_id ?? post.id));
-      const missingKnownPostIds = publicProfilePosts
+      const missingKnownPostIds = [...new Set([
+        ...publicProfilePosts
         .filter((post) => post.authorId === profileRow.id)
         .map((post) => post.id)
-        .filter((postId) => postId && !discoveredPostIds.has(postId));
+        .filter((postId) => postId && !discoveredPostIds.has(postId)),
+        profileRow.pinned_post_id && !discoveredPostIds.has(profileRow.pinned_post_id)
+          ? profileRow.pinned_post_id
+          : null,
+      ].filter(Boolean))];
       let knownSnapshots = [];
 
       try {
@@ -3286,21 +3292,22 @@ function App() {
       const invalidationRows = candidateRows.filter(
         (post) => post.available === false || post.tombstoned || post.visibility !== "public",
       );
-      const visibleRows = candidateRows
-        .filter(
+      const visibleRows = orderPostsWithPinnedFirst(
+        candidateRows.filter(
           (post) =>
             post.available !== false &&
             !post.tombstoned &&
             post.author_id === profileRow.id &&
             post.visibility === "public",
-        )
-        .sort((left, right) => {
-          const timeDifference = Date.parse(right.created_at ?? "") - Date.parse(left.created_at ?? "");
-          return timeDifference || String(right.id ?? right.post_id).localeCompare(String(left.id ?? left.post_id));
-        })
-        .slice(0, 30);
+        ),
+        profileRow.pinned_post_id,
+        30,
+      );
       const mappedPosts = [...visibleRows, ...invalidationRows]
-        .map((post) => mapSavedPost(post, profileRow, profileFrames));
+        .map((post) => ({
+          ...mapSavedPost(post, profileRow, profileFrames),
+          isPinned: isPinnedPost(post, profileRow.pinned_post_id),
+        }));
       const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isCurrentRequest()) {
@@ -3669,9 +3676,14 @@ function App() {
       }
 
       const discoveredPostIds = new Set((data ?? []).map((post) => post.post_id ?? post.id));
-      const missingKnownPostIds = ownPosts
+      const missingKnownPostIds = [...new Set([
+        ...ownPosts
         .map((post) => post.id)
-        .filter((postId) => postId && !discoveredPostIds.has(postId));
+        .filter((postId) => postId && !discoveredPostIds.has(postId)),
+        profile?.pinned_post_id && !discoveredPostIds.has(profile.pinned_post_id)
+          ? profile.pinned_post_id
+          : null,
+      ].filter(Boolean))];
       let knownSnapshots = [];
 
       try {
@@ -3695,20 +3707,21 @@ function App() {
       const invalidationRows = candidateRows.filter(
         (post) => post.available === false || post.tombstoned,
       );
-      const visibleRows = candidateRows
-        .filter(
+      const visibleRows = orderPostsWithPinnedFirst(
+        candidateRows.filter(
           (post) =>
             post.available !== false &&
             !post.tombstoned &&
             post.author_id === userId,
-        )
-        .sort((left, right) => {
-          const timeDifference = Date.parse(right.created_at ?? "") - Date.parse(left.created_at ?? "");
-          return timeDifference || String(right.id ?? right.post_id).localeCompare(String(left.id ?? left.post_id));
-        })
-        .slice(0, 30);
+        ),
+        profile?.pinned_post_id,
+        30,
+      );
       const mappedPosts = [...visibleRows, ...invalidationRows]
-        .map((post) => mapSavedPost(post, profile, profileFrames));
+        .map((post) => ({
+          ...mapSavedPost(post, profile, profileFrames),
+          isPinned: isPinnedPost(post, profile?.pinned_post_id),
+        }));
       const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
       if (!isCurrentRequest()) {
@@ -3734,6 +3747,7 @@ function App() {
     profile?.username,
     profile?.avatar_url,
     profile?.active_frame_id,
+    profile?.pinned_post_id,
     profileFrames,
     serverDataRevision,
   ]);
@@ -15202,6 +15216,11 @@ function PostCard({
       tabIndex={canOpenDetail ? 0 : undefined}
     >
       <div className={`h-1 bg-gradient-to-r ${post.glow}`} />
+      {post.isPinned ? (
+        <div className="px-4 pt-3 text-[11px] font-black tracking-[0.08em] text-amber-200 sm:px-5">
+          ★ 固定流星便
+        </div>
+      ) : null}
       {canShowAuthorMenu ? (
         <div className="absolute right-3 top-3 z-20" data-card-action="true">
           <button

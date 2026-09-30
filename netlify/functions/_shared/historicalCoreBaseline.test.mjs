@@ -50,12 +50,12 @@ test("historical core baseline is the canonical audited Git blob", () => {
 });
 
 test("historical baseline is the oldest unique migration", () => {
-  assert.equal(migrationFilenames.length, 81);
-  assert.equal(new Set(migrationVersions).size, 81);
+  assert.equal(migrationFilenames.length, 82);
+  assert.equal(new Set(migrationVersions).size, 82);
   assert.equal(migrationFilenames[0], baselineFilename);
   assert.equal(
     migrationFilenames.at(-1),
-    "20260908123500_add_chia_star_letter_reply_runs.sql",
+    "20260930103500_add_pinned_profile_post.sql",
   );
 });
 
