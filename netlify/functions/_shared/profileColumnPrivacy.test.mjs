@@ -41,6 +41,14 @@ test("profiles expose only the eight public browser columns", () => {
     pinnedMigrationSql,
     /grant select \(pinned_post_id\) on table public\.profiles to anon, authenticated/i,
   );
+  assert.match(
+    pinnedMigrationSql,
+    /revoke all on function app_private\.validate_profile_pinned_post\(\)\s+from public, anon, authenticated, service_role/is,
+  );
+  assert.match(
+    pinnedMigrationSql,
+    /revoke all on function app_private\.clear_invalid_profile_pin\(\)\s+from public, anon, authenticated, service_role/is,
+  );
 
   const publicGrant = migrationSql.match(
     /grant select \(([^)]+)\) on table public\.profiles to anon, authenticated/is,
