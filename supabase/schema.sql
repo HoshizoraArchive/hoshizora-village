@@ -555,6 +555,12 @@ after update of deleted_at, visibility, author_id on public.posts
 for each row
 execute function app_private.clear_invalid_profile_pin();
 
+revoke all on function app_private.validate_profile_pinned_post()
+from public, anon, authenticated, service_role;
+
+revoke all on function app_private.clear_invalid_profile_pin()
+from public, anon, authenticated, service_role;
+
 -- Realtime publication membership is independent from table definitions and RLS.
 do $$
 begin
@@ -9276,7 +9282,8 @@ grant select (
   avatar_url,
   bio,
   constellation_note,
-  active_frame_id
+  active_frame_id,
+  pinned_post_id
 ) on table public.profiles to anon, authenticated;
 
 create or replace function public.get_own_profile_notification_settings_v1()

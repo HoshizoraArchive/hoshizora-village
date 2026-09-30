@@ -7,6 +7,10 @@ const migrationSql = readFileSync(
   new URL("supabase/migrations/20260903175156_secure_public_profile_columns.sql", repositoryRoot),
   "utf8",
 );
+const pinnedMigrationSql = readFileSync(
+  new URL("supabase/migrations/20260930104500_harden_pinned_profile_post_access.sql", repositoryRoot),
+  "utf8",
+);
 const appSource = readFileSync(new URL("src/App.jsx", repositoryRoot), "utf8");
 const chiaSource = readFileSync(new URL("src/chiaPostNotifications.js", repositoryRoot), "utf8");
 
@@ -23,7 +27,7 @@ function readSourceTree(directory) {
 
 const browserSource = readSourceTree(new URL("src/", repositoryRoot));
 
-test("profiles expose only the seven public browser columns", () => {
+test("profiles expose only the eight public browser columns", () => {
   assert.match(
     migrationSql,
     /revoke select on table public\.profiles from public, anon, authenticated/i,
@@ -31,6 +35,19 @@ test("profiles expose only the seven public browser columns", () => {
   assert.match(
     migrationSql,
     /grant select \(\s*id,\s*display_name,\s*username,\s*avatar_url,\s*bio,\s*constellation_note,\s*active_frame_id\s*\) on table public\.profiles to anon, authenticated/is,
+  );
+
+  assert.match(
+    pinnedMigrationSql,
+    /grant select \(pinned_post_id\) on table public\.profiles to anon, authenticated/i,
+  );
+  assert.match(
+    pinnedMigrationSql,
+    /revoke all on function app_private\.validate_profile_pinned_post\(\)\s+from public, anon, authenticated, service_role/is,
+  );
+  assert.match(
+    pinnedMigrationSql,
+    /revoke all on function app_private\.clear_invalid_profile_pin\(\)\s+from public, anon, authenticated, service_role/is,
   );
 
   const publicGrant = migrationSql.match(
