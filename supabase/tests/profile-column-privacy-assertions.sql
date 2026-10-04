@@ -13,6 +13,7 @@ declare
     'constellation_note',
     'display_name',
     'id',
+    'pinned_post_id',
     'username'
   ];
   v_private_column text;

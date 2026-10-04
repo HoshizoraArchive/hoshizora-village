@@ -9,7 +9,7 @@ const REQUEST = new Request(
   "https://deploy.example/.netlify/functions/chia-daily-meteor-scheduled",
 );
 
-async function dispatchAt(isoTimestamp) {
+async function dispatchAt(isoTimestamp, env = { CHIA_DAILY_METEOR_ENABLED: "true" }) {
   const calls = [];
   const logs = [];
   const now = new Date(isoTimestamp);
@@ -17,7 +17,7 @@ async function dispatchAt(isoTimestamp) {
     REQUEST,
     { requestId: `request-${isoTimestamp}` },
     {
-      env: { CHIA_DAILY_METEOR_ENABLED: "true" },
+      env,
       now,
       readAuthConfig: () => ({ secret: SECRET, ttlSeconds: 60 }),
       fetchImpl: async (url, options) => {
@@ -80,4 +80,47 @@ test("Background dispatch失敗はslot付きで記録し503を返す", async () 
   assert.equal(logs.at(-1)[0], "chia_daily_meteor_background_dispatch_failed");
   assert.equal(logs.at(-1)[1].slot, "evening");
   assert.equal(logs.at(-1)[1].localDate, "2026-08-14");
+});
+
+test("Dot有効時は各slotの0-9分をDot優先窓としてlegacy dispatchを止める", async () => {
+  for (const nowValue of [
+    "2026-08-13T23:00:00.000Z",
+    "2026-08-14T03:09:59.000Z",
+    "2026-08-14T10:05:00.000Z",
+  ]) {
+    let calls = 0;
+    const response = await handleChiaDailyMeteorScheduled(REQUEST, {}, {
+      env: {
+        CHIA_DAILY_METEOR_ENABLED: "true",
+        CHIA_DOT_METEOR_ENABLED: "true",
+      },
+      now: new Date(nowValue),
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(null, { status: 202 });
+      },
+      info: () => {},
+      errorLog: () => {},
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).outcome, "dot_priority_window");
+    assert.equal(calls, 0);
+  }
+});
+
+test("Dot有効でも10分以降はlegacy fallbackをdispatchする", async () => {
+  const { verified } = await dispatchAt("2026-08-14T10:10:00.000Z", {
+    CHIA_DAILY_METEOR_ENABLED: "true",
+    CHIA_DOT_METEOR_ENABLED: "true",
+  });
+  assert.equal(verified.slotInfo.slot, "evening");
+});
+
+test("Dot env未設定またはfalseなら0分でも従来どおりlegacy dispatchする", async () => {
+  for (const dotValue of [undefined, "false"]) {
+    const env = { CHIA_DAILY_METEOR_ENABLED: "true" };
+    if (dotValue !== undefined) env.CHIA_DOT_METEOR_ENABLED = dotValue;
+    const { verified } = await dispatchAt("2026-08-14T10:00:00.000Z", env);
+    assert.equal(verified.slotInfo.slot, "evening");
+  }
 });

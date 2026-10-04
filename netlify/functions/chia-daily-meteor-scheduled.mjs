@@ -68,6 +68,24 @@ export async function handleChiaDailyMeteorScheduled(request, context = {}, depe
     return jsonResponse(200, { outcome: "outside_schedule", requestId });
   }
 
+  if (
+    readEnv("CHIA_DOT_METEOR_ENABLED", env).trim() === "true"
+    && slotInfo.localMinute < 10
+  ) {
+    info("chia_daily_meteor_dot_priority_window", {
+      requestId,
+      slot: slotInfo.slot,
+      localDate: slotInfo.localDate,
+      localMinute: slotInfo.localMinute,
+    });
+    return jsonResponse(200, {
+      outcome: "dot_priority_window",
+      slot: slotInfo.slot,
+      localDate: slotInfo.localDate,
+      requestId,
+    });
+  }
+
   info("chia_daily_meteor_scheduled_received", {
     requestId,
     slot: slotInfo.slot,
