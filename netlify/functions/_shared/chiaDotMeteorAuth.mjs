@@ -6,17 +6,19 @@ import {
 } from "node:crypto";
 import { resolveChiaDailyMeteorSlot } from "./chiaDailyMeteor.mjs";
 
-const VERSION = "chia-dot-meteor.v1";
+const VERSION = "chia-dot-meteor.v2";
 const MAX_TTL_SECONDS = 300;
 const FUTURE_SKEW_SECONDS = 5;
 const NONCE_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/;
 const BODY_HASH_PATTERN = /^[0-9a-f]{64}$/;
 const SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{80,120}$/;
 const ACTIONS = new Set(["snapshot", "publish", "repair"]);
+const PUBLISH_GROUNDING_MODES = new Set(["non_media", "media"]);
 const EXPECTED_KEYS = [
   "action",
   "body",
   "bodyHash",
+  "groundingMode",
   "issuedAt",
   "localDate",
   "mediaEvidenceKey",
@@ -54,6 +56,7 @@ function canonicalMessage(payload) {
     String(payload.issuedAt),
     payload.nonce,
     payload.bodyHash,
+    payload.groundingMode,
     payload.snapshotGeneratedAt,
     payload.snapshotHash,
     payload.mediaEvidenceKey,
@@ -115,7 +118,12 @@ function assertRepairWindow(payload, now) {
 
 function assertPublishSnapshot(payload, now) {
   if (payload.action !== "publish") {
-    if (payload.snapshotGeneratedAt || payload.snapshotHash || payload.mediaEvidenceKey) {
+    if (
+      payload.snapshotGeneratedAt
+      || payload.snapshotHash
+      || payload.mediaEvidenceKey
+      || payload.groundingMode
+    ) {
       throw new ChiaDotMeteorAuthError(403, "invalid_chia_dot_meteor_request");
     }
     return;
@@ -127,7 +135,9 @@ function assertPublishSnapshot(payload, now) {
     || generatedAt > now + FUTURE_SKEW_SECONDS * 1000
     || now - generatedAt > 120_000
     || !BODY_HASH_PATTERN.test(payload.snapshotHash)
-    || (payload.mediaEvidenceKey !== "" && !BODY_HASH_PATTERN.test(payload.mediaEvidenceKey))
+    || !PUBLISH_GROUNDING_MODES.has(payload.groundingMode)
+    || (payload.groundingMode === "media" && !BODY_HASH_PATTERN.test(payload.mediaEvidenceKey))
+    || (payload.groundingMode === "non_media" && payload.mediaEvidenceKey !== "")
   ) {
     throw new ChiaDotMeteorAuthError(403, "stale_chia_dot_meteor_snapshot");
   }
@@ -148,6 +158,7 @@ export function signChiaDotMeteorRequest({
   snapshotGeneratedAt = "",
   snapshotHash = "",
   mediaEvidenceKey = "",
+  groundingMode = "",
   privateKey,
   now = Date.now(),
   nonce = randomUUID(),
@@ -162,6 +173,7 @@ export function signChiaDotMeteorRequest({
     nonce,
     bodyHash: hashChiaDotMeteorBody(normalizedBody),
     body: normalizedBody,
+    groundingMode,
     snapshotGeneratedAt,
     snapshotHash,
     mediaEvidenceKey,
@@ -171,6 +183,7 @@ export function signChiaDotMeteorRequest({
     throw new Error("invalid_chia_dot_meteor_signing_configuration");
   }
   assertScheduledTuple(payload);
+  assertPublishSnapshot(payload, now);
 
   return {
     ...payload,
@@ -202,6 +215,7 @@ export function verifyChiaDotMeteorRequest(payload, {
     || typeof payload.body !== "string"
     || typeof payload.bodyHash !== "string"
     || !BODY_HASH_PATTERN.test(payload.bodyHash)
+    || typeof payload.groundingMode !== "string"
     || typeof payload.signature !== "string"
     || !SIGNATURE_PATTERN.test(payload.signature)
     || typeof payload.snapshotGeneratedAt !== "string"
@@ -255,6 +269,7 @@ export function verifyChiaDotMeteorRequest(payload, {
       scheduledFor: payload.scheduledFor,
     },
     body: payload.body,
+    groundingMode: payload.groundingMode,
     issuedAt: payload.issuedAt,
     nonce: payload.nonce,
     snapshotGeneratedAt: payload.snapshotGeneratedAt,
@@ -262,3 +277,5 @@ export function verifyChiaDotMeteorRequest(payload, {
     mediaEvidenceKey: payload.mediaEvidenceKey,
   };
 }
+
+export { PUBLISH_GROUNDING_MODES };

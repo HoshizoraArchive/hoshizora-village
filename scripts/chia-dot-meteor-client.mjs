@@ -56,6 +56,7 @@ async function main() {
   let snapshotGeneratedAt = "";
   let snapshotHash = "";
   let mediaEvidenceKey = "";
+  let groundingMode = "";
   if (action === "publish") {
     const bodyFile = values["body-file"];
     if (!bodyFile) throw new Error("missing_body_file");
@@ -76,6 +77,16 @@ async function main() {
     snapshotGeneratedAt = serverResult.snapshot.generatedAt;
     snapshotHash = serverResult.snapshotHash;
     mediaEvidenceKey = values["media-evidence-key"] || "";
+    groundingMode = values["grounding-mode"] || "";
+    if (!new Set(["non_media", "media"]).has(groundingMode)) {
+      throw new Error("missing_or_invalid_grounding_mode");
+    }
+    if (groundingMode === "media" && !mediaEvidenceKey) {
+      throw new Error("media_grounding_requires_evidence_key");
+    }
+    if (groundingMode === "non_media" && mediaEvidenceKey) {
+      throw new Error("non_media_grounding_forbids_evidence_key");
+    }
   }
 
   const payload = signChiaDotMeteorRequest({
@@ -86,6 +97,7 @@ async function main() {
     snapshotGeneratedAt,
     snapshotHash,
     mediaEvidenceKey,
+    groundingMode,
   });
   const response = await fetch(endpoint, {
     method: "POST",

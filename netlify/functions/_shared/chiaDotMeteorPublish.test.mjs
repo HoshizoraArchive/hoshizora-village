@@ -111,6 +111,7 @@ test("ネットワーク不明時の再送はalready_handledでも同じpostのm
     body: "おはちあ！ @alice さんの言葉が今朝も残ってるよ。",
     chiaProfileId: CHIA,
     requestId: "req",
+    groundingMode: "non_media",
     runDailyMeteor,
     validateMentionTargets: async () => {},
     allowedMentionUsernames: ["alice"],
@@ -138,6 +139,7 @@ test("投稿完了後にmention同期だけ失敗した場合は503で再送を�
     body: "おはちあ！ @alice さんの言葉が気になってるよ。",
     chiaProfileId: CHIA,
     requestId: "req",
+    groundingMode: "non_media",
     runDailyMeteor: async () => new Response(JSON.stringify({ outcome: "posted", postId: "post-1" }), { status: 200 }),
     validateMentionTargets: async () => {},
     allowedMentionUsernames: ["alice"],
@@ -175,9 +177,10 @@ test("repairはposted runのbodyを使って既存mention upsert経路だけを�
   assert.deepEqual(result, { postId: "post-1", source: "ai", body: "@alice おはちあ！", mentionCount: 1, mentionedUsernames: ["alice"] });
 });
 
-test("snapshotにいないmentionと根拠なしmedia claimを拒否する", async () => {
+test("snapshot外mentionと署名済みgrounding不整合を拒否する", async () => {
   const base = {
     supabase: {}, slotInfo: SLOT, chiaProfileId: CHIA, requestId: "req",
+    groundingMode: "non_media",
     runDailyMeteor: async () => new Response(JSON.stringify({ outcome: "posted" }), { status: 200 }),
     validateMentionTargets: async () => {}, repairMentions: async () => ({}),
     info: () => {}, warn: () => {}, errorLog: () => {},
@@ -185,16 +188,22 @@ test("snapshotにいないmentionと根拠なしmedia claimを拒否する", asy
   const mention = await publishChiaDotMeteor({ ...base, body: "@alice おはちあ！", allowedMentionUsernames: [] });
   assert.equal(mention.status, 400);
   assert.equal(mention.payload.code, "chia_dot_publish_mention_not_in_snapshot");
-  const media = await publishChiaDotMeteor({ ...base, body: "この動画を観たよ。", allowedMentionUsernames: [] });
+  const media = await publishChiaDotMeteor({
+    ...base,
+    body: "青い光がゆれてて綺麗だったよ。",
+    groundingMode: "media",
+    allowedMentionUsernames: [],
+  });
   assert.equal(media.status, 400);
   assert.equal(media.payload.code, "chia_dot_publish_ungrounded_media_claim");
   const grounded = await publishChiaDotMeteor({
     ...base,
-    body: "この動画を観たよ。",
+    body: "青い光がゆれてて綺麗だったよ。",
+    groundingMode: "media",
     allowedMentionUsernames: [],
     allowedMediaEvidenceKeys: ["b".repeat(64)],
     mediaEvidenceKey: "b".repeat(64),
-    repairMentions: async () => ({ postId: "post-1", source: "ai", body: "この動画を観たよ。", mentionCount: 0, mentionedUsernames: [] }),
+    repairMentions: async () => ({ postId: "post-1", source: "ai", body: "青い光がゆれてて綺麗だったよ。", mentionCount: 0, mentionedUsernames: [] }),
   });
   assert.equal(grounded.status, 200);
 });

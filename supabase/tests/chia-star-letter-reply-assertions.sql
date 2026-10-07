@@ -335,8 +335,22 @@ begin
       'public.claim_chia_star_letter_reply_run(uuid, uuid)',
       'EXECUTE'
     )
+    or not has_function_privilege(
+      'service_role',
+      'public.claim_chia_star_letter_reply_run_v2(uuid, uuid, integer)',
+      'EXECUTE'
+    )
   then
-    raise exception 'service_role cannot execute claim RPC';
+    raise exception 'service_role cannot execute capped claim RPCs';
+  end if;
+
+  if has_function_privilege(
+      'service_role',
+      'public.claim_chia_star_letter_reply_run_uncapped(uuid, uuid)',
+      'EXECUTE'
+    )
+  then
+    raise exception 'service_role can bypass Chia reply provider-call budget';
   end if;
 end;
 $$;

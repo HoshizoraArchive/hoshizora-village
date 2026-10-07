@@ -7,14 +7,14 @@
 
 PR #68 の本番成功条件は次の通りです。
 
-1. 全ユーザーの `public` な `text` 投稿後に `ai-observation-auto-request` が呼ばれる。
-2. 通常text投稿は `public.ai_observation_jobs.observation_context = 'auto_text_post'`、最初の公開流星便は `first_post_welcome` のjobが作成される。
+1. 全ユーザーの `public` な `text` / `image` / `video` / `youtube` 投稿後に `ai-observation-auto-request` が呼ばれる。
+2. 通常自動観測は互換上 `public.ai_observation_jobs.observation_context = 'auto_text_post'`、最初の公開流星便は `first_post_welcome` のjobが作成される。
 3. `not_before_at` 到達後、scheduled Function `ai-observation-dispatch-due` がdue jobをworkerへdispatchする。
 4. worker完了時に `public.observations` が作成される。
 5. 自動観測では `public.resonances` に星空ちあ名義の `silent` 共鳴が1件作成される。
 6. 投稿者にはRe:Connectで「星空ちあさんがあなたの流星便に共鳴しました。」通知が届く。
 
-星文は毎回作成しません。`star_letters` が0件でも、`observations` と `silent` 共鳴が作成されていれば自動観測MVPとしては正常です。
+現在の初期βでは安全に実観測できて星文validatorを満たす通常流星便へ100%返す設定です。provider障害・メディア取得不能・出力不正などでは、捏造防止を優先して観測・星文を成功扱いしません。
 
 ## Netlify Function logsで見るもの
 
@@ -67,7 +67,7 @@ limit 5;
 
 見るポイント:
 
-- `observation_context = 'auto_text_post'` は通常text投稿後自動観測、`first_post_welcome` は投稿形式を問わない初公開流星便歓迎jobです。
+- `observation_context = 'auto_text_post'` は歴史的な内部名で、現在は通常のtext / image / video / youtube投稿後自動観測に共通利用します。`first_post_welcome` は初公開流星便歓迎jobです。
 - `status = 'queued'` で `not_before_at > now()` なら、まだ遅延待ちです。
 - `status = 'queued'` で `not_before_at <= now()` のまま長く残るなら、scheduled dispatchかworker dispatchを確認します。
 - `status = 'processing'` が長く残る場合は、stale回収やworker timeoutを確認します。
@@ -89,7 +89,7 @@ limit 5;
 
 `is_due = false` の場合、まだscheduled Functionが拾う時間ではありません。
 `ai-observation-dispatch-due` は5分ごとの実行なので、`not_before_at` 到達から数分遅れることがあります。
-遅延環境変数が未設定の場合の実効範囲は60〜900秒です。scheduled Function、通常Function、Background Functionはいずれも同じ `readAiObservationConfig()` とFunctions scopeを使用します。
+遅延環境変数が未設定の場合の実効範囲は120〜2100秒で、2〜3分 / 8〜12分 / 25〜35分の帯へ分散します。scheduled Function、通常Function、Background Functionはいずれも同じ `readAiObservationConfig()` とFunctions scopeを使用します。
 
 ### 自動共鳴の確認
 
@@ -155,17 +155,7 @@ UIはリアルタイム購読ではないため、DBに共鳴や通知が入っ�
 
 ### 3. 星文が来ない
 
-星文は仕様上、毎回作成しません。
-
-自動観測では次の条件で抑制されます。
-
-- モデルが `should_post = false` と判断した。
-- confidenceが閾値未満。
-- 確率ゲートに外れた。
-- 星空ちあ全体の日次上限に達した。
-- 投稿者単位クールダウン中。
-
-そのため、星文が0でも、`observations` と `silent` 共鳴が作成されていれば正常です。
+初期βの通常自動観測は100%星文設定ですが、実観測と安全性が優先です。provider障害、メディア取得不能、出力不正、confidence条件不成立、日次上限などでは星文を作りません。観測自体を確定できなかった場合は `observations` や `silent` 共鳴も成功扱いで作成しません。
 
 ### 4. providerエラーの見分け方
 
