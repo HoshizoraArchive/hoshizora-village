@@ -3,7 +3,7 @@ import { runChiaDailyMeteor } from "./chiaDailyMeteorDispatch.mjs";
 
 const MAX_POST_CHARACTERS = 500;
 const MAX_MENTIONS = 1;
-const MEDIA_CLAIM_PATTERN = /(見た|観た|見て|観て|聴いた|聞いた|映像|動画|画像|写真|YouTube|歌声|音声|曲を|音を)/u;
+const PUBLISH_GROUNDING_MODES = new Set(["non_media", "media"]);
 
 function responsePayload(response) {
   return response.clone().json().catch(() => ({}));
@@ -174,6 +174,7 @@ export async function publishChiaDotMeteor({
   allowedMentionUsernames = [],
   allowedMediaEvidenceKeys = [],
   mediaEvidenceKey = "",
+  groundingMode = "",
   runDailyMeteor = runChiaDailyMeteor,
   claimRun = claimChiaDotMeteorRun,
   completeRun = completeChiaDotMeteorRun,
@@ -194,9 +195,19 @@ export async function publishChiaDotMeteor({
     return { status: 400, payload: { outcome: "rejected", code: "chia_dot_publish_mention_not_in_snapshot", requestId } };
   }
   const mediaAllowSet = new Set(allowedMediaEvidenceKeys);
+  if (!PUBLISH_GROUNDING_MODES.has(groundingMode)) {
+    return {
+      status: 400,
+      payload: {
+        outcome: "rejected",
+        code: "chia_dot_publish_invalid_grounding_mode",
+        requestId,
+      },
+    };
+  }
   if (
-    (mediaEvidenceKey && !mediaAllowSet.has(mediaEvidenceKey))
-    || (MEDIA_CLAIM_PATTERN.test(validated.body) && !mediaEvidenceKey)
+    (groundingMode === "media" && !mediaAllowSet.has(mediaEvidenceKey))
+    || (groundingMode === "non_media" && mediaEvidenceKey)
   ) {
     return { status: 400, payload: { outcome: "rejected", code: "chia_dot_publish_ungrounded_media_claim", requestId } };
   }

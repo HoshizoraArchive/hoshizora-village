@@ -261,19 +261,21 @@ async function requestReplyAiOutput(config, prompt) {
   return interaction?.output_text ?? interaction?.outputText ?? "";
 }
 
-async function countRecentReplies(supabase, chiaProfileId, now) {
+async function countRecentProviderAttempts(supabase, now) {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const { count, error } = await supabase
+  const { data, error } = await supabase
     .from("chia_star_letter_reply_runs")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "replied")
-    .gte("processed_at", since);
+    .select("attempts")
+    .gte("updated_at", since);
 
   if (error) {
     throw new Error(`reply_limit_query_failed:${error.code ?? "unknown"}`);
   }
 
-  return count ?? 0;
+  return (data ?? []).reduce((total, row) => {
+    const attempts = Number(row?.attempts ?? 0);
+    return total + (Number.isSafeInteger(attempts) && attempts > 0 ? attempts : 0);
+  }, 0);
 }
 
 async function loadRecentChiaPosts(supabase, config, sinceIso) {
@@ -293,7 +295,7 @@ async function loadRecentChiaPosts(supabase, config, sinceIso) {
   return data ?? [];
 }
 
-async function loadRecentCandidateLetters(supabase, postIds, sinceIso) {
+async function loadRecentCandidateLetters(supabase, postIds, sinceIso, offset = 0) {
   if (postIds.length === 0) {
     return [];
   }
@@ -305,7 +307,8 @@ async function loadRecentCandidateLetters(supabase, postIds, sinceIso) {
     .is("deleted_at", null)
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: true })
-    .limit(MAX_CANDIDATES);
+    .order("id", { ascending: true })
+    .range(offset, offset + MAX_CANDIDATES - 1);
 
   if (error) {
     throw new Error(`star_letter_candidates_query_failed:${error.code ?? "unknown"}`);
@@ -314,41 +317,61 @@ async function loadRecentCandidateLetters(supabase, postIds, sinceIso) {
   return data ?? [];
 }
 
-async function claimCandidate(supabase, config, letters, now) {
-  for (const letter of letters) {
-    if (letter.author_id === config.chiaProfileId) {
-      continue;
+async function claimCandidate(supabase, config, postIds, sinceIso, now) {
+  let offset = 0;
+
+  while (true) {
+    const letters = await loadRecentCandidateLetters(supabase, postIds, sinceIso, offset);
+    if (letters.length === 0) {
+      return null;
     }
 
-    if (!isReplyDue({
-      sourceStarLetterId: letter.id,
-      createdAt: letter.created_at,
-      now,
-      minDelaySeconds: config.minDelaySeconds,
-      maxDelaySeconds: config.maxDelaySeconds,
-    })) {
-      continue;
+    for (const letter of letters) {
+      if (letter.author_id === config.chiaProfileId) {
+        continue;
+      }
+
+      if (!isReplyDue({
+        sourceStarLetterId: letter.id,
+        createdAt: letter.created_at,
+        now,
+        minDelaySeconds: config.minDelaySeconds,
+        maxDelaySeconds: config.maxDelaySeconds,
+      })) {
+        continue;
+      }
+
+      const { data, error } = await supabase.rpc("claim_chia_star_letter_reply_run_v2", {
+        p_source_star_letter_id: letter.id,
+        p_chia_profile_id: config.chiaProfileId,
+        p_daily_provider_call_limit: config.dailyLimit,
+      });
+
+      if (error) {
+        throw new Error(`reply_claim_failed:${error.code ?? "unknown"}`);
+      }
+
+      if (data?.outcome === "daily_limit") {
+        return {
+          dailyLimit: true,
+          recentProviderAttempts: Number(data.recent_attempts ?? config.dailyLimit),
+        };
+      }
+
+      if (data?.claimed && data?.run_id) {
+        return {
+          runId: data.run_id,
+          attempts: data.attempts ?? 1,
+          letter,
+        };
+      }
     }
 
-    const { data, error } = await supabase.rpc("claim_chia_star_letter_reply_run", {
-      p_source_star_letter_id: letter.id,
-      p_chia_profile_id: config.chiaProfileId,
-    });
-
-    if (error) {
-      throw new Error(`reply_claim_failed:${error.code ?? "unknown"}`);
+    if (letters.length < MAX_CANDIDATES) {
+      return null;
     }
-
-    if (data?.claimed && data?.run_id) {
-      return {
-        runId: data.run_id,
-        attempts: data.attempts ?? 1,
-        letter,
-      };
-    }
+    offset += letters.length;
   }
-
-  return null;
 }
 
 async function loadConversationContext(supabase, claimed, postById) {
@@ -438,9 +461,9 @@ export async function runChiaStarLetterReply(dependencies = {}) {
   const supabase = dependencies.supabase ?? createSupabaseAdminClient(config);
   const requestAiOutput = dependencies.requestAiOutput ?? requestReplyAiOutput;
 
-  const recentReplyCount = await countRecentReplies(supabase, config.chiaProfileId, now);
-  if (recentReplyCount >= config.dailyLimit) {
-    return { outcome: "daily_limit", recentReplyCount };
+  const recentProviderAttempts = await countRecentProviderAttempts(supabase, now);
+  if (recentProviderAttempts >= config.dailyLimit) {
+    return { outcome: "daily_limit", recentProviderAttempts };
   }
 
   const sinceIso = new Date(
@@ -453,12 +476,20 @@ export async function runChiaStarLetterReply(dependencies = {}) {
   }
 
   const postById = new Map(posts.map((post) => [post.id, post]));
-  const letters = await loadRecentCandidateLetters(
+  const claimed = await claimCandidate(
     supabase,
+    config,
     posts.map((post) => post.id),
     sinceIso,
+    now,
   );
-  const claimed = await claimCandidate(supabase, config, letters, now);
+
+  if (claimed?.dailyLimit) {
+    return {
+      outcome: "daily_limit",
+      recentProviderAttempts: claimed.recentProviderAttempts,
+    };
+  }
 
   if (!claimed) {
     return { outcome: "no_candidate" };
