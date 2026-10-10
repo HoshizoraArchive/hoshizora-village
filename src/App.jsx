@@ -7,6 +7,7 @@ import {
   logSafeError,
 } from "./safeErrors";
 import { supabase } from "./lib/supabaseClient";
+import ChiaMemorySettings from "./ChiaMemorySettings";
 import privacyPolicyMarkdown from "./legal/privacy-policy.md?raw";
 import termsOfServiceMarkdown from "./legal/terms-of-service.md?raw";
 import VillageGuideAdminScreen from "./VillageGuideAdmin";
@@ -12225,6 +12226,7 @@ function SettingsPanel({ auth, onBack, profile }) {
           戻る
         </button>
         <p>基本設定は今後ここから調整できるようにします。</p>
+        {auth.session?.user?.id ? <ChiaMemorySettings userId={auth.session.user.id} /> : null}
         <button
           className="w-full rounded-2xl border border-aurora/20 bg-aurora/10 px-4 py-4 text-left transition hover:border-aurora/35 hover:bg-aurora/15"
           onClick={profile.onOpenGuide}
