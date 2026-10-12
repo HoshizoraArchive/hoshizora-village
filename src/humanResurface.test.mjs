@@ -54,3 +54,12 @@ test('API failure equivalent leaves base unchanged',()=>{
  const base=[ai(0),ai(1),ai(2)];
  assert.deepEqual(mix(base,[],context()),base);assert.deepEqual(mix(base,undefined,context()),base);
 });
+
+test('a newer or equal-time higher-id candidate cannot appear below an older headline',()=>{
+ const base=[ai(0),ai(1),ai(2)];
+ const ahead=human('hAhead','hAhead',now+1000);
+ const tied=human('zTied','hTied',now);
+ const older=human('older','hOlder',now-1000);
+ const output=mix(base,[ahead,tied,older],{...context(['hAhead','hTied','hOlder']),now:now+10_000});
+ assert.deepEqual(output.map(x=>x.id),['ai0','ai1','ai2','older']);
+});
