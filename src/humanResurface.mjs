@@ -15,10 +15,18 @@ export function mixHumanResurfacePosts(recentRows, humanCandidates, {
   const existing = new Set(base.map(row => row.id ?? row.post_id));
   const featuredAuthors = new Set(base.filter(row => humanAuthorIds.has(row.author_id)).map(row => row.author_id));
   const floor = now - ageDays * 86400000;
+  // A human post created after the base query must wait until the next normal
+  // refresh, rather than being demoted underneath an older headline post.
+  const anchorTime = Date.parse(base[0]?.created_at ?? '');
+  const anchorId = String(base[0]?.id ?? base[0]?.post_id ?? '');
+  if (!Number.isFinite(anchorTime)) return base;
   const eligible = humanCandidates.filter(row => {
     if (!valid(row) || !humanAuthorIds.has(row.author_id) || existing.has(row.id ?? row.post_id) || featuredAuthors.has(row.author_id)) return false;
     const stamp = Date.parse(row.created_at ?? '');
-    return Number.isFinite(stamp) && stamp >= floor && stamp <= now;
+    if (!Number.isFinite(stamp) || stamp < floor || stamp > now) return false;
+    if (stamp > anchorTime) return false;
+    if (stamp === anchorTime && String(row.id ?? row.post_id).localeCompare(anchorId) > 0) return false;
+    return true;
   }).sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at) ||
     String(b.id ?? b.post_id).localeCompare(String(a.id ?? a.post_id)));
   const picks = [];
