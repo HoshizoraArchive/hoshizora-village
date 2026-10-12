@@ -4410,14 +4410,24 @@ function App() {
       setPostsError("");
 
       try {
+        // Exclude blocked authors at the database boundary before LIMIT.
+        // Filtering only after LIMIT can hide every card even when public
+        // posts from other authors exist immediately beyond the first page.
+        const blockedQueryAuthorIds = [...(blockedProfileIdsRef.current ?? [])].filter(
+          (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+        );
         const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
           let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("visibility", "public"));
 
           if (supportsSoftDelete) {
             query = query.is("deleted_at", null);
           }
+          if (blockedQueryAuthorIds.length > 0) {
+            query = query.not("author_id", "in", `(${blockedQueryAuthorIds.join(",")})`);
+          }
 
-          return query.order("created_at", { ascending: false }).limit(80);
+          return query.order("created_at", { ascending: false })
+            .order("id", { ascending: false }).limit(80);
         }, { signal });
 
         if (!canApplyResponse()) {
@@ -4526,10 +4536,15 @@ function App() {
                   }
                 }
                 const invalidatedCandidateRows = humanRows.filter(isUnavailablePublicPost);
-                const excludedPostIds = new Set([
-                  ...invalidationRows,
-                  ...invalidatedCandidateRows,
-                ].map((post) => post.id ?? post.post_id).filter(Boolean));
+                const knownInvalidIds = new Set(invalidationRows.map((post) => post.id ?? post.post_id));
+                for (const row of invalidatedCandidateRows) {
+                  const postId = row.id ?? row.post_id;
+                  if (postId && !knownInvalidIds.has(postId)) {
+                    invalidationRows.push(row);
+                    knownInvalidIds.add(postId);
+                  }
+                }
+                const excludedPostIds = new Set(knownInvalidIds);
                 visibleRows = mixHumanResurfacePosts(
                   baseRows.filter((post) => !excludedPostIds.has(post.id ?? post.post_id)),
                   humanRows,
@@ -4576,7 +4591,11 @@ function App() {
           }
         }
 
-        const mappedPosts = refreshedRows.map((post) => mapSavedPost(post, profilesById.get(post.author_id), profileFrames));
+        const mappedPosts = refreshedRows.map((post) => mapSavedPost(
+          isUnavailablePublicPost(post) ? { ...post, available: false, tombstoned: true } : post,
+          profilesById.get(post.author_id),
+          profileFrames,
+        ));
         const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
         if (!canApplyResponse()) {
@@ -4590,8 +4609,11 @@ function App() {
         const visiblePosts = hydratedPosts.filter(
           (post) => !isProfileBlocked(blockedProfileIdsRef.current, post.authorId),
         );
-        for (const post of visiblePosts) {
-          locallyCreatedPostIdsRef.current.delete(post.id);
+        for (const post of [...visiblePosts, ...invalidationRows]) {
+          const postId = post.id ?? post.post_id;
+          if (postId) {
+            locallyCreatedPostIdsRef.current.delete(postId);
+          }
         }
         setSavedPosts((currentPosts) => reconcilePostSnapshots(currentPosts, visiblePosts));
         return true;
