@@ -63,3 +63,11 @@ test('a newer or equal-time higher-id candidate cannot appear below an older hea
  const output=mix(base,[ahead,tied,older],{...context(['hAhead','hTied','hOlder']),now:now+10_000});
  assert.deepEqual(output.map(x=>x.id),['ai0','ai1','ai2','older']);
 });
+
+test('microsecond ordering is not rounded to JavaScript milliseconds',()=>{
+ const base=[{...ai(0),id:'zTop',created_at:'2026-10-12T00:00:00.000100Z'},ai(1),ai(2)];
+ const newer=human('aNew','newAuthor',now);newer.created_at='2026-10-12T00:00:00.000900Z';
+ const older=human('old','oldAuthor',now-1000);
+ const out=mix(base,[newer,older],{...context(['newAuthor','oldAuthor']),now:now+5000});
+ assert.deepEqual(out.map(x=>x.id),['zTop','ai1','ai2','old']);
+});
