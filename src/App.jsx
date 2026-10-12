@@ -20,6 +20,7 @@ import PasswordRecoveryPanel from "./PasswordRecoveryPanel";
 import ProfileTitleBadge from "./ProfileTitleBadge";
 import ProfileTitleEmblem from "./ProfileTitleEmblem";
 import { isPinnedPost, orderPostsWithPinnedFirst } from "./pinnedPosts.mjs";
+import { comparePostsByCreatedAtDesc, mixHumanResurfacePosts } from "./humanResurface.mjs";
 import {
   PROFILE_TITLES_RELATION_SELECT,
   getPrimaryProfileTitle,
@@ -4409,14 +4410,24 @@ function App() {
       setPostsError("");
 
       try {
+        // Exclude blocked authors at the database boundary before LIMIT.
+        // Filtering only after LIMIT can hide every card even when public
+        // posts from other authors exist immediately beyond the first page.
+        const blockedQueryAuthorIds = [...(blockedProfileIdsRef.current ?? [])].filter(
+          (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+        );
         const { data, error } = await runPostQuery((columns, supportsSoftDelete) => {
           let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns).eq("visibility", "public"));
 
           if (supportsSoftDelete) {
             query = query.is("deleted_at", null);
           }
+          if (blockedQueryAuthorIds.length > 0) {
+            query = query.not("author_id", "in", `(${blockedQueryAuthorIds.join(",")})`);
+          }
 
-          return query.order("created_at", { ascending: false }).limit(20);
+          return query.order("created_at", { ascending: false })
+            .order("id", { ascending: false }).limit(80);
         }, { signal });
 
         if (!canApplyResponse()) {
@@ -4441,16 +4452,117 @@ function App() {
         }
 
         const candidateRows = [...(data ?? []), ...missingCurrentSnapshots];
-        const invalidationRows = candidateRows.filter(
-          (post) => post.available === false || post.tombstoned || post.visibility !== "public",
-        );
-        const visibleRows = candidateRows
-          .filter((post) => post.available !== false && !post.tombstoned && post.visibility === "public")
-          .sort((left, right) => {
-            const timeDifference = Date.parse(right.created_at ?? "") - Date.parse(left.created_at ?? "");
-            return timeDifference || String(right.id ?? right.post_id).localeCompare(String(left.id ?? left.post_id));
-          })
+        const isUnavailablePublicPost = (post) =>
+          post.available === false || post.tombstoned || post.visibility !== "public" || post.deleted_at != null;
+        const invalidationRows = candidateRows.filter(isUnavailablePublicPost);
+        const invalidatedIds = new Set(invalidationRows.map((post) => post.id ?? post.post_id).filter(Boolean));
+        const sortNewest = comparePostsByCreatedAtDesc;
+        const baseRows = candidateRows
+          .filter((post) => !isUnavailablePublicPost(post) &&
+            !invalidatedIds.has(post.id ?? post.post_id) &&
+            !isProfileBlocked(blockedProfileIdsRef.current, post.author_id))
+          .sort(sortNewest)
           .slice(0, 20);
+        let visibleRows = baseRows;
+
+        // Optional view-only resurfacing; failures preserve the regular latest-post timeline.
+        // "AI" requires a positive profile_kinds match. Unknown authors never count as AI.
+        try {
+          const { data: kindRows, error: kindError } = await applyQueryAbortSignal(
+            supabase.from("profile_kinds").select("profile_id, kind").limit(501),
+            signal,
+          );
+
+          if (!canApplyResponse()) {
+            return false;
+          }
+
+          if (kindError) {
+            logSafeError(ERROR_OPERATION.PROFILE_LOAD, kindError);
+          } else if (kindRows?.length && kindRows.length < 501) {
+            const humanAuthorIds = new Set(kindRows.filter((row) => row.kind === "human").map((row) => row.profile_id));
+            const aiAuthorIds = new Set(kindRows.filter((row) => row.kind === "ai_resident").map((row) => row.profile_id));
+            const permittedHumanAuthors = [...humanAuthorIds].filter(
+              (id) => id && !isProfileBlocked(blockedProfileIdsRef.current, id),
+            );
+
+            if (permittedHumanAuthors.length && aiAuthorIds.size) {
+              const now = Date.now();
+              const from = new Date(now - 60 * 86400000).toISOString();
+              const through = new Date(now).toISOString();
+              const humanQuery = (authorId = null, limit = 200) => (columns, supportsSoftDelete) => {
+                let query = applyVisiblePostTypeFilter(supabase.from("posts").select(columns)
+                  .eq("visibility", "public").gte("created_at", from).lte("created_at", through));
+                if (supportsSoftDelete) {
+                  query = query.is("deleted_at", null);
+                }
+                query = authorId ? query.eq("author_id", authorId) : query.in("author_id", permittedHumanAuthors);
+                return query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(limit);
+              };
+
+              const { data: candidateHumanRows, error: humanError } = await runPostQuery(humanQuery(), { signal });
+              if (!canApplyResponse()) {
+                return false;
+              }
+              if (humanError) {
+                logSafeError(ERROR_OPERATION.POST_LOAD, humanError);
+              } else {
+                const humanRows = [...(candidateHumanRows ?? [])];
+                // If one prolific author filled the bounded batch, sample missing authors
+                // individually without changing DB, Auth or RLS. No unbounded pagination.
+                if (humanRows.length === 200) {
+                  const foundAuthors = new Set(humanRows.map((post) => post.author_id));
+                  const missingAuthors = permittedHumanAuthors.filter(
+                    (id) => !foundAuthors.has(id) && !baseRows.some((post) => post.author_id === id),
+                  ).sort().slice(0, 20);
+                  for (let index = 0; index < missingAuthors.length; index += 4) {
+                    const authorBatch = missingAuthors.slice(index, index + 4);
+                    const authorResults = await Promise.all(authorBatch.map(
+                      (authorId) => runPostQuery(humanQuery(authorId, 1), { signal }),
+                    ));
+                    if (!canApplyResponse()) {
+                      return false;
+                    }
+                    for (const result of authorResults) {
+                      if (result.error) {
+                        logSafeError(ERROR_OPERATION.POST_LOAD, result.error);
+                      } else {
+                        humanRows.push(...(result.data ?? []));
+                      }
+                    }
+                  }
+                }
+                const invalidatedCandidateRows = humanRows.filter(isUnavailablePublicPost);
+                const knownInvalidIds = new Set(invalidationRows.map((post) => post.id ?? post.post_id));
+                for (const row of invalidatedCandidateRows) {
+                  const postId = row.id ?? row.post_id;
+                  if (postId && !knownInvalidIds.has(postId)) {
+                    invalidationRows.push(row);
+                    knownInvalidIds.add(postId);
+                  }
+                }
+                const excludedPostIds = new Set(knownInvalidIds);
+                visibleRows = mixHumanResurfacePosts(
+                  baseRows.filter((post) => !excludedPostIds.has(post.id ?? post.post_id)),
+                  humanRows,
+                  {
+                    humanAuthorIds,
+                    aiAuthorIds,
+                    excludedPostIds,
+                    blockedAuthorIds: blockedProfileIdsRef.current,
+                    now,
+                  },
+                );
+              }
+            }
+          }
+        } catch (resurfaceError) {
+          if (!canApplyResponse()) {
+            return false;
+          }
+          logSafeError(ERROR_OPERATION.POST_LOAD, resurfaceError);
+        }
+
         const refreshedRows = [...visibleRows, ...invalidationRows];
         const authorIds = [...new Set(refreshedRows.map((post) => post.author_id).filter(Boolean))];
         const profilesById = new Map();
@@ -4476,7 +4588,11 @@ function App() {
           }
         }
 
-        const mappedPosts = refreshedRows.map((post) => mapSavedPost(post, profilesById.get(post.author_id), profileFrames));
+        const mappedPosts = refreshedRows.map((post) => mapSavedPost(
+          isUnavailablePublicPost(post) ? { ...post, available: false, tombstoned: true } : post,
+          profilesById.get(post.author_id),
+          profileFrames,
+        ));
         const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets(mappedPosts);
 
         if (!canApplyResponse()) {
@@ -4490,8 +4606,11 @@ function App() {
         const visiblePosts = hydratedPosts.filter(
           (post) => !isProfileBlocked(blockedProfileIdsRef.current, post.authorId),
         );
-        for (const post of visiblePosts) {
-          locallyCreatedPostIdsRef.current.delete(post.id);
+        for (const post of [...visiblePosts, ...invalidationRows]) {
+          const postId = post.id ?? post.post_id;
+          if (postId) {
+            locallyCreatedPostIdsRef.current.delete(postId);
+          }
         }
         setSavedPosts((currentPosts) => reconcilePostSnapshots(currentPosts, visiblePosts));
         return true;
