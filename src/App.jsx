@@ -20,7 +20,7 @@ import PasswordRecoveryPanel from "./PasswordRecoveryPanel";
 import ProfileTitleBadge from "./ProfileTitleBadge";
 import ProfileTitleEmblem from "./ProfileTitleEmblem";
 import { isPinnedPost, orderPostsWithPinnedFirst } from "./pinnedPosts.mjs";
-import { mixHumanResurfacePosts } from "./humanResurface.mjs";
+import { comparePostsByCreatedAtDesc, mixHumanResurfacePosts } from "./humanResurface.mjs";
 import {
   PROFILE_TITLES_RELATION_SELECT,
   getPrimaryProfileTitle,
@@ -4456,10 +4456,7 @@ function App() {
           post.available === false || post.tombstoned || post.visibility !== "public" || post.deleted_at != null;
         const invalidationRows = candidateRows.filter(isUnavailablePublicPost);
         const invalidatedIds = new Set(invalidationRows.map((post) => post.id ?? post.post_id).filter(Boolean));
-        const sortNewest = (left, right) => {
-          const timeDifference = Date.parse(right.created_at ?? "") - Date.parse(left.created_at ?? "");
-          return timeDifference || String(right.id ?? right.post_id).localeCompare(String(left.id ?? left.post_id));
-        };
+        const sortNewest = comparePostsByCreatedAtDesc;
         const baseRows = candidateRows
           .filter((post) => !isUnavailablePublicPost(post) &&
             !invalidatedIds.has(post.id ?? post.post_id) &&
