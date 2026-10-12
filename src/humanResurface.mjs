@@ -1,3 +1,24 @@
+// Postgres timestamptz has microsecond precision; Date.parse keeps milliseconds
+// only. Retain the final three digits so a new post is never demoted after an
+// older headline when two posts are less than 1 ms apart.
+export function postTimestampMicroseconds(value) {
+  const timestamp = String(value ?? '');
+  const milliseconds = Date.parse(timestamp);
+  if (!Number.isFinite(milliseconds)) return NaN;
+  const digits = /\.(\d+)(?:Z|[+-]\d{2}(?::?\d{2})?)?$/i.exec(timestamp)?.[1] ?? '';
+  const submillis = Number(digits.padEnd(6, '0').slice(3, 6));
+  return milliseconds * 1000 + submillis;
+}
+
+export function comparePostsByCreatedAtDesc(a, b) {
+  const left = postTimestampMicroseconds(a?.created_at);
+  const right = postTimestampMicroseconds(b?.created_at);
+  if (Number.isFinite(left) && Number.isFinite(right) && left !== right) return right - left;
+  if (!Number.isFinite(left)) return Number.isFinite(right) ? 1 : 0;
+  if (!Number.isFinite(right)) return -1;
+  return String(b?.id ?? b?.post_id ?? '').localeCompare(String(a?.id ?? a?.post_id ?? ''));
+}
+
 /**
  * Pure presentation-only mixing. Keeps *all* 20 recent visible posts,
  * adds at most 5 distinct recent human posts; does not mutate saved records.
@@ -14,21 +35,16 @@ export function mixHumanResurfacePosts(recentRows, humanCandidates, {
   if (!base.length || !humanAuthorIds.size || !aiAuthorIds.size || !Array.isArray(humanCandidates)) return base;
   const existing = new Set(base.map(row => row.id ?? row.post_id));
   const featuredAuthors = new Set(base.filter(row => humanAuthorIds.has(row.author_id)).map(row => row.author_id));
-  const floor = now - ageDays * 86400000;
-  // A human post created after the base query must wait until the next normal
-  // refresh, rather than being demoted underneath an older headline post.
-  const anchorTime = Date.parse(base[0]?.created_at ?? '');
-  const anchorId = String(base[0]?.id ?? base[0]?.post_id ?? '');
+  const floor = (now - ageDays * 86400000) * 1000;
+  // Ignore candidates newer than the base headline until the next refresh.
+  const anchorTime = postTimestampMicroseconds(base[0]?.created_at);
   if (!Number.isFinite(anchorTime)) return base;
   const eligible = humanCandidates.filter(row => {
     if (!valid(row) || !humanAuthorIds.has(row.author_id) || existing.has(row.id ?? row.post_id) || featuredAuthors.has(row.author_id)) return false;
-    const stamp = Date.parse(row.created_at ?? '');
-    if (!Number.isFinite(stamp) || stamp < floor || stamp > now) return false;
-    if (stamp > anchorTime) return false;
-    if (stamp === anchorTime && String(row.id ?? row.post_id).localeCompare(anchorId) > 0) return false;
-    return true;
-  }).sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at) ||
-    String(b.id ?? b.post_id).localeCompare(String(a.id ?? a.post_id)));
+    const stamp = postTimestampMicroseconds(row.created_at);
+    return Number.isFinite(stamp) && stamp >= floor && stamp <= now * 1000 &&
+      comparePostsByCreatedAtDesc(row, base[0]) >= 0;
+  }).sort(comparePostsByCreatedAtDesc);
   const picks = [];
   for (const row of eligible) {
     if (featuredAuthors.has(row.author_id)) continue;
