@@ -26,6 +26,7 @@ test("Ed25519署名済みpublishを現在の正規slotで検証する", () => {
     nonce: "nonce-1234567890abcd",
     snapshotGeneratedAt: SNAPSHOT_AT,
     snapshotHash: SNAPSHOT_HASH,
+    groundingMode: "non_media",
   });
   const verified = verifyChiaDotMeteorRequest(signed, {
     publicKey,
@@ -34,6 +35,7 @@ test("Ed25519署名済みpublishを現在の正規slotで検証する", () => {
   });
   assert.equal(verified.action, "publish");
   assert.equal(verified.body, "おはちあ！☀️ 今日もゆっくりいこうね。");
+  assert.equal(verified.groundingMode, "non_media");
   assert.deepEqual(verified.slotInfo, MORNING);
 });
 
@@ -47,6 +49,7 @@ test("body/slot/signature改ざんと期限切れをfail closedする", () => {
     nonce: "nonce-1234567890abcd",
     snapshotGeneratedAt: SNAPSHOT_AT,
     snapshotHash: SNAPSHOT_HASH,
+    groundingMode: "non_media",
   });
   for (const payload of [
     { ...signed, body: "改ざん" },
@@ -78,6 +81,7 @@ test("publishは別slot時刻からの実行を拒否する", () => {
     nonce: "nonce-1234567890abcd",
     snapshotGeneratedAt: SNAPSHOT_AT,
     snapshotHash: SNAPSHOT_HASH,
+    groundingMode: "non_media",
   });
   assert.throws(
     () => verifyChiaDotMeteorRequest(signed, {
@@ -100,6 +104,7 @@ test("publishはDot優先窓の10分を過ぎたらlegacy fallbackへ譲る", ()
     nonce: "nonce-1234567890abcd",
     snapshotGeneratedAt: "2026-10-04T23:09:20.000Z",
     snapshotHash: SNAPSHOT_HASH,
+    groundingMode: "non_media",
   });
   assert.throws(
     () => verifyChiaDotMeteorRequest(signed, {
@@ -112,20 +117,53 @@ test("publishはDot優先窓の10分を過ぎたらlegacy fallbackへ譲る", ()
 });
 
 test("publishは2分を超えたsnapshotを拒否する", () => {
+  assert.throws(
+    () => signChiaDotMeteorRequest({
+      action: "publish",
+      slotInfo: MORNING,
+      body: "おはちあ！",
+      privateKey,
+      now: MORNING_NOW,
+      nonce: "nonce-1234567890abcd",
+      snapshotGeneratedAt: "2026-10-04T22:57:00.000Z",
+      snapshotHash: SNAPSHOT_HASH,
+      groundingMode: "non_media",
+    }),
+    (error) => error.status === 403 && error.code === "stale_chia_dot_meteor_snapshot",
+  );
+});
+
+test("media groundingは署名済みevidence keyを必須にする", () => {
+  assert.throws(
+    () => signChiaDotMeteorRequest({
+      action: "publish",
+      slotInfo: MORNING,
+      body: "青い光がゆれてて綺麗だったよ。",
+      privateKey,
+      now: MORNING_NOW,
+      nonce: "nonce-media-12345678",
+      snapshotGeneratedAt: SNAPSHOT_AT,
+      snapshotHash: SNAPSHOT_HASH,
+      groundingMode: "media",
+    }),
+    /stale_chia_dot_meteor_snapshot/,
+  );
+
   const signed = signChiaDotMeteorRequest({
     action: "publish",
     slotInfo: MORNING,
-    body: "おはちあ！",
+    body: "青い光がゆれてて綺麗だったよ。",
     privateKey,
     now: MORNING_NOW,
-    nonce: "nonce-1234567890abcd",
-    snapshotGeneratedAt: "2026-10-04T22:57:00.000Z",
+    nonce: "nonce-media-12345678",
+    snapshotGeneratedAt: SNAPSHOT_AT,
     snapshotHash: SNAPSHOT_HASH,
+    groundingMode: "media",
+    mediaEvidenceKey: "b".repeat(64),
   });
-  assert.throws(
-    () => verifyChiaDotMeteorRequest(signed, { publicKey, now: MORNING_NOW }),
-    (error) => error.status === 403 && error.code === "stale_chia_dot_meteor_snapshot",
-  );
+  const verified = verifyChiaDotMeteorRequest(signed, { publicKey, now: MORNING_NOW + 500 });
+  assert.equal(verified.groundingMode, "media");
+  assert.equal(verified.mediaEvidenceKey, "b".repeat(64));
 });
 
 test("repairは投稿後24時間以内ならslot時間を過ぎても署名検証できる", () => {

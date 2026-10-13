@@ -188,6 +188,7 @@ export async function handleChiaDotMeteor(request, context = {}, dependencies = 
       allowedMentionUsernames,
       allowedMediaEvidenceKeys,
       mediaEvidenceKey: verified.mediaEvidenceKey,
+      groundingMode: verified.groundingMode,
       warn,
       errorLog,
     });

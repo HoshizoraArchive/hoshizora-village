@@ -548,7 +548,7 @@ test("first automatic post bypasses confidence and probability gates and records
   assert.match(calls.completeArgs.p_first_post_fallback_star_letter_body, /最初の流星便/);
 });
 
-test("first automatic post falls back without a blind generation retry and completion stays idempotent", async () => {
+test("first automatic post fails soft without a blind generation retry when provider result is unknown", async () => {
   const { supabase, calls } = createMockSupabase({
     claimObservationContext: AI_OBSERVATION_CONTEXT.FIRST_POST_WELCOME,
     firstPostWelcome: true,
@@ -567,15 +567,13 @@ test("first automatic post falls back without a blind generation retry and compl
     },
   });
 
-  assert.equal(result.outcome, "completed");
+  assert.equal(result.outcome, "failed");
   assert.equal(providerCalls, 1);
-  assert.equal(calls.completeArgs.p_is_first_post_fallback, true);
-  assert.equal(calls.completeArgs.p_should_post, false);
-  assert.equal(calls.completeArgs.p_first_post_fallback_star_letter_body.includes("最初の流星便"), true);
-  assert.equal(calls.failArgs, null);
+  assert.equal(calls.completeCalls, 0);
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.GEMINI_TIMEOUT[0]);
 });
 
-test("first public image falls back safely when Storage media cannot be acquired", async () => {
+test("first public image fails soft without creating a fallback observation when Storage media cannot be acquired", async () => {
   const post = textPost({ type: "image", body: "最初の写真" });
   const mediaRows = [imageMediaRow()];
   const { supabase, calls } = createMockSupabase({
@@ -603,12 +601,11 @@ test("first public image falls back safely when Storage media cannot be acquired
     },
   });
 
-  assert.equal(result.outcome, "completed");
+  assert.equal(result.outcome, "failed");
   assert.equal(providerCalls, 0);
   assert.equal(calls.attempts, 0);
-  assert.equal(calls.completeArgs.p_is_first_post_fallback, true);
-  assert.match(calls.completeArgs.p_first_post_fallback_star_letter_body, /最初の流星便/);
-  assert.equal(calls.failArgs, null);
+  assert.equal(calls.completeCalls, 0);
+  assert.equal(calls.failArgs.p_public_error_code, AI_ERROR.INTERNAL[0]);
 });
 
 test("stale first-post reservation is cancelled before provider execution", async () => {

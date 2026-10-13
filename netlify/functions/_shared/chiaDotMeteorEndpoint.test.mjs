@@ -143,6 +143,7 @@ test("publishは署名で確定したbody/slotだけをpublish helperへ渡す",
       body: "おはちあ！ @alice さん、おはよう。",
       snapshotHash: hashChiaDotMeteorSnapshot(snapshot),
       mediaEvidenceKey: "",
+      groundingMode: "non_media",
     }),
     loadSnapshot: async () => snapshot,
     publish: async (input) => {
@@ -157,6 +158,7 @@ test("publishは署名で確定したbody/slotだけをpublish helperへ渡す",
   assert.equal(received.chiaProfileId, CHIA);
   assert.deepEqual(received.allowedMentionUsernames, ["alice", "bob"]);
   assert.deepEqual(received.allowedMediaEvidenceKeys, ["b".repeat(64)]);
+  assert.equal(received.groundingMode, "non_media");
 });
 
 test("publish直前のVillage snapshotが変わっていれば409で投稿しない", async () => {
@@ -180,6 +182,7 @@ test("publish直前のVillage snapshotが変わっていれば409で投稿しな
       body: "おはちあ！",
       snapshotHash: "a".repeat(64),
       mediaEvidenceKey: "",
+      groundingMode: "non_media",
     }),
     loadSnapshot: async () => currentSnapshot,
     publish: async () => { publishCalls += 1; return { status: 200, payload: { outcome: "posted" } }; },
@@ -213,6 +216,7 @@ test("72時間以内に既mentionの村人はfresh snapshotにいても再mentio
       body: "おはちあ！",
       snapshotHash: hashChiaDotMeteorSnapshot(snapshot),
       mediaEvidenceKey: "",
+      groundingMode: "non_media",
     }),
     loadSnapshot: async () => snapshot,
     publish: async (input) => { received = input; return { status: 200, payload: { outcome: "posted" } }; },
@@ -252,6 +256,7 @@ test("500文字の絵文字bodyを含む署名envelopeもtransport上は4KB以�
     snapshotGeneratedAt: "2026-10-04T23:00:10.000Z",
     snapshotHash: "a".repeat(64),
     mediaEvidenceKey: "",
+    groundingMode: "non_media",
     signature: "A".repeat(86),
   };
   let verifiedPayload = null;
@@ -270,6 +275,7 @@ test("500文字の絵文字bodyを含む署名envelopeもtransport上は4KB以�
           recentPublicMeteors: [], recentChiaMeteors: [], observedMeteors: [], recentMentionHistory: [], recentDailyRuns: [],
         }),
         mediaEvidenceKey: "",
+        groundingMode: "non_media",
       };
     },
     loadSnapshot: async () => ({
