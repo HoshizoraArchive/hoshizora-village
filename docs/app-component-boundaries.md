@@ -46,6 +46,12 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - Effect関数と依存配列は第4段階mainからバイト一致で移行。Hook呼出し位置は元のEffect位置と同じ。Auth用の新規権限・DB/API・タイミング条件変更なし。
 - `src/authSessionLifecycle.test.mjs`: 元Effect全文のSHA-256契約とモックした認証イベント・サブスクリプション解除・遅延読出しを検証。既存のsignup/recoveryソース監査も移設先を参照する。
 
+## 第6段階：Auth初期読出しの競合保護
+- `src/hooks/useAuthSessionLifecycle.js`: 初期 `getSession()` より後に確定した `onAuthStateChange` の状態を常に優先する。成功・失敗の古い結果では最新ログイン/ログアウト/パスワード再設定を上書きしない。
+- callback URLの処理は初期読出しが担うまま維持し、競合時には**最新イベントのsession**を渡す。確認メール・再設定リンクの表示判定を古いsessionで行わない。
+- Supabase AuthやDB仕様、Auth発火タイミングは変更しない。既存の認証Effect内で局所的に世代を管理し、listener購読解除・タイマー破棄は維持する。
+- `src/authSessionLifecycle.test.mjs` で、イベントより遅く戻るセッション/エラー、logout、signup、PASSWORD_RECOVERYの競合を実ハンドラにdeferred promiseを与えて固定する。
+
 ## 必須の設計上の注意
 
 1. `App.jsx` に画面内だけで使う新しい表示コンポーネントを追加しない。既存の担当モジュールを先に確認する。

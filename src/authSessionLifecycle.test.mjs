@@ -67,8 +67,10 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
   return { state, env, emit: (event, value) => authListener(event, value), cleanup };
 }
 
-test("extracted Auth effect retains byte-identical baseline implementation", () => {
-  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "a491254d8657308093351c2b353c16e0c2a1f3609227dca82765198bf9df7ce2");
+test("Auth effect contains the audited latest-event-wins guard", () => {
+  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "17b630200ced3b59351fe78dcc34c766640df8dd33921d59ab0843fcea28ab42");
+  assert.match(effectCode, /if \(hasAuthStateEvent\) \{[\s\S]*?applyInitialAuthCallback\(latestAuthStateEventSession\);/);
+  assert.match(effectCode, /hasAuthStateEvent = true;[\s\S]*?latestAuthStateEventSession = session;/);
   assert.deepEqual(effect.expression.arguments[1].elements.map((entry) => source.slice(entry.start, entry.end)), [
     "initialAuthCallback.kind", "initialAuthCallback.shouldCleanUrl",
   ]);
@@ -138,6 +140,75 @@ test("recovery pathname without verified event fails closed after grace period",
   app.state.timeouts[0].fn();
   assert.equal(app.state.passwordRecovery.kind, AUTH_PASSWORD_RECOVERY_KIND.INVALID);
   assert.equal(app.state.authStatus, "再設定リンクエラー");
+  app.cleanup();
+});
+
+test("late initial session must not overwrite a newer SIGNED_IN event", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  const userA = { user: { id: "A", email: "a@example.invalid" } };
+  const userB = { user: { id: "B", email: "b@example.invalid" } };
+  app.emit("SIGNED_IN", userB);
+  pending.resolve({ data: { session: userA }, error: null });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.env.activeSessionUserIdRef.current, "B");
+  assert.equal(app.state.session, userB);
+  assert.equal(app.state.authStatus, "ログイン中");
+  app.cleanup();
+});
+
+test("late initial session must not resurrect login after SIGNED_OUT", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("SIGNED_OUT", null);
+  pending.resolve({ data: { session: { user: { id: "old-account" } } }, error: null });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.env.activeSessionUserIdRef.current, null);
+  assert.equal(app.state.session, null);
+  assert.equal(app.state.authStatus, "未ログイン");
+  app.cleanup();
+});
+
+test("new Auth INITIAL_SESSION takes priority over obsolete getSession and resolves signup callback", async () => {
+  const pending = deferred();
+  const latest = { user: { id: "confirmed", email: "confirmed@example.invalid" } };
+  const app = createAuthHarness({ kind: "signup_callback", shouldCleanUrl: true, pending });
+  app.emit("INITIAL_SESSION", latest);
+  pending.resolve({ data: { session: null }, error: null });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.session, latest);
+  assert.equal(app.state.confirmation?.kind, AUTH_CONFIRMATION_KIND.CONFIRMED);
+  assert.equal(app.state.replaceHistory.length, 1);
+  app.cleanup();
+});
+
+test("an old getSession error must not invalidate verified PASSWORD_RECOVERY", async () => {
+  const pending = deferred();
+  const recovery = { user: { id: "recover-A", email: "recovery@example.invalid" } };
+  const app = createAuthHarness({ kind: "password_recovery", shouldCleanUrl: true, pending });
+  app.emit("PASSWORD_RECOVERY", recovery);
+  pending.resolve({ data: { session: null }, error: { code: "session_not_found" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.passwordRecovery?.kind, AUTH_PASSWORD_RECOVERY_KIND.ACTIVE);
+  assert.equal(app.env.passwordRecoveryVerifiedUserIdRef.current, "recover-A");
+  assert.equal(app.state.authStatus, "パスワード再設定中");
+  app.cleanup();
+});
+
+test("stale initial session error after new SIGNED_IN does not show auth error", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  const latest = { user: { id: "A" } };
+  app.emit("SIGNED_IN", latest);
+  pending.resolve({ data: { session: null }, error: { code: "not_found" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authStatus, "ログイン中");
+  assert.equal(app.state.authError, undefined);
   app.cleanup();
 });
 
