@@ -323,6 +323,10 @@ values (
   '返信前にブラックホールするテスト'
 );
 
+-- The race fixture must pass the same due window before claim.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000007';
+
 do $$
 declare
   v_claim jsonb;
