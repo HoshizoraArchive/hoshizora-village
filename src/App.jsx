@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPostMediaTaskGate } from "./lib/postMediaTaskGate.js";
 import { useVillageRouteViewState } from "./hooks/useVillageRouteViewState.js";
 import { usePostMediaDraftState } from "./hooks/usePostMediaDraftState.js";
 import { useStarLetterUiState } from "./hooks/useStarLetterUiState.js";
@@ -1790,6 +1791,8 @@ function App() {
   const foregroundHiddenAtRef = useRef(null);
   const foregroundRefreshTimerRef = useRef(null);
   const appMountedRef = useRef(true);
+  const postMediaTaskGateRef = useRef(createPostMediaTaskGate());
+  const automaticCoverGenerationRef = useRef(0);
   const { postDraft, setPostDraft, postImageDrafts, setPostImageDrafts, postImageDraftsRef, postVideoDraft,
     setPostVideoDraft, postVideoDraftRef, postThumbnailDraft, setPostThumbnailDraft, postThumbnailDraftRef,
     postVideoPreparing, setPostVideoPreparing, postVideoTrimDraft, setPostVideoTrimDraft,
@@ -1989,11 +1992,15 @@ function App() {
     setStarLettersMessage("");
     setStarLettersError("");
     setPostDraft("");
+    invalidatePendingPostMediaWork();
     clearSelectedAvatar();
     clearAvatarCropDraft();
     clearPostImageDrafts();
     clearPostVideoDraft();
     clearPostThumbnailDraft();
+    clearPostVideoTrimDraft();
+    clearPostCoverCropDraft();
+    setPostVideoPreparing(false);
     setEditingPostId(null);
     setPostEditDrafts({});
     setOpenStarLetterPostId(null);
@@ -4134,6 +4141,7 @@ function App() {
 
     return () => {
       appMountedRef.current = false;
+      invalidatePendingPostMediaWork();
     };
   }, []);
 
@@ -6027,6 +6035,42 @@ function App() {
     setFeedbackMessage("フィードバックを送信しました。ありがとうございます。");
   }
 
+  function currentPostMediaSessionKey() {
+    // Auth callbacks update activeSessionUserIdRef synchronously, before the reset effect.
+    return `${dataSessionKeyRef.current}:${activeSessionUserIdRef.current ?? "anonymous"}`;
+  }
+
+  function capturePostMediaTask() {
+    return postMediaTaskGateRef.current.capture(currentPostMediaSessionKey());
+  }
+
+  function isCurrentPostMediaTask(ticket) {
+    return appMountedRef.current && postMediaTaskGateRef.current.isCurrent(ticket, currentPostMediaSessionKey());
+  }
+
+  function cancelPostMediaConversionSafely(conversion) {
+    try {
+      // Request cancellation synchronously; the conversion may execute right
+      // after its onConversionReady callback returns.
+      void Promise.resolve(conversion.cancel()).catch((error) => {
+        logSafeError(ERROR_OPERATION.VIDEO_TRIM, error);
+      });
+    } catch (error) {
+      logSafeError(ERROR_OPERATION.VIDEO_TRIM, error);
+    }
+  }
+
+  function invalidatePendingPostMediaWork() {
+    postMediaTaskGateRef.current.invalidate();
+    automaticCoverGenerationRef.current += 1;
+    postVideoTrimCancelRequestedRef.current = true;
+    const conversion = postVideoTrimConversionRef.current;
+    postVideoTrimConversionRef.current = null;
+    if (conversion) {
+      cancelPostMediaConversionSafely(conversion);
+    }
+  }
+
   function clearPostImageDrafts() {
     const currentDrafts = postImageDraftsRef.current;
 
@@ -6046,6 +6090,7 @@ function App() {
   }
 
   function clearPostThumbnailDraft() {
+    automaticCoverGenerationRef.current += 1;
     const currentDraft = postThumbnailDraftRef.current;
 
     postThumbnailDraftRef.current = null;
@@ -6060,6 +6105,7 @@ function App() {
   }
 
   function clearPostCoverCropDraft() {
+    automaticCoverGenerationRef.current += 1;
     setPostCoverCropFile(null);
     setPostCoverCropPreviewUrl("");
     setPostCoverCropModalOpen(false);
@@ -6068,6 +6114,7 @@ function App() {
   }
 
   function openPostCoverCrop(file) {
+    automaticCoverGenerationRef.current += 1;
     setPostCoverCropFile(file);
     setPostCoverCropPreviewUrl(URL.createObjectURL(file));
     resetPostCoverCrop();
@@ -6089,11 +6136,15 @@ function App() {
     postVideoTrimCancelRequestedRef.current = false;
   }
 
-  async function prepareAutomaticVideoCoverDraft(file, durationSeconds) {
+  async function prepareAutomaticVideoCoverDraft(file, durationSeconds, videoDraft, task) {
+    const coverGeneration = automaticCoverGenerationRef.current;
     try {
       const generatedCoverDraft = await createVideoCoverFile(file, durationSeconds);
 
-      if (!appMountedRef.current) {
+      // Discard late results from another account, another selected video,
+      // or a manual thumbnail/crop selected while cover generation was running.
+      if (!isCurrentPostMediaTask(task) || postVideoDraftRef.current !== videoDraft ||
+          automaticCoverGenerationRef.current !== coverGeneration) {
         revokePostThumbnailDraft(generatedCoverDraft);
         return;
       }
@@ -6103,11 +6154,16 @@ function App() {
       setPostThumbnailDraft(generatedCoverDraft);
       revokePostThumbnailDraft(currentDraft);
     } catch (thumbnailError) {
-      logSafeError(ERROR_OPERATION.VIDEO_THUMBNAIL, thumbnailError);
+      if (isCurrentPostMediaTask(task)) {
+        logSafeError(ERROR_OPERATION.VIDEO_THUMBNAIL, thumbnailError);
+      }
     }
   }
 
-  async function applySelectedPostVideo(file, metadata) {
+  async function applySelectedPostVideo(file, metadata, task) {
+    if (!isCurrentPostMediaTask(task)) {
+      return;
+    }
     const nextDraft = createPostVideoDraft(file, metadata);
     const currentDraft = postVideoDraftRef.current;
 
@@ -6115,7 +6171,7 @@ function App() {
     setPostVideoDraft(nextDraft);
     revokePostVideoDraft(currentDraft);
     clearPostThumbnailDraft();
-    await prepareAutomaticVideoCoverDraft(file, metadata.durationSeconds);
+    await prepareAutomaticVideoCoverDraft(file, metadata.durationSeconds, nextDraft, task);
   }
 
   function openPostVideoTrimDraft(file, metadata) {
@@ -6197,6 +6253,8 @@ function App() {
       return;
     }
 
+    const task = capturePostMediaTask();
+    const coverGeneration = automaticCoverGenerationRef.current;
     setPostCoverCropPreparing(true);
     setPostMessage("");
     setPostError("");
@@ -6213,7 +6271,8 @@ function App() {
         createVideoCoverFileName(postCoverCropFile.name),
         METEOR_VIDEO_THUMBNAIL_TYPE,
       );
-      if (!appMountedRef.current) {
+      if (!isCurrentPostMediaTask(task) || coverGeneration !== automaticCoverGenerationRef.current ||
+          !postVideoDraftRef.current) {
         return;
       }
 
@@ -6226,8 +6285,10 @@ function App() {
       setPostMessage("星映の表紙を選びました。");
       clearPostCoverCropDraft();
     } catch (cropError) {
-      setPostError(getUserFacingError(cropError, ERROR_OPERATION.VIDEO_THUMBNAIL));
-      setPostCoverCropPreparing(false);
+      if (isCurrentPostMediaTask(task) && coverGeneration === automaticCoverGenerationRef.current) {
+        setPostError(getUserFacingError(cropError, ERROR_OPERATION.VIDEO_THUMBNAIL));
+        setPostCoverCropPreparing(false);
+      }
     }
   }
 
@@ -6303,6 +6364,7 @@ function App() {
     const trimStart = clampNumber(postVideoTrimStart, 0, Math.max(0, postVideoTrimDraft.durationSeconds - trimLength));
     const trimEnd = Math.min(postVideoTrimDraft.durationSeconds, trimStart + trimLength);
 
+    const task = capturePostMediaTask();
     setPostVideoTrimProcessing(true);
     setPostVideoTrimProgress(0);
     setPostVideoTrimError("");
@@ -6315,15 +6377,26 @@ function App() {
         endSeconds: trimEnd,
         file: postVideoTrimDraft.file,
         onConversionReady: (conversion) => {
+          if (!isCurrentPostMediaTask(task) || postVideoTrimCancelRequestedRef.current) {
+            cancelPostMediaConversionSafely(conversion);
+            return;
+          }
           postVideoTrimConversionRef.current = conversion;
-          if (postVideoTrimCancelRequestedRef.current) {
-            void conversion.cancel();
+        },
+        onProgress: (value) => {
+          if (isCurrentPostMediaTask(task) && !postVideoTrimCancelRequestedRef.current) {
+            setPostVideoTrimProgress(value);
           }
         },
-        onProgress: setPostVideoTrimProgress,
         startSeconds: trimStart,
       });
+      if (!isCurrentPostMediaTask(task) || postVideoTrimCancelRequestedRef.current) {
+        return;
+      }
       const metadata = await loadVideoMetadataFromFile(trimmedFile);
+      if (!isCurrentPostMediaTask(task) || postVideoTrimCancelRequestedRef.current) {
+        return;
+      }
 
       if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS + 0.05) {
         throw createUserFacingError("切り取り後の星映が35秒を超えています。もう一度範囲を選んでください。");
@@ -6339,10 +6412,16 @@ function App() {
         durationSeconds: Math.min(metadata.durationSeconds, METEOR_VIDEO_MAX_DURATION_SECONDS),
         originalName: postVideoTrimDraft.file.name,
         wasTrimmed: true,
-      });
+      }, task);
+      if (!isCurrentPostMediaTask(task) || postVideoTrimCancelRequestedRef.current) {
+        return;
+      }
       setPostMessage("星映を切り取りました。投稿前に再生確認できます。");
       clearPostVideoTrimDraft();
     } catch (trimError) {
+      if (!isCurrentPostMediaTask(task)) {
+        return;
+      }
       if (trimError?.name === "ConversionCanceledError") {
         setPostVideoTrimError("星映の切り取りをキャンセルしました。");
       } else if (isSafeUserFacingError(trimError)) {
@@ -6444,10 +6523,15 @@ function App() {
       return;
     }
 
+    invalidatePendingPostMediaWork();
+    const task = capturePostMediaTask();
     setPostVideoPreparing(true);
 
     try {
       const metadata = await loadVideoMetadataFromFile(file);
+      if (!isCurrentPostMediaTask(task)) {
+        return;
+      }
 
       if (metadata.durationSeconds > METEOR_VIDEO_MAX_DURATION_SECONDS || file.size > METEOR_VIDEO_MAX_SIZE_BYTES) {
         openPostVideoTrimDraft(file, metadata);
@@ -6459,8 +6543,11 @@ function App() {
         ...metadata,
         displayName: file.name,
         originalName: file.name,
-      });
+      }, task);
     } catch (metadataError) {
+      if (!isCurrentPostMediaTask(task)) {
+        return;
+      }
       const safeMetadataError = getUserFacingError(metadataError, ERROR_OPERATION.VIDEO_TRIM);
 
       if (isSafeUserFacingError(metadataError) && safeMetadataError.includes("再生時間")) {
@@ -6472,7 +6559,9 @@ function App() {
         setPostError("星映の情報を確認できませんでした。別のファイルを選んでください。");
       }
     } finally {
-      setPostVideoPreparing(false);
+      if (isCurrentPostMediaTask(task)) {
+        setPostVideoPreparing(false);
+      }
     }
   }
 
@@ -6481,10 +6570,12 @@ function App() {
       return;
     }
 
+    invalidatePendingPostMediaWork();
     clearPostVideoDraft();
     clearPostThumbnailDraft();
     clearPostVideoTrimDraft();
     clearPostCoverCropDraft();
+    setPostVideoPreparing(false);
   }
 
   function handlePostThumbnailFileChange(event) {
