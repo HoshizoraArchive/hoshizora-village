@@ -16,6 +16,7 @@ import {
 const appSource = [
   readFileSync("src/App.jsx", "utf8"),
   readFileSync("src/components/AuthAndLegalScreens.jsx", "utf8"),
+  readFileSync("src/hooks/useAuthSessionLifecycle.js", "utf8"),
 ].join("\n");
 const confirmationPanelSource = readFileSync("src/AuthConfirmationPanel.jsx", "utf8");
 
