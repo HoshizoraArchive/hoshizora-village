@@ -6430,9 +6430,14 @@ function App() {
         logSafeError(ERROR_OPERATION.VIDEO_TRIM, trimError);
         setPostVideoTrimError(METEOR_VIDEO_TRIM_ERROR_MESSAGE);
       }
-      setPostVideoTrimProcessing(false);
-      postVideoTrimConversionRef.current = null;
-      postVideoTrimCancelRequestedRef.current = false;
+    } finally {
+      // A same-session cancel can race a successfully resolved conversion.
+      // Always release the busy state, including early returns after await.
+      if (isCurrentPostMediaTask(task)) {
+        setPostVideoTrimProcessing(false);
+        postVideoTrimConversionRef.current = null;
+        postVideoTrimCancelRequestedRef.current = false;
+      }
     }
   }
 

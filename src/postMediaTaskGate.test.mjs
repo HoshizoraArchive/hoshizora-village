@@ -176,6 +176,35 @@ test("logout invalidates an in-flight conversion, and late results cannot publis
   await work;
 });
 
+test("same-session cancel after conversion resolves releases busy state", async () => {
+  const pendingConversion = deferred();
+  const processing = [];
+  const errors = [];
+  const { api, ctx } = createHarness({
+    postVideoTrimDraft: { durationSeconds: 50, name: "clip", file: { name: "clip.mp4" } },
+    postVideoTrimProcessing: false,
+    postVideoTrimLength: 10,
+    postVideoTrimStart: 0,
+    clampNumber: (n, min, max) => Math.min(max, Math.max(min, n)),
+    METEOR_VIDEO_MAX_DURATION_SECONDS: 35,
+    setPostVideoTrimProcessing: (state) => processing.push(state),
+    setPostVideoTrimProgress: () => {},
+    setPostVideoTrimError: (value) => errors.push(value),
+    setPostError: () => {},
+    setPostMessage: () => {},
+    createTrimmedVideoFile: () => pendingConversion.promise,
+    loadVideoMetadataFromFile: () => assert.fail("canceled result should not be used"),
+    applySelectedPostVideo: () => assert.fail("canceled result should not be published"),
+  });
+  const work = api.handleUseTrimmedPostVideo();
+  ctx.postVideoTrimCancelRequestedRef.current = true;
+  pendingConversion.resolve({ size: 10 });
+  await work;
+  assert.deepEqual(processing, [true, false], "cancel must not leave the trim UI stuck processing");
+  assert.equal(ctx.postVideoTrimConversionRef.current, null);
+  assert.equal(ctx.postVideoTrimCancelRequestedRef.current, false);
+});
+
 test("conversion initialized after session invalidation is canceled immediately", async () => {
   const pendingConversion = deferred();
   let ready;
