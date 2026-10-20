@@ -26,6 +26,14 @@
 - `src/components/PostComposer.jsx`: 流星便作成UI、キーボード位置、テキストエリア。投稿状態や送信コールバックはAppが所有。
 - `src/components/PostCard.jsx`: 流星便カード・操作ボタン・星文ツリー表示。共鳴・Archive・報告・編集・削除の状態更新処理はAppが所有。
 
+## 第3段階：状態所有の境界
+- `src/hooks/useVillageRouteViewState.js`: 画面遷移・公開プロフィール・流星タグ一覧・共有の表示状態。URL解釈と画面ロードの副作用はApp側。
+- `src/hooks/usePostMediaDraftState.js`: 流星便下書きとメディア編集用のstate/ref。メディアの解放・録画変換・投稿mutationはApp側。
+- `src/hooks/useStarLetterUiState.js`: 星文の下書き・スレッドUIとリクエスト世代ref。Authユーザー切替時のリセットと通信・revision処理はApp側。
+- `src/hooks/useFeedbackUiState.js`: 問い合わせのフォーム表示と保存状態。投稿APIはApp側。
+
+Hookの移動では**元の呼出し順序・lazy initializer・refの独立性を変えない**。React HooksはUI/DBの新規権限を持たない。Auth/PW回復処理やSupabase I/Oの切出しは、専用実機シナリオと監査を持つ別PRへ分ける。
+
 ## 必須の設計上の注意
 
 1. `App.jsx` に画面内だけで使う新しい表示コンポーネントを追加しない。既存の担当モジュールを先に確認する。
