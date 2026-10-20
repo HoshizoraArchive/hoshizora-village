@@ -32,7 +32,10 @@ test("shared polish does not join unrelated panels through page-specific selecto
 });
 
 test("My Universe, Archive, and public profiles use the same lightweight page roles", () => {
-  const appSource = readFileSync("src/App.jsx", "utf8");
+  const appSource = [
+    readFileSync("src/App.jsx", "utf8"),
+    readFileSync("src/components/ProfileCards.jsx", "utf8"),
+  ].join("\n");
   for (const token of [
     'className="content-page my-universe-page mx-auto max-w-2xl"',
     'className="content-page archive-page mx-auto max-w-3xl"',

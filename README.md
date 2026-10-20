@@ -82,6 +82,9 @@ DB定義と変更履歴は以下を参照してください。
 
 ## 開発
 
+UIコンポーネントの配置・`App.jsx` の責務・Viteビルド時変換の注意点は
+[`docs/app-component-boundaries.md`](docs/app-component-boundaries.md) を参照してください。
+
 依存関係をインストールします。
 
 ```bash

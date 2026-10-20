@@ -62,7 +62,13 @@ const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-veri
 const legalConsentVerificationSql = readFileSync("docs/legal-consent-verification.sql", "utf8");
 const starLetterConversationVerificationSql = readFileSync("docs/star-letter-conversation-verification.sql", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
-const appJsx = readFileSync("src/App.jsx", "utf8");
+const appJsx = [
+  readFileSync("src/App.jsx", "utf8"),
+  readFileSync("src/components/AuthAndLegalScreens.jsx", "utf8"),
+  readFileSync("src/components/PushNotificationTestCard.jsx", "utf8"),
+  readFileSync("src/components/ProfileCards.jsx", "utf8"),
+  readFileSync("src/lib/appSiteConfig.js", "utf8"),
+].join("\n");
 const mainJsx = readFileSync("src/main.jsx", "utf8");
 const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "utf8");
 const pushConfigFunction = readFileSync("netlify/functions/push-config.mjs", "utf8");

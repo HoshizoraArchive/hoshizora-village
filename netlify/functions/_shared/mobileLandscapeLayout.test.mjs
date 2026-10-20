@@ -4,7 +4,13 @@ import test from "node:test";
 
 const repositoryRoot = new URL("../../../", import.meta.url);
 const appUrl = new URL("src/App.jsx", repositoryRoot);
+const navUrl = new URL("src/components/BottomNav.jsx", repositoryRoot);
+const mediaUrl = new URL("src/components/PostMediaViews.jsx", repositoryRoot);
 const cssUrl = new URL("src/index.css", repositoryRoot);
+
+async function readAppUiSources() {
+  return (await Promise.all([appUrl, navUrl, mediaUrl].map((url) => readFile(url, "utf8")))).join("\n");
+}
 
 const MOBILE_LANDSCAPE_QUERY =
   "@media (orientation: landscape) and (max-width: 1023px) and (max-height: 500px)";
@@ -20,7 +26,7 @@ function getMobileLandscapeRule(css, selector) {
 
 test("mobile landscape hides bottom navigation and removes its reserved page space", async () => {
   const [app, css] = await Promise.all([
-    readFile(appUrl, "utf8"),
+    readAppUiSources(),
     readFile(cssUrl, "utf8"),
   ]);
 
@@ -33,7 +39,7 @@ test("mobile landscape hides bottom navigation and removes its reserved page spa
 
 test("mobile landscape video layout uses dynamic viewport height and safe areas", async () => {
   const [app, css] = await Promise.all([
-    readFile(appUrl, "utf8"),
+    readAppUiSources(),
     readFile(cssUrl, "utf8"),
   ]);
   const appContentRule = getMobileLandscapeRule(css, ".app-shell .app-main-content");
@@ -55,7 +61,7 @@ test("mobile landscape video layout uses dynamic viewport height and safe areas"
 });
 
 test("landscape changes are CSS-only so rotation does not recreate video elements", async () => {
-  const app = await readFile(appUrl, "utf8");
+  const app = await readAppUiSources();
 
   assert.doesNotMatch(app, /matchMedia\([^)]*orientation:\s*landscape/);
   assert.doesNotMatch(app, /isMobileLandscape|setIsMobileLandscape/);
