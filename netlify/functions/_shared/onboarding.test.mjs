@@ -16,7 +16,7 @@ import {
 } from "../../../src/onboarding.js";
 
 const appSource = [
-  readFileSync("src/App.jsx", "utf8"),
+  [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n"),
   readFileSync("src/components/BottomNav.jsx", "utf8"),
   readFileSync("src/components/ProfileCards.jsx", "utf8"),
   readFileSync("src/components/PushNotificationTestCard.jsx", "utf8"),

@@ -21,6 +21,10 @@
 - `src/lib/mediaEditorUtils.js`: メディア制約値・切り抜き座標・表示書式（DOM依存なし）。
 - `src/lib/profileUi.js`: デフォルトプロフィール表現と星影の文字。
 - `src/lib/appSiteConfig.js`: 公式サイトへのリンク。
+- `src/lib/postTextUtils.js`: 流星タグ正規化・本文リンク・YouTube/Suno URL認識・文字数判定・文字数上限。DOM・Reactには依存しない。
+- `src/components/LinkedText.jsx`: 投稿・星文・プロフィールで共用するURL・タグ表示。
+- `src/components/PostComposer.jsx`: 流星便作成UI、キーボード位置、テキストエリア。投稿状態や送信コールバックはAppが所有。
+- `src/components/PostCard.jsx`: 流星便カード・操作ボタン・星文ツリー表示。共鳴・Archive・報告・編集・削除の状態更新処理はAppが所有。
 
 ## 必須の設計上の注意
 
@@ -44,4 +48,4 @@ Supabase E2Eテストはローカルのモック経路で実行し、Production�
 
 ## 次の段階
 
-最大の残存箇所は `App()` 本体の状態・非同期処理と、`PostCard`・`Composer` 周辺の画面間依存。これらは表示コンポーネントの単純移設より危険度が高いので、個別の機能境界・テストシナリオを定めて別PRで移行する。
+`PostCard`・`Composer` と隣接する表示・文字解析は第2段階で独立モジュール化した。残る最大の対象は `App()` 本体（状態・ルーティング・非同期処理・Auth・更新処理）とその他画面コンポーネントである。副作用・更新順序・Hooksの同一性を保つため、状態管理の切出しは個別の受入シナリオと独立監査を設けた別PRで実施する。

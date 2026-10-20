@@ -18,7 +18,7 @@ const marker = "-- 20260731080253_add_profile_blocks.sql\n";
 const migrationSql = readFileSync(migrationPath, "utf8").trim();
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
 const appSource = [
-  readFileSync("src/App.jsx", "utf8"),
+  [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n"),
   readFileSync("src/components/BlackHoleConfirmationDialog.jsx", "utf8"),
 ].join("\n");
 const pushDispatchSource = readFileSync(

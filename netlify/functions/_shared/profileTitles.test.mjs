@@ -10,7 +10,7 @@ import {
 } from "../../../src/profileTitles.js";
 
 const appSource = [
-  readFileSync("src/App.jsx", "utf8"),
+  [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n"),
   readFileSync("src/components/ProfileCards.jsx", "utf8"),
 ].join("\n");
 const badgeSource = readFileSync("src/ProfileTitleBadge.jsx", "utf8");

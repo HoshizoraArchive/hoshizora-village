@@ -33,7 +33,7 @@ test("shared polish does not join unrelated panels through page-specific selecto
 
 test("My Universe, Archive, and public profiles use the same lightweight page roles", () => {
   const appSource = [
-    readFileSync("src/App.jsx", "utf8"),
+    [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n"),
     readFileSync("src/components/ProfileCards.jsx", "utf8"),
   ].join("\n");
   for (const token of [
@@ -50,7 +50,7 @@ test("My Universe, Archive, and public profiles use the same lightweight page ro
 });
 
 test("letter rows and thread items use the same quiet feed vocabulary", () => {
-  const appSource = readFileSync("src/App.jsx", "utf8");
+  const appSource = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n");
   assert.match(appSource, /className="content-letter-row overflow-hidden p-4 sm:p-5"/);
   assert.match(appSource, /className=\{`star-letter-item px-3 py-3/);
   assert.match(cssSource, /\.star-letter-item-reply[\s\S]*border-left: 2px solid/);

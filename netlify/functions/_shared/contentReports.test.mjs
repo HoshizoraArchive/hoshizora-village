@@ -24,7 +24,7 @@ const catalogCommentMigrationSql = readFileSync(
   "utf8",
 );
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n");
 const dialogSource = readFileSync("src/ContentReportDialog.jsx", "utf8");
 const adminSource = readFileSync("src/ObservationStationAdmin.jsx", "utf8");
 const verificationSql = readFileSync("docs/content-reports-verification.sql", "utf8");

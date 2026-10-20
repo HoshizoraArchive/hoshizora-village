@@ -5,7 +5,7 @@ import test from "node:test";
 const migrationPath = "supabase/migrations/20260823223803_harden_post_resonance_rate_limit.sql";
 const migrationSql = readFileSync(migrationPath, "utf8");
 const schemaSql = readFileSync("supabase/schema.sql", "utf8");
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n");
 const dataApiSource = readFileSync("src/dataRevisionApi.js", "utf8");
 
 function normalizedSql(sql) {
