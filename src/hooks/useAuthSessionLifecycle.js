@@ -19,6 +19,8 @@ export function useAuthSessionLifecycle({
 useEffect(() => {
     let isMounted = true;
     let recoveryResolutionTimer = null;
+    let hasAuthStateEvent = false;
+    let latestAuthStateEventSession = null;
 
     function cleanAuthCallbackUrl(force = false) {
       if ((!initialAuthCallback.shouldCleanUrl && !force) || authCallbackCleanedRef.current) {
@@ -149,6 +151,17 @@ useEffect(() => {
         return;
       }
 
+      // Supabase can emit a newer INITIAL_SESSION, SIGNED_IN or SIGNED_OUT
+      // before the initial getSession() promise settles. Never overwrite the
+      // event with an earlier snapshot (including an obsolete error).
+      if (hasAuthStateEvent) {
+        // Signup/recovery URL processing was previously completed by this
+        // initial read. Keep that callback work, using the latest event
+        // session rather than the stale response.
+        applyInitialAuthCallback(latestAuthStateEventSession);
+        return;
+      }
+
       if (error) {
         if (initialAuthCallback.kind === "password_recovery") {
           markPasswordRecoveryInvalid();
@@ -179,6 +192,8 @@ useEffect(() => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      hasAuthStateEvent = true;
+      latestAuthStateEventSession = session;
       activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);
       setAuthStatus(
