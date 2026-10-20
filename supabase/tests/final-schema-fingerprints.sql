@@ -1,7 +1,7 @@
 -- H-3 FINAL-B / READ ONLY.
 -- Compares schema/catalog metadata only. It never reads application, Auth, or
--- Storage object rows. Expected values describe the canonical 85-migration
--- chain ending at 20261004155843; they are not a Production-data snapshot.
+-- Storage object rows. Expected values describe the canonical 89-migration
+-- chain ending at 20261020124500; they are not a Production-data snapshot.
 
 begin;
 set transaction read only;
@@ -220,20 +220,20 @@ actual as (
 ),
 expected(category, item_count, fingerprint) as (
   values
-    ('column_grants', 54, '292459bfabd646ea22c72d5ce758ced6'),
-    ('columns', 328, 'beb42a3677f3708aace4a8493337f149'),
-    ('constraints', 253, 'dcc599aaf0b4aad9599743b40a99b49f'),
+    ('column_grants', 55, '8c24694bf02243e3cfc0c7f48ba44468'),
+    ('columns', 377, 'ec164631fae522a753c0c1152182d87e'),
+    ('constraints', 278, 'da9c460e68ce0eb9b8d4ae3c76419539'),
     ('enums', 5, '08c45d6b2c72748be6bc31b1c21d7b6c'),
-    ('function_grants', 131, 'fa79f7dd4cde55fe477fe0f3d55b1723'),
-    ('functions', 134, 'afb3adf60f44799c503baa64d5aa859c'),
-    ('indexes', 161, '4b949f74fc3d7b67a8ca3ee07d54e2e6'),
-    ('policies', 66, '1bfa67252479070affee4348321d7062'),
+    ('function_grants', 145, 'ccbd5214a8b4e9bdf76c35e0daf75844'),
+    ('functions', 153, 'ccb088f1a3293336d0abb0e8bc51eb59'),
+    ('indexes', 172, '19a832dbbca7f21160c8f74223bcaf44'),
+    ('policies', 69, 'd9a6ce596ed8835bef4d399bcc55bfcc'),
     ('profile_identity_policy_contract', 3, '3166d0b171746fb5a5143b303d2a1892'),
-    ('relation_grants', 401, '1bb77a6d4e66e1198a819b99d7d64e7a'),
+    ('relation_grants', 428, 'b3d11019808b5911505b2d41f32fc886'),
     ('schema_grants', 4, '854909e6b7d3b8f0a3b6afa9f3029567'),
     ('sequence_grants', 0, 'd41d8cd98f00b204e9800998ecf8427e'),
-    ('tables', 38, '27dca52960fcb5c008b11f3c993a2af6'),
-    ('triggers', 53, '525f18eb16277759cd706efd40991adb'),
+    ('tables', 44, 'c5f450a59cab62638767fa4790635fe6'),
+    ('triggers', 62, 'a6d78dc1e49f8d361de5d552f5e0ede3'),
     ('views', 0, 'd41d8cd98f00b204e9800998ecf8427e')
 ),
 comparison as (
