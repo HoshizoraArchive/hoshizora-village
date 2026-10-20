@@ -62,7 +62,14 @@ const observationMvpVerificationSql = readFileSync("docs/ai-observation-mvp-veri
 const legalConsentVerificationSql = readFileSync("docs/legal-consent-verification.sql", "utf8");
 const starLetterConversationVerificationSql = readFileSync("docs/star-letter-conversation-verification.sql", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
-const appJsx = readFileSync("src/App.jsx", "utf8");
+const authLegalComponentJsx = readFileSync("src/components/AuthAndLegalScreens.jsx", "utf8");
+const appJsx = [
+  readFileSync("src/App.jsx", "utf8"),
+  authLegalComponentJsx,
+  readFileSync("src/components/PushNotificationTestCard.jsx", "utf8"),
+  readFileSync("src/components/ProfileCards.jsx", "utf8"),
+  readFileSync("src/lib/appSiteConfig.js", "utf8"),
+].join("\n");
 const mainJsx = readFileSync("src/main.jsx", "utf8");
 const pushNotificationSetupJs = readFileSync("src/pushNotificationSetup.js", "utf8");
 const pushConfigFunction = readFileSync("netlify/functions/push-config.mjs", "utf8");
@@ -1344,9 +1351,9 @@ test("Signup legal links use an in-place modal without replacing AuthPanel state
   const signUpConsentStart = appJsx.indexOf("{isSignUp && (");
   const signUpSubmitStart = appJsx.indexOf('className="min-h-10 w-full rounded-2xl bg-gradient-to-r', signUpConsentStart);
   const signUpConsentBlock = appJsx.slice(signUpConsentStart, signUpSubmitStart);
-  const legalModalStart = appJsx.indexOf("function LegalDocumentModal");
-  const legalModalEnd = appJsx.indexOf("function LinkedText", legalModalStart);
-  const legalModalSource = appJsx.slice(legalModalStart, legalModalEnd);
+  const legalModalStart = authLegalComponentJsx.indexOf("function LegalDocumentModal");
+  assert.notEqual(legalModalStart, -1, "LegalDocumentModal must remain in its owning component");
+  const legalModalSource = authLegalComponentJsx.slice(legalModalStart);
 
   for (const token of [
     "const [legalDocument, setLegalDocument] = useState(null)",

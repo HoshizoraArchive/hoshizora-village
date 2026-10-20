@@ -45,7 +45,7 @@ function profileActionLayoutPlugin() {
     enforce: "pre",
     transform(code, id) {
       const cleanId = id.split("?", 1)[0];
-      if (!cleanId.endsWith("/src/App.jsx")) {
+      if (!cleanId.endsWith("/src/components/ProfileCards.jsx")) {
         return null;
       }
 

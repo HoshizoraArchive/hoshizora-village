@@ -9,7 +9,10 @@ import {
   normalizeProfileTitles,
 } from "../../../src/profileTitles.js";
 
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [
+  readFileSync("src/App.jsx", "utf8"),
+  readFileSync("src/components/ProfileCards.jsx", "utf8"),
+].join("\n");
 const badgeSource = readFileSync("src/ProfileTitleBadge.jsx", "utf8");
 const emblemSource = readFileSync("src/ProfileTitleEmblem.jsx", "utf8");
 const cssSource = readFileSync("src/index.css", "utf8");

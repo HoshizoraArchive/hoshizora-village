@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { applyProfileActionLayout } from "../../../scripts/profile-action-layout-transform.mjs";
 
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = readFileSync("src/components/ProfileCards.jsx", "utf8");
 
 test("My Universe profile actions are transformed without changing their existing handlers", () => {
   const transformed = applyProfileActionLayout(appSource);

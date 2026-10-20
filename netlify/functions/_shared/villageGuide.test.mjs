@@ -310,10 +310,14 @@ test("browser roles can only read public guide rows while admin writes stay behi
 });
 
 test("frontend uses Supabase as primary source, preserves fallback, and hides editor from non-admins", async () => {
-  const [appSource, adminSource] = await Promise.all([
-    readFile(appUrl, "utf8"),
+  const [appSources, adminSource] = await Promise.all([
+    Promise.all([
+      appUrl,
+      new URL("src/components/ProfileCards.jsx", repositoryRoot),
+    ].map((url) => readFile(url, "utf8"))),
     readFile(adminUiUrl, "utf8"),
   ]);
+  const appSource = appSources.join("\n");
 
   assert.match(appSource, /from\("guide_sections"\)/);
   assert.match(appSource, /from\("guide_entries"\)/);

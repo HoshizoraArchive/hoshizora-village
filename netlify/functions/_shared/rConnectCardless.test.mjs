@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [
+  readFileSync("src/App.jsx", "utf8"),
+  readFileSync("src/components/PushNotificationTestCard.jsx", "utf8"),
+].join("\n");
 const mainSource = readFileSync("src/main.jsx", "utf8");
 const cssSource = readFileSync("src/rConnectPolish.css", "utf8");
 

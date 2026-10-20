@@ -15,6 +15,7 @@ import {
 
 const repositoryRoot = new URL("../../../", import.meta.url);
 const appUrl = new URL("src/App.jsx", repositoryRoot);
+const postMediaViewsUrl = new URL("src/components/PostMediaViews.jsx", repositoryRoot);
 const modeUrl = new URL("src/StarMovieObservationMode.jsx", repositoryRoot);
 const windowUrl = new URL("src/StarMovieObservationWindow.jsx", repositoryRoot);
 const cssUrl = new URL("src/index.css", repositoryRoot);
@@ -22,6 +23,10 @@ const frameAssetUrl = new URL(
   "public/images/star-movie-observation-window-frame.png",
   repositoryRoot,
 );
+
+async function readAppMovieSources() {
+  return (await Promise.all([appUrl, postMediaViewsUrl].map((url) => readFile(url, "utf8")))).join("\n");
+}
 
 test("observation mode uses the responsive 1024px desktop boundary", () => {
   assert.equal(STAR_MOVIE_OBSERVATION_MEDIA_QUERY, "(min-width: 1024px)");
@@ -119,7 +124,7 @@ test("focus trap wraps Tab and Shift+Tab at the dialog boundaries", () => {
 
 test("dialog supports close, Escape, scroll lock, focus restoration, and existing playback coordination", async () => {
   const [app, mode] = await Promise.all([
-    readFile(appUrl, "utf8"),
+    readAppMovieSources(),
     readFile(modeUrl, "utf8"),
   ]);
 
@@ -140,7 +145,7 @@ test("dialog supports close, Escape, scroll lock, focus restoration, and existin
 });
 
 test("inline playback stays available and only dedicated desktop controls open observation mode", async () => {
-  const app = await readFile(appUrl, "utf8");
+  const app = await readAppMovieSources();
   const requestInlinePlayBlock = app.match(/function requestInlinePlay\(event\)[\s\S]*?function handleOpenViewer/)?.[0] ?? "";
   const observationOpenCalls = app.match(/onOpenObservation\?\.\(event\.currentTarget\)/g) ?? [];
 
@@ -268,7 +273,7 @@ test("observation movies use dedicated opacity without changing inline playback"
     readFile(windowUrl, "utf8"),
     readFile(cssUrl, "utf8"),
   ]);
-  const app = await readFile(appUrl, "utf8");
+  const app = await readAppMovieSources();
   const observationFrameRule =
     css.match(/\.star-movie-observation-frame\s*\{([^}]*)\}/)?.[1] ?? "";
 

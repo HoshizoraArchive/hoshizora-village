@@ -13,7 +13,10 @@ import {
   tryStartAuthAction,
 } from "../../../src/authConfirmation.js";
 
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [
+  readFileSync("src/App.jsx", "utf8"),
+  readFileSync("src/components/AuthAndLegalScreens.jsx", "utf8"),
+].join("\n");
 const confirmationPanelSource = readFileSync("src/AuthConfirmationPanel.jsx", "utf8");
 
 test("signup confirmation callbacks and invalid links are distinguished from password recovery", () => {

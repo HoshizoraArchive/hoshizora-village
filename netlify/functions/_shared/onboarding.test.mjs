@@ -15,7 +15,12 @@ import {
   tryPlayWelcomeVideo,
 } from "../../../src/onboarding.js";
 
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [
+  readFileSync("src/App.jsx", "utf8"),
+  readFileSync("src/components/BottomNav.jsx", "utf8"),
+  readFileSync("src/components/ProfileCards.jsx", "utf8"),
+  readFileSync("src/components/PushNotificationTestCard.jsx", "utf8"),
+].join("\n");
 const componentSource = readFileSync("src/InteractiveOnboarding.jsx", "utf8");
 const migration = readFileSync(
   "supabase/migrations/20260727154941_add_interactive_onboarding.sql",

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync("src/App.jsx", "utf8");
+const source = [
+  readFileSync("src/App.jsx", "utf8"),
+  readFileSync("src/components/BottomNav.jsx", "utf8"),
+  readFileSync("src/components/ProfileCards.jsx", "utf8"),
+].join("\n");
 const mainSource = readFileSync("src/main.jsx", "utf8");
 const myUniverseCssSource = readFileSync("src/myUniversePolish.css", "utf8");
 
