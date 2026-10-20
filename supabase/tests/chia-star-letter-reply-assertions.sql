@@ -237,6 +237,9 @@ values (
   '人間Bから人間Aへの返信',
   '23000000-0000-4000-8000-000000000003'
 );
+-- Isolate relationship eligibility from the deliberate due-time guard.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000004';
 
 do $$
 declare
@@ -263,6 +266,9 @@ values (
   '21000000-0000-4000-8000-000000000003',
   '人間の流星便への星文'
 );
+-- Isolate relationship eligibility from the deliberate due-time guard.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000005';
 
 do $$
 declare
@@ -295,6 +301,9 @@ values (
   '21000000-0000-4000-8000-000000000003',
   'ブロック中の星文'
 );
+-- Isolate relationship eligibility from the deliberate due-time guard.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000006';
 
 do $$
 declare
