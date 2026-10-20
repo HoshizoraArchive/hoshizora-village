@@ -195,6 +195,10 @@ from public.star_letters
 where author_id = '21000000-0000-4000-8000-000000000001'
   and parent_star_letter_id = '23000000-0000-4000-8000-000000000001';
 
+-- The new claim policy respects the same wait window for direct replies to Chia.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000002';
+
 do $$
 declare
   v_claim jsonb;
