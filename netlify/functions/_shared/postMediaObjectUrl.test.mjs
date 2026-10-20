@@ -251,6 +251,7 @@ test("動画draftは選択ごとに1URLだけ生成し、置換とclearで旧URL
     clearPostThumbnailDraft() {},
     createPostVideoDraft,
     postVideoDraftRef,
+    isCurrentPostMediaTask: () => true,
     prepareAutomaticVideoCoverDraft: async () => {},
     revokePostVideoDraft,
     setPostVideoDraft: videoState.set,
@@ -338,9 +339,14 @@ test("表紙draftは置換・clear・非同期中のunmountで解放する", asy
   const postThumbnailDraftRef = { current: { previewUrl: "blob:old-thumbnail" } };
   const thumbnailState = createStrictModeState(postThumbnailDraftRef.current);
   const appMountedRef = { current: true };
+  const automaticCoverGenerationRef = { current: 0 };
+  const postVideoDraftRef = { current: undefined };
   const prepareAutomaticVideoCoverDraft = evaluateNamedFunction("prepareAutomaticVideoCoverDraft", {
     ERROR_OPERATION: { VIDEO_THUMBNAIL: "video_thumbnail" },
     appMountedRef,
+    automaticCoverGenerationRef,
+    postVideoDraftRef,
+    isCurrentPostMediaTask: () => appMountedRef.current,
     createVideoCoverFile: async (file) => createPostThumbnailDraft(file, { displayName: "自動表紙" }),
     logSafeError() {},
     postThumbnailDraftRef,
@@ -354,6 +360,7 @@ test("表紙draftは置換・clear・非同期中のunmountで解放する", asy
   assert.equal(thumbnailState.functionalUpdaterCalls, 0);
 
   const clearPostThumbnailDraft = evaluateNamedFunction("clearPostThumbnailDraft", {
+    automaticCoverGenerationRef,
     postThumbnailDraftRef,
     revokePostThumbnailDraft,
     setPostThumbnailDraft: thumbnailState.set,
