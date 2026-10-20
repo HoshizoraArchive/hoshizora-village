@@ -816,6 +816,14 @@ Issue #97の新規入村者向け進捗をユーザー単位で1行保存しま�
 - Re:Connect通知の画面表示
 - 本番デプロイ操作
 
+## Chiaの個人別星文返信・記憶
+
+`20261010213000_chia_reply_memory_and_fencing.sql` と後続の `20261020120000_chia_dot_reply_atomic_guards.sql` が正本。`chia_person_memories` は `(chia_profile_id, person_profile_id, memory_key)` ごとに分離し、本人のみSELECT / content UPDATE / DELETE可能（INSERT不可）。各人最大30項目・各1200文字。出典の編集・削除・投稿/親の変更、投稿の非公開化で派生記憶を無効にする。rememberは確定済みreplyのclaim token、人物UUID、source/post両revision、現在の親・公開状態・blockを同一transactionで照合する。receiptにより本人の訂正・削除後の同一再送は復元しない。
+
+返信ledger、予算予約、wake、status、rememberのRPCはservice_role専用で、public/anon/authenticatedへmutationを公開しない。ブラウザ側の本人RLSは維持する。claimで生成attemptと費用を原子的に予約し、固定 `generation_invocation_id` を発行する。rolling 24h上限は全体50attempt / 250,000 microusd、人物10attempt / 50,000 microusd。失敗・skipも予約を消費する。wakeは同じattemptで一度だけ、全体60秒・人物120秒間隔。UTC跨ぎで上限・間隔をリセットしない。
+
+endpointは署名認証とpublished Production guardを維持する。Previewへ強い秘密権限を渡さず、署名→RPCの合成データ検証はPGlite/local harnessで行う。実CoSの隔離・永続生成結果・課金制御は別途受入が必要。[運用手順](chia-dot-star-letter-ops.md)を参照。
+
 ## Migration運用
 
 `supabase/schema.sql` は全migration適用後のfinal snapshotです。空のSupabase環境は、historical coreを復元する`supabase/migrations/20260524_historical_core_baseline.sql`から始め、`supabase/migrations/`をversion順にreplayして構築します。`supabase/schema.sql`を初期migrationとして直接実行しません。
@@ -823,3 +831,10 @@ Issue #97の新規入村者向け進捗をユーザー単位で1行保存しま�
 schema変更はlocal migrationとして作成し、isolated local Supabaseで`supabase db reset --local`を通してからPRへ含めます。ProductionのSQL Editorでschemaだけを先行変更してmigration ledgerを飛ばす運用は行いません。
 
 APIキー、publishable key、secret key、service_role key はリポジトリに入れません。
+
+
+### Chia返信の個人記憶revision fence
+
+`20261020120000_chia_dot_reply_atomic_guards.sql` の `chia_person_memory_partitions` は `(chia_profile_id, person_profile_id)` ごとの単調増加revisionを保持する。記憶のINSERT/UPDATE/DELETE（source invalidation・FK cascade・cleanupを含む）とTRUNCATEでtriggerが更新する。本文は保持せず、空partitionもrevisionを戻さない。RLS有効、anon/authenticatedの権限なし、service_roleはSELECTのみ。ownerのcontent UPDATE/DELETE権限は記憶表だけに限定する。
+
+server-only `snapshot_chia_person_memory(uuid,uuid)` は一つのMVCC SQL statementでrevision（JSON文字列）と最大12記憶を返す。claimが同じrevisionとUUID pairをrunへ保存し、snapshot hashに含める。completionの全公開overloadはsource/post/parentとprofile FKのロック後にpartitionをSHARE lockして照合し、不一致なら `stale_memory` を返し、生成本文・通知を保存しない。rememberでは先にpartitionをロックしない。bulk revision更新はpartition UUID順に行う。詳細な順序・競合検証の範囲は `docs/chia-dot-star-letter-ops.md` を参照。

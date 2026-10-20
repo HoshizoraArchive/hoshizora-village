@@ -53,7 +53,20 @@ declare
   v_complete jsonb;
   v_reply_id uuid;
   v_notification_count integer;
+  v_status jsonb;
+  v_discovery record;
+  v_stale_claim jsonb;
 begin
+  update public.star_letters set created_at=now()-interval '10 minutes'
+  where id='23000000-0000-4000-8000-000000000001';
+  select * into v_discovery
+  from public.discover_chia_star_letter_reply_candidates(
+    '21000000-0000-4000-8000-000000000001',now()-interval '1 day',50,null,null
+  ) where source_star_letter_id='23000000-0000-4000-8000-000000000001';
+  if v_discovery.source_star_letter_id is null then
+    raise exception 'eligible due source was omitted from discovery';
+  end if;
+
   v_claim := public.claim_chia_star_letter_reply_run(
     '23000000-0000-4000-8000-000000000001',
     '21000000-0000-4000-8000-000000000001'
@@ -105,6 +118,18 @@ begin
     raise exception 'expected exactly one existing star_letter_reply notification, got %', v_notification_count;
   end if;
 
+  v_status:=public.get_chia_star_letter_reply_run_status(
+    '23000000-0000-4000-8000-000000000001','21000000-0000-4000-8000-000000000001'
+  );
+  if v_status->>'status'<>'replied' or (v_status->>'reply_star_letter_id')::uuid<>v_reply_id then
+    raise exception 'status did not reconcile the committed reply: %',v_status;
+  end if;
+  if exists(select 1 from public.discover_chia_star_letter_reply_candidates(
+    '21000000-0000-4000-8000-000000000001',now()-interval '1 day',50,null,null
+  ) c where c.source_star_letter_id='23000000-0000-4000-8000-000000000001') then
+    raise exception 'terminal completed source remained discoverable';
+  end if;
+
   v_claim := public.claim_chia_star_letter_reply_run(
     '23000000-0000-4000-8000-000000000001',
     '21000000-0000-4000-8000-000000000001'
@@ -114,6 +139,39 @@ begin
     or coalesce((v_claim ->> 'claimed')::boolean, false) is true
   then
     raise exception 'duplicate source was not deduplicated: %', v_claim;
+  end if;
+end;
+$$;
+
+-- A source edit after the claim invalidates the generation atomically even
+-- when the caller supplies the pre-edit revision captured in its snapshot.
+insert into public.star_letters(id,post_id,author_id,body,created_at)
+values('23000000-0000-4000-8000-000000000008','22000000-0000-4000-8000-000000000001',
+  '21000000-0000-4000-8000-000000000003','Source before edit',now()-interval '10 minutes');
+do $$
+declare v_claim jsonb; v_complete jsonb; v_wake jsonb; v_revision timestamptz; v_post_revision timestamptz;
+begin
+  v_claim:=public.claim_chia_star_letter_reply_run('23000000-0000-4000-8000-000000000008','21000000-0000-4000-8000-000000000001');
+  if not coalesce((v_claim->>'claimed')::boolean,false) then raise exception 'freshness fixture claim failed: %',v_claim; end if;
+  v_revision:=(v_claim->>'source_updated_at')::timestamptz;
+  v_post_revision:=(v_claim->>'post_updated_at')::timestamptz;
+  v_wake:=public.authorize_chia_dot_provider_wake(
+    (v_claim->>'run_id')::uuid,'21000000-0000-4000-8000-000000000001',
+    '21000000-0000-4000-8000-000000000003',(v_claim->>'claim_token')::uuid
+  );
+  if v_wake->>'outcome'<>'authorized' then raise exception 'provider wake reservation failed: %',v_wake; end if;
+  if public.authorize_chia_dot_provider_wake(
+    (v_claim->>'run_id')::uuid,'21000000-0000-4000-8000-000000000001',
+    '21000000-0000-4000-8000-000000000003',(v_claim->>'claim_token')::uuid
+  )->>'outcome'<>'already_woken' then raise exception 'provider wake was not idempotent'; end if;
+  update public.star_letters set body='Source after edit' where id='23000000-0000-4000-8000-000000000008';
+  v_complete:=public.complete_chia_star_letter_reply_run(
+    (v_claim->>'run_id')::uuid,'21000000-0000-4000-8000-000000000001','reply','stale reply',
+    (v_claim->>'claim_token')::uuid,v_revision,v_post_revision
+  );
+  if v_complete->>'outcome'<>'stale_source'
+    or exists(select 1 from public.star_letters where parent_star_letter_id='23000000-0000-4000-8000-000000000008' and author_id='21000000-0000-4000-8000-000000000001') then
+    raise exception 'stale snapshot created a reply: %',v_complete;
   end if;
 end;
 $$;
@@ -136,6 +194,10 @@ select
 from public.star_letters
 where author_id = '21000000-0000-4000-8000-000000000001'
   and parent_star_letter_id = '23000000-0000-4000-8000-000000000001';
+
+-- The new claim policy respects the same wait window for direct replies to Chia.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000002';
 
 do $$
 declare
@@ -175,6 +237,9 @@ values (
   '人間Bから人間Aへの返信',
   '23000000-0000-4000-8000-000000000003'
 );
+-- Isolate relationship eligibility from the deliberate due-time guard.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000004';
 
 do $$
 declare
@@ -201,6 +266,9 @@ values (
   '21000000-0000-4000-8000-000000000003',
   '人間の流星便への星文'
 );
+-- Isolate relationship eligibility from the deliberate due-time guard.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000005';
 
 do $$
 declare
@@ -233,6 +301,9 @@ values (
   '21000000-0000-4000-8000-000000000003',
   'ブロック中の星文'
 );
+-- Isolate relationship eligibility from the deliberate due-time guard.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000006';
 
 do $$
 declare
@@ -260,6 +331,10 @@ values (
   '21000000-0000-4000-8000-000000000002',
   '返信前にブラックホールするテスト'
 );
+
+-- The race fixture must pass the same due window before claim.
+update public.star_letters set created_at=now()-interval '10 minutes'
+ where id='23000000-0000-4000-8000-000000000007';
 
 do $$
 declare

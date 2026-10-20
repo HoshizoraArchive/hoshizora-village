@@ -38,7 +38,11 @@ function readPositiveInteger(name, fallback) {
 }
 
 export function readChiaStarLetterReplyConfig() {
-  const enabled = readEnv("CHIA_STAR_LETTER_REPLY_ENABLED").trim() === "true";
+  // During a Dot cutover the legacy worker yields before it can claim a run.
+  // The old scheduler continues to fire, but only one generation backend owns
+  // the reply path, even if both feature flags were briefly enabled.
+  const enabled = readEnv("CHIA_STAR_LETTER_REPLY_ENABLED").trim() === "true"
+    && readEnv("CHIA_DOT_STAR_LETTER_ENABLED").trim() !== "true";
 
   if (!enabled) {
     return { enabled: false };
@@ -342,6 +346,7 @@ async function claimCandidate(supabase, config, letters, now) {
     if (data?.claimed && data?.run_id) {
       return {
         runId: data.run_id,
+        claimToken: data.claim_token ?? null,
         attempts: data.attempts ?? 1,
         letter,
       };
@@ -393,12 +398,14 @@ async function loadConversationContext(supabase, claimed, postById) {
   };
 }
 
-async function markRunFailed(supabase, runId, error) {
+async function markRunFailed(supabase, runId, error, claimToken = null) {
   const errorCode = error instanceof Error ? error.message.slice(0, 120) : "unknown";
-  const { error: rpcError } = await supabase.rpc("fail_chia_star_letter_reply_run", {
+  const args = {
     p_run_id: runId,
     p_error_code: errorCode,
-  });
+  };
+  if (claimToken) args.p_claim_token = claimToken;
+  const { error: rpcError } = await supabase.rpc("fail_chia_star_letter_reply_run", args);
 
   if (rpcError) {
     console.error("chia_star_letter_reply_fail_mark_failed", {
@@ -408,13 +415,15 @@ async function markRunFailed(supabase, runId, error) {
   }
 }
 
-async function completeRun(supabase, config, runId, generated) {
-  const { data, error } = await supabase.rpc("complete_chia_star_letter_reply_run", {
+async function completeRun(supabase, config, runId, generated, claimToken = null) {
+  const args = {
     p_run_id: runId,
     p_chia_profile_id: config.chiaProfileId,
     p_decision: generated.decision,
     p_body: generated.body,
-  });
+  };
+  if (claimToken) args.p_claim_token = claimToken;
+  const { data, error } = await supabase.rpc("complete_chia_star_letter_reply_run", args);
 
   if (error) {
     throw new Error(`reply_completion_failed:${error.code ?? "unknown"}`);
@@ -479,6 +488,7 @@ export async function runChiaStarLetterReply(dependencies = {}) {
       config,
       claimed.runId,
       generated,
+      claimed.claimToken,
     );
 
     return {
@@ -488,7 +498,7 @@ export async function runChiaStarLetterReply(dependencies = {}) {
       decision: generated.decision,
     };
   } catch (error) {
-    await markRunFailed(supabase, claimed.runId, error);
+    await markRunFailed(supabase, claimed.runId, error, claimed.claimToken);
     throw error;
   }
 }
