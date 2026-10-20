@@ -13,26 +13,24 @@ export function parseChiaDotMemoryEvidence(body, sourceBody) {
   return { key, quote };
 }
 
-export async function rememberChiaDotStarLetter(db, { run, signed, chiaProfileId }) {
+export async function rememberChiaDotStarLetter(db, { run, signed, chiaProfileId, evidence }) {
   if (run.status !== 'replied') return { outcome: 'not_replied' };
-  const { data: original, error: readError } = await db.from('star_letters').select('id,author_id,body,deleted_at').eq('id', signed.sourceId).maybeSingle();
+  // Never let a stale quote acquire the revision read after generation.
+  if (!evidence?.sourceUpdatedAt || !evidence?.postUpdatedAt) return { outcome: 'stale_snapshot' };
+  const { data: original, error: readError } = await db.from('star_letters').select('id,author_id,body,deleted_at,updated_at').eq('id', signed.sourceId).maybeSingle();
   if (readError) throw new Error('source_lookup_failed');
   if (!original || original.deleted_at || original.author_id === chiaProfileId) return { outcome: 'source_no_longer_eligible' };
-  const evidence = parseChiaDotMemoryEvidence(signed.body, original.body);
-  if (!evidence) return { outcome: 'invalid_memory_evidence' };
-  const { data: existing, error: existingError } = await db.from('chia_person_memories').select('id').eq('chia_profile_id', chiaProfileId).eq('person_profile_id', original.author_id).eq('memory_key', evidence.key).maybeSingle();
-  if (existingError) throw new Error('memory_lookup_failed');
-  if (existing) return { outcome: 'already_remembered' };
-  const { error: insertError } = await db.from('chia_person_memories').insert({
-    chia_profile_id: chiaProfileId,
-    person_profile_id: original.author_id,
-    source_star_letter_id: signed.sourceId,
-    memory_key: evidence.key,
-    content: evidence.quote,
+  if (Date.parse(original.updated_at) !== Date.parse(evidence.sourceUpdatedAt)) return { outcome: 'stale_snapshot' };
+  const parsed = parseChiaDotMemoryEvidence(signed.body, original.body);
+  if (!parsed) return { outcome: 'invalid_memory_evidence' };
+  const { data, error } = await db.rpc('remember_chia_star_letter_reply', {
+    p_run_id: signed.runId, p_chia_profile_id: chiaProfileId,
+    p_person_profile_id: original.author_id, p_claim_token: signed.claimToken,
+    p_source_star_letter_id: signed.sourceId,
+    p_source_updated_at: evidence.sourceUpdatedAt, p_post_updated_at: evidence.postUpdatedAt,
+    p_memory_key: parsed.key, p_content: parsed.quote, p_importance: 3,
   });
-  if (insertError) {
-    if (insertError.code === '23505') return { outcome: 'already_remembered' };
-    throw new Error('memory_insert_failed');
-  }
-  return { outcome: 'remembered' };
+  if (error) throw new Error('memory_transaction_failed');
+  if (!data?.outcome) throw new Error('unexpected_memory_outcome');
+  return data;
 }

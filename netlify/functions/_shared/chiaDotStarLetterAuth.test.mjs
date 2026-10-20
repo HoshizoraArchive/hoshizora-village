@@ -17,3 +17,12 @@ test('valid signed claim and complete are accepted', () => {
   assert.throws(() => verifyChiaDotStarLetterRequest({ ...complete, attempts: 2 }, { publicKey, now }));
   assert.throws(() => verifyChiaDotStarLetterRequest(complete, { publicKey, now: now + 61000 }));
 });
+
+
+test('signed read-only status uses source identity without a mutable snapshot or lease', () => {
+  const now = Date.now();
+  const status = signChiaDotStarLetterRequest({ action: 'status', sourceId: id, privateKey, now });
+  assert.equal(verifyChiaDotStarLetterRequest(status, { publicKey, now }).action, 'status');
+  assert.throws(() => verifyChiaDotStarLetterRequest({ ...status, sourceId: token }, { publicKey, now }));
+  assert.throws(() => verifyChiaDotStarLetterRequest({ ...status, body: 'write' }, { publicKey, now }));
+});

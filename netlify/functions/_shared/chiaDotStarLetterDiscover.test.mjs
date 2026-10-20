@@ -1,39 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkChiaDotStarLetterClaimDue } from './chiaDotStarLetterDiscover.mjs';
-
-const sourceId = '55555555-5555-4555-8555-555555555555';
+import { discoverChiaDotStarLetters, checkChiaDotStarLetterClaimDue } from './chiaDotStarLetterDiscover.mjs';
 const chiaProfileId = '66666666-6666-4666-8666-666666666666';
-const human = '77777777-7777-4777-8777-777777777777';
+const sourceId = '55555555-5555-4555-8555-555555555555';
 const now = new Date('2026-10-10T10:00:00.000Z');
 
-function fixture({ count = 0, createdAt = '2026-10-10T09:50:00.000Z' } = {}) {
-  const calls = [];
-  const db = {
-    from(table) {
-      const call = { table };
-      calls.push(call);
-      const query = new Proxy({}, {
-        get(_target, key) {
-          if (key === 'then') return (resolve) => resolve(table === 'chia_star_letter_reply_runs' ? { data: [], count } : { data: [{ id: sourceId, author_id: human, created_at: createdAt }] });
-          return () => query;
-        },
-      });
-      return query;
-    },
-  };
-  return { db, calls };
-}
-
-test('claim guard enforces per-day cap before source lookup', async () => {
-  const { db, calls } = fixture({ count: 50 });
-  assert.deepEqual(await checkChiaDotStarLetterClaimDue(db, { sourceId, chiaProfileId, now }), { eligible: false, outcome: 'daily_limit' });
-  assert.deepEqual(calls.map(({ table }) => table), ['chia_star_letter_reply_runs']);
+test('discovery uses server-filtered eligible candidates rather than a capped raw-letter scan', async () => {
+  const calls=[];
+  const db={rpc:async(name,args)=>{calls.push({name,args});return {data:[{source_star_letter_id:sourceId,created_at:'2026-10-10T09:50:00Z'}]};},from:()=>{throw new Error('raw_scan_starvation');}};
+  assert.deepEqual(await discoverChiaDotStarLetters(db,{chiaProfileId,now}),{outcome:'candidates',sourceIds:[sourceId]});
+  assert.equal(calls[0].name,'discover_chia_star_letter_reply_candidates');
+  assert.equal(calls[0].args.p_limit,5);
+  assert.equal(calls[0].args.p_since,'2026-10-08T10:00:00.000Z');
 });
-
-test('claim guard enforces delay and lookback independently', async () => {
-  const pending = fixture({ createdAt: '2026-10-10T09:59:59.000Z' });
-  assert.deepEqual(await checkChiaDotStarLetterClaimDue(pending.db, { sourceId, chiaProfileId, now }), { eligible: false, outcome: 'not_due' });
-  const due = fixture();
-  assert.deepEqual(await checkChiaDotStarLetterClaimDue(due.db, { sourceId, chiaProfileId, now }), { eligible: true });
+test('database discovery errors fail closed and never become no_candidate success',async()=>{
+  await assert.rejects(discoverChiaDotStarLetters({rpc:async()=>({error:{code:'database_unavailable'}})},{chiaProfileId,now}),/discovery_query_failed/);
+});
+test('advisory claim due guard leaves persistent eligibility and budgets to atomic claim',async()=>{
+  const db={from:()=>{const query=new Proxy({},{get(_t,key){if(key==='then')return(resolve)=>resolve({data:[{id:sourceId,author_id:'human',created_at:'2026-10-10T09:50:00Z'}]});return()=>query;}});return query;}};
+  assert.deepEqual(await checkChiaDotStarLetterClaimDue(db,{chiaProfileId,sourceId,now}),{eligible:true});
 });
