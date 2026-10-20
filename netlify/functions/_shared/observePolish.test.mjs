@@ -4,7 +4,7 @@ import test from "node:test";
 
 const mainSource = readFileSync("src/main.jsx", "utf8");
 const cssSource = readFileSync("src/observePolish.css", "utf8");
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n");
 const headerSource = readFileSync("src/ObserveBrandHeader.jsx", "utf8");
 
 test("observe header polish stays scoped and preserves the starry background", () => {

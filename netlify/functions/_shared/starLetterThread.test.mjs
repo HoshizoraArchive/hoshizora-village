@@ -63,7 +63,7 @@ test("only star-letter notifications with a target letter use the conversation r
 });
 
 test("thread UI uses revision-bearing conversation RPCs and the target URL", () => {
-  const source = readFileSync("src/App.jsx", "utf8");
+  const source = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n");
 
   for (const token of [
     "getStarLetterThreadSnapshot(supabase, postId)",
@@ -96,7 +96,7 @@ test("thread UI uses revision-bearing conversation RPCs and the target URL", () 
 });
 
 test("thread UI exposes a direct retry action for recoverable fetch failures", () => {
-  const source = readFileSync("src/App.jsx", "utf8");
+  const source = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n");
 
   assert.equal(source.includes("onRetry: refreshStarLettersForPost"), true);
   assert.equal(source.includes("starLetters?.onRetry?.(postId)"), true);

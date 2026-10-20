@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/components/PostCard.jsx", "utf8"), readFileSync("src/components/PostComposer.jsx", "utf8"), readFileSync("src/components/LinkedText.jsx", "utf8")].join("\n");
 const dataApiSource = readFileSync("src/dataRevisionApi.js", "utf8");
 
 test("post resonance visual state uses the existing viewer-specific engagement projection", () => {
