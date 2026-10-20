@@ -21,6 +21,7 @@ create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
 create schema auth;
+create schema app_private;
 create table auth.users (
   instance_id uuid, id uuid primary key, aud text, role text, email text unique,
   encrypted_password text, email_confirmed_at timestamptz,
@@ -59,13 +60,15 @@ create table public.star_letters (
   client_request_id uuid, deleted_at timestamptz,
   created_at timestamptz not null default now()-interval '10 minutes', updated_at timestamptz not null default now()
 );
-create function public.fixture_set_updated_at() returns trigger language plpgsql as $$
-begin new.updated_at := greatest(clock_timestamp(), old.updated_at + interval '1 microsecond'); return new; end
+-- Deliberately match actual Production's transaction-stable trigger so that
+-- the replay fails if the source monotonic safety migrations are missing.
+create function public.set_updated_at() returns trigger language plpgsql as $$
+begin new.updated_at := now(); return new; end
 $$;
-create trigger fixture_posts_updated_at before update on public.posts
-  for each row execute function public.fixture_set_updated_at();
-create trigger fixture_star_letters_updated_at before update on public.star_letters
-  for each row execute function public.fixture_set_updated_at();
+create trigger posts_set_updated_at before update on public.posts
+  for each row execute function public.set_updated_at();
+create trigger star_letters_set_updated_at before update on public.star_letters
+  for each row execute function public.set_updated_at();
 create unique index star_letters_client_request_fixture_unique
   on public.star_letters(author_id,client_request_id) where client_request_id is not null;
 create table public.profile_blocks (
@@ -161,6 +164,8 @@ async function hardenedMigrations() {
     await apply(db, "supabase/migrations/20261020120000_chia_dot_reply_atomic_guards.sql");
     // The follow-on migration is deliberately replayed to prove safe idempotence.
     await apply(db, "supabase/migrations/20261020120000_chia_dot_reply_atomic_guards.sql");
+    await apply(db, "supabase/migrations/20261020123000_chia_source_monotonic_revisions.sql");
+    await apply(db, "supabase/migrations/20261020124500_chia_source_monotonic_any_update.sql");
     await apply(db, "supabase/tests/chia-person-memory-fencing-assertions.sql");
     await apply(db, "supabase/tests/chia-star-letter-reply-assertions.sql");
     await apply(db, "supabase/tests/chia-dot-atomic-guards-assertions.sql");

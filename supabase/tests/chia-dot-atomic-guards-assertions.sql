@@ -207,9 +207,12 @@ begin
   if v_complete->>'outcome'<>'stale_source' then raise exception 'private post completion was accepted: %',v_complete; end if;
   update public.posts set visibility='public' where id='62000000-0000-4000-8000-000000000001';
   update public.posts set body='Post edited after claim' where id='62000000-0000-4000-8000-000000000001';
+  -- A later update to an unrelated column MUST NOT roll the revision back.
+  update public.posts set updated_at=updated_at where id='62000000-0000-4000-8000-000000000001';
   v_complete:=public.complete_chia_star_letter_reply_run(v_run,'61000000-0000-4000-8000-000000000001','reply','stale',v_token,v_source_rev,v_post_rev);
   if v_complete->>'outcome'<>'stale_source' then raise exception 'edited post completion was accepted: %',v_complete; end if;
   update public.star_letters set body='Changed after claim' where id='63000000-0000-4000-8000-000000000030';
+  update public.star_letters set updated_at=updated_at where id='63000000-0000-4000-8000-000000000030';
   v_complete:=public.complete_chia_star_letter_reply_run(v_run,'61000000-0000-4000-8000-000000000001','reply','stale',v_token,v_source_rev,v_post_rev);
   if v_complete->>'outcome'<>'stale_source' then raise exception 'edited source completion was accepted: %',v_complete; end if;
   -- A replied synthetic receipt whose source/post revision changed cannot add memory.
