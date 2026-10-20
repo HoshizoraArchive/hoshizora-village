@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useVillageRouteViewState } from "./hooks/useVillageRouteViewState.js";
+import { usePostMediaDraftState } from "./hooks/usePostMediaDraftState.js";
+import { useStarLetterUiState } from "./hooks/useStarLetterUiState.js";
+import { useFeedbackUiState } from "./hooks/useFeedbackUiState.js";
 import {
   ERROR_OPERATION,
   createUserFacingError,
@@ -1645,24 +1649,13 @@ function mapStarLetter(letter, authorProfile, profileFrames = []) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState("observe");
-  const [route, setRoute] = useState(() => getRouteFromLocation());
-  const [detailPost, setDetailPost] = useState(null);
-  const [detailPostLoading, setDetailPostLoading] = useState(false);
-  const [detailPostError, setDetailPostError] = useState("");
-  const [publicProfile, setPublicProfile] = useState(null);
-  const [publicProfileTags, setPublicProfileTags] = useState([]);
-  const [publicProfilePosts, setPublicProfilePosts] = useState([]);
-  const [publicProfileLoading, setPublicProfileLoading] = useState(false);
-  const [publicProfileError, setPublicProfileError] = useState("");
-  const [meteorTagView, setMeteorTagView] = useState(null);
-  const [meteorTagPosts, setMeteorTagPosts] = useState([]);
-  const [meteorTagLoading, setMeteorTagLoading] = useState(false);
-  const [meteorTagError, setMeteorTagError] = useState("");
-  const [shareMessage, setShareMessage] = useState("");
-  const [shareError, setShareError] = useState("");
-  const [profileShareMessage, setProfileShareMessage] = useState("");
-  const [profileShareError, setProfileShareError] = useState("");
+  const { activeTab, setActiveTab, route, setRoute, detailPost, setDetailPost, detailPostLoading,
+    setDetailPostLoading, detailPostError, setDetailPostError, publicProfile, setPublicProfile,
+    publicProfileTags, setPublicProfileTags, publicProfilePosts, setPublicProfilePosts, publicProfileLoading,
+    setPublicProfileLoading, publicProfileError, setPublicProfileError, meteorTagView, setMeteorTagView,
+    meteorTagPosts, setMeteorTagPosts, meteorTagLoading, setMeteorTagLoading, meteorTagError,
+    setMeteorTagError, shareMessage, setShareMessage, shareError, setShareError, profileShareMessage,
+    setProfileShareMessage, profileShareError, setProfileShareError, } = useVillageRouteViewState(getRouteFromLocation);
   const [initialAuthCallback] = useState(() => getAuthCallbackIntent(window.location));
   const [session, setSession] = useState(null);
   const activeSessionUserIdRef = useRef(null);
@@ -1797,34 +1790,17 @@ function App() {
   const foregroundHiddenAtRef = useRef(null);
   const foregroundRefreshTimerRef = useRef(null);
   const appMountedRef = useRef(true);
-  const [postDraft, setPostDraft] = useState("");
-  const [postImageDrafts, setPostImageDrafts] = useState([]);
-  const postImageDraftsRef = useRef([]);
-  const [postVideoDraft, setPostVideoDraft] = useState(null);
-  const postVideoDraftRef = useRef(null);
-  const [postThumbnailDraft, setPostThumbnailDraft] = useState(null);
-  const postThumbnailDraftRef = useRef(null);
-  const [postVideoPreparing, setPostVideoPreparing] = useState(false);
-  const [postVideoTrimDraft, setPostVideoTrimDraft] = useState(null);
-  const postVideoTrimDraftRef = useRef(null);
-  const [postVideoTrimStart, setPostVideoTrimStart] = useState(0);
-  const [postVideoTrimLength, setPostVideoTrimLength] = useState(METEOR_VIDEO_MAX_DURATION_SECONDS);
-  const [postVideoTrimProgress, setPostVideoTrimProgress] = useState(0);
-  const [postVideoTrimProcessing, setPostVideoTrimProcessing] = useState(false);
-  const [postVideoTrimError, setPostVideoTrimError] = useState("");
-  const postVideoTrimConversionRef = useRef(null);
-  const postVideoTrimCancelRequestedRef = useRef(false);
-  const [postCoverCropFile, setPostCoverCropFile] = useState(null);
-  const [postCoverCropPreviewUrl, setPostCoverCropPreviewUrl] = useState("");
-  const [postCoverCropModalOpen, setPostCoverCropModalOpen] = useState(false);
-  const [postCoverCropZoom, setPostCoverCropZoom] = useState(AVATAR_CROP_MIN_ZOOM);
-  const [postCoverCropOffset, setPostCoverCropOffset] = useState({ x: 0, y: 0 });
-  const [postCoverImageSize, setPostCoverImageSize] = useState(null);
-  const [postCoverCropFrameSize, setPostCoverCropFrameSize] = useState({
-    height: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_HEIGHT,
-    width: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_WIDTH,
-  });
-  const [postCoverCropPreparing, setPostCoverCropPreparing] = useState(false);
+  const { postDraft, setPostDraft, postImageDrafts, setPostImageDrafts, postImageDraftsRef, postVideoDraft,
+    setPostVideoDraft, postVideoDraftRef, postThumbnailDraft, setPostThumbnailDraft, postThumbnailDraftRef,
+    postVideoPreparing, setPostVideoPreparing, postVideoTrimDraft, setPostVideoTrimDraft,
+    postVideoTrimDraftRef, postVideoTrimStart, setPostVideoTrimStart, postVideoTrimLength,
+    setPostVideoTrimLength, postVideoTrimProgress, setPostVideoTrimProgress, postVideoTrimProcessing,
+    setPostVideoTrimProcessing, postVideoTrimError, setPostVideoTrimError, postVideoTrimConversionRef,
+    postVideoTrimCancelRequestedRef, postCoverCropFile, setPostCoverCropFile, postCoverCropPreviewUrl,
+    setPostCoverCropPreviewUrl, postCoverCropModalOpen, setPostCoverCropModalOpen, postCoverCropZoom,
+    setPostCoverCropZoom, postCoverCropOffset, setPostCoverCropOffset, postCoverImageSize,
+    setPostCoverImageSize, postCoverCropFrameSize, setPostCoverCropFrameSize, postCoverCropPreparing,
+    setPostCoverCropPreparing, } = usePostMediaDraftState({ coverFallbackHeight: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_HEIGHT, coverFallbackWidth: METEOR_VIDEO_COVER_PREVIEW_FALLBACK_WIDTH });
   const [postSaving, setPostSaving] = useState(false);
   const [postMessage, setPostMessage] = useState("");
   const [postError, setPostError] = useState("");
@@ -1857,31 +1833,17 @@ function App() {
   const [notificationsError, setNotificationsError] = useState("");
   const [notificationsMessage, setNotificationsMessage] = useState("");
   const [notificationUpdatingId, setNotificationUpdatingId] = useState(null);
-  const [starLettersByPostId, setStarLettersByPostId] = useState({});
-  const starLettersByPostIdRef = useRef({});
-  const [starLettersLoading, setStarLettersLoading] = useState(false);
-  const [starLettersError, setStarLettersError] = useState("");
-  const [starLettersMessage, setStarLettersMessage] = useState("");
-  const [starLetterSavingPostId, setStarLetterSavingPostId] = useState(null);
-  const [openStarLetterPostId, setOpenStarLetterPostId] = useState(null);
-  const [starLetterDrafts, setStarLetterDrafts] = useState({});
-  const [editingStarLetterId, setEditingStarLetterId] = useState(null);
-  const [starLetterEditDrafts, setStarLetterEditDrafts] = useState({});
-  const [starLetterUpdatingId, setStarLetterUpdatingId] = useState(null);
-  const [starLetterDeletingId, setStarLetterDeletingId] = useState(null);
-  const [starLetterReplyComposer, setStarLetterReplyComposer] = useState(null);
-  const [starLetterReplySavingId, setStarLetterReplySavingId] = useState(null);
-  const [starLetterResonatingIds, setStarLetterResonatingIds] = useState(() => new Set());
-  const [starLetterArchivingIds, setStarLetterArchivingIds] = useState(() => new Set());
-  const [highlightedStarLetterId, setHighlightedStarLetterId] = useState(null);
-  const starLetterRequestIdsRef = useRef(createOperationRequestIdStore());
-  const starLetterRequestVersionsRef = useRef(createEntityRequestVersionStore());
-  const archivedStarLettersRequestVersionRef = useRef(0);
-  const [feedbackType, setFeedbackType] = useState(FEEDBACK_TYPES[0]);
-  const [feedbackBody, setFeedbackBody] = useState("");
-  const [feedbackSaving, setFeedbackSaving] = useState(false);
-  const [feedbackMessage, setFeedbackMessage] = useState("");
-  const [feedbackError, setFeedbackError] = useState("");
+  const { starLettersByPostId, setStarLettersByPostId, starLettersByPostIdRef, starLettersLoading,
+    setStarLettersLoading, starLettersError, setStarLettersError, starLettersMessage, setStarLettersMessage,
+    starLetterSavingPostId, setStarLetterSavingPostId, openStarLetterPostId, setOpenStarLetterPostId,
+    starLetterDrafts, setStarLetterDrafts, editingStarLetterId, setEditingStarLetterId, starLetterEditDrafts,
+    setStarLetterEditDrafts, starLetterUpdatingId, setStarLetterUpdatingId, starLetterDeletingId,
+    setStarLetterDeletingId, starLetterReplyComposer, setStarLetterReplyComposer, starLetterReplySavingId,
+    setStarLetterReplySavingId, starLetterResonatingIds, setStarLetterResonatingIds, starLetterArchivingIds,
+    setStarLetterArchivingIds, highlightedStarLetterId, setHighlightedStarLetterId, starLetterRequestIdsRef,
+    starLetterRequestVersionsRef, archivedStarLettersRequestVersionRef, } = useStarLetterUiState();
+  const { feedbackType, setFeedbackType, feedbackBody, setFeedbackBody, feedbackSaving, setFeedbackSaving,
+    feedbackMessage, setFeedbackMessage, feedbackError, setFeedbackError, } = useFeedbackUiState(FEEDBACK_TYPES);
   const detailPostId = route.name === "meteor" ? route.postId : null;
   const detailStarLetterId = route.name === "meteor" ? route.starLetterId ?? null : null;
   const publicProfileUsername = route.name === "starProfile" ? route.username : null;
