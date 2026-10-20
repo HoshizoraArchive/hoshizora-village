@@ -13,7 +13,7 @@ import {
   validatePasswordRecoveryPasswords,
 } from "../../../src/authConfirmation.js";
 
-const appSource = readFileSync("src/App.jsx", "utf8");
+const appSource = [readFileSync("src/App.jsx", "utf8"), readFileSync("src/hooks/useAuthSessionLifecycle.js", "utf8")].join("\n");
 const recoveryPanelSource = readFileSync("src/PasswordRecoveryPanel.jsx", "utf8");
 
 test("password recovery callbacks remain distinct from signup confirmation callbacks", () => {

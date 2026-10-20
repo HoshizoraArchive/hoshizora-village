@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPostMediaTaskGate } from "./lib/postMediaTaskGate.js";
+import { useAuthSessionLifecycle } from "./hooks/useAuthSessionLifecycle.js";
 import { useVillageRouteViewState } from "./hooks/useVillageRouteViewState.js";
 import { usePostMediaDraftState } from "./hooks/usePostMediaDraftState.js";
 import { useStarLetterUiState } from "./hooks/useStarLetterUiState.js";
@@ -158,7 +159,6 @@ import {
   getAuthCallbackIntent,
   getAuthConfirmationCooldownSeconds,
   getPasswordRecoveryRedirectUrl,
-  getSanitizedAuthCallbackPath,
   finishAuthAction,
   isAuthEmailRateLimitError,
   isEmailNotConfirmedError,
@@ -2228,211 +2228,19 @@ function App() {
     };
   }, [avatarModal]);
 
-  useEffect(() => {
-    let isMounted = true;
-    let recoveryResolutionTimer = null;
-
-    function cleanAuthCallbackUrl(force = false) {
-      if ((!initialAuthCallback.shouldCleanUrl && !force) || authCallbackCleanedRef.current) {
-        return;
-      }
-
-      authCallbackCleanedRef.current = true;
-      window.history.replaceState(
-        window.history.state,
-        "",
-        getSanitizedAuthCallbackPath(window.location),
-      );
-    }
-
-    function markPasswordRecoveryInvalid() {
-      authCallbackResolvedRef.current = true;
-      passwordRecoveryVerifiedUserIdRef.current = null;
-      setAuthConfirmation(null);
-      setAuthError("");
-      setAuthMessage("");
-      setPasswordRecovery({
-        email: "",
-        kind: AUTH_PASSWORD_RECOVERY_KIND.INVALID,
-        resendAvailableAt: 0,
-      });
-      setAuthStatus("再設定リンクエラー");
-      cleanAuthCallbackUrl(true);
-    }
-
-    function applyPasswordRecoveryEventSession(currentSession) {
-      const recoveryUserId = currentSession?.user?.id ?? null;
-
-      if (!recoveryUserId) {
-        markPasswordRecoveryInvalid();
-        return;
-      }
-
-      if (recoveryResolutionTimer) {
-        window.clearTimeout(recoveryResolutionTimer);
-        recoveryResolutionTimer = null;
-      }
-
-      authCallbackResolvedRef.current = true;
-      passwordRecoveryVerifiedUserIdRef.current = recoveryUserId;
-      setAuthConfirmation(null);
-      setAuthError("");
-      setAuthMessage("");
-      setPasswordRecovery({
-        email: currentSession.user?.email ?? "",
-        kind: AUTH_PASSWORD_RECOVERY_KIND.ACTIVE,
-        resendAvailableAt: 0,
-        userId: recoveryUserId,
-      });
-      setAuthStatus("パスワード再設定中");
-      cleanAuthCallbackUrl(true);
-    }
-
-    function waitForPasswordRecoveryEvent() {
-      // A recovery pathname is only a candidate. Give detectSessionInUrl's queued
-      // PASSWORD_RECOVERY event time to verify the session before failing closed.
-      recoveryResolutionTimer = window.setTimeout(() => {
-        recoveryResolutionTimer = null;
-
-        if (isMounted && !authCallbackResolvedRef.current) {
-          markPasswordRecoveryInvalid();
-        }
-      }, 100);
-    }
-
-    function applyInitialAuthCallback(currentSession) {
-      if (authCallbackResolvedRef.current) {
-        return;
-      }
-
-      if (initialAuthCallback.kind === "password_recovery_invalid") {
-        markPasswordRecoveryInvalid();
-        return;
-      }
-
-      if (initialAuthCallback.kind === "password_recovery") {
-        waitForPasswordRecoveryEvent();
-        return;
-      }
-
-      if (initialAuthCallback.kind === AUTH_CONFIRMATION_KIND.INVALID_LINK) {
-        authCallbackResolvedRef.current = true;
-        setAuthConfirmation({
-          email: "",
-          kind: AUTH_CONFIRMATION_KIND.INVALID_LINK,
-          resendAvailableAt: 0,
-        });
-        setAuthStatus("メール確認エラー");
-        cleanAuthCallbackUrl();
-        return;
-      }
-
-      if (initialAuthCallback.kind !== "signup_callback") {
-        return;
-      }
-
-      authCallbackResolvedRef.current = true;
-
-      if (currentSession) {
-        setAuthConfirmation({
-          email: currentSession.user?.email ?? "",
-          kind: AUTH_CONFIRMATION_KIND.CONFIRMED,
-          resendAvailableAt: 0,
-        });
-        setAuthError("");
-        setAuthMessage("");
-        setAuthStatus("メール確認完了");
-      } else {
-        setAuthConfirmation({
-          email: "",
-          kind: AUTH_CONFIRMATION_KIND.INVALID_LINK,
-          resendAvailableAt: 0,
-        });
-        setAuthStatus("メール確認エラー");
-      }
-
-      cleanAuthCallbackUrl();
-    }
-
-    async function readSession() {
-      const { data, error } = await supabase.auth.getSession();
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (error) {
-        if (initialAuthCallback.kind === "password_recovery") {
-          markPasswordRecoveryInvalid();
-          return;
-        }
-
-        setAuthStatus("確認エラー");
-        setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SESSION));
-        return;
-      }
-
-      activeSessionUserIdRef.current = data.session?.user?.id ?? null;
-      setSession(data.session);
-      setAuthStatus(
-        data.session
-          ? "ログイン中"
-          : [AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"].includes(
-                initialAuthCallback.kind,
-              )
-            ? "メール確認エラー"
-            : "未ログイン",
-      );
-      applyInitialAuthCallback(data.session);
-    }
-
-    readSession();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      activeSessionUserIdRef.current = session?.user?.id ?? null;
-      setSession(session);
-      setAuthStatus(
-        session
-          ? "ログイン中"
-          : [AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"].includes(
-                initialAuthCallback.kind,
-              )
-            ? "メール確認エラー"
-            : "未ログイン",
-      );
-
-      if (event === "PASSWORD_RECOVERY") {
-        applyPasswordRecoveryEventSession(session);
-        return;
-      }
-
-      if (
-        passwordRecoveryVerifiedUserIdRef.current &&
-        passwordRecoveryVerifiedUserIdRef.current !== (session?.user?.id ?? null)
-      ) {
-        markPasswordRecoveryInvalid();
-        return;
-      }
-
-      if (
-        event === "SIGNED_IN" &&
-        initialAuthCallback.kind === "signup_callback" &&
-        !authCallbackResolvedRef.current
-      ) {
-        applyInitialAuthCallback(session);
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      if (recoveryResolutionTimer) {
-        window.clearTimeout(recoveryResolutionTimer);
-      }
-      subscription.unsubscribe();
-    };
-  }, [initialAuthCallback.kind, initialAuthCallback.shouldCleanUrl]);
+  useAuthSessionLifecycle({
+    initialAuthCallback,
+    authCallbackCleanedRef,
+    authCallbackResolvedRef,
+    passwordRecoveryVerifiedUserIdRef,
+    setAuthConfirmation,
+    setAuthError,
+    setAuthMessage,
+    setPasswordRecovery,
+    setAuthStatus,
+    activeSessionUserIdRef,
+    setSession,
+  });
 
   useEffect(() => {
     activeSessionUserIdRef.current = session?.user?.id ?? null;
