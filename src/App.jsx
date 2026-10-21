@@ -1720,6 +1720,7 @@ function App() {
   const [blackHoleError, setBlackHoleError] = useState("");
   const [blackHoleItems, setBlackHoleItems] = useState([]);
   const [blackHoleItemsLoading, setBlackHoleItemsLoading] = useState(false);
+  const blackHoleItemsRequestVersionRef = useRef(0);
   const [contentReportsAvailable, setContentReportsAvailable] = useState(true);
   const [contentReportDialog, setContentReportDialog] = useState(null);
   const [contentReportSaving, setContentReportSaving] = useState(false);
@@ -1902,6 +1903,7 @@ function App() {
     }
 
     previousDataSessionUserIdRef.current = sessionUserId;
+    blackHoleItemsRequestVersionRef.current += 1;
     dataSessionEpochRef.current += 1;
     const sessionKey = `${sessionUserId ?? "anonymous"}:${dataSessionEpochRef.current}`;
     dataSessionKeyRef.current = sessionKey;
@@ -1938,6 +1940,11 @@ function App() {
     setProfileSaving(false);
     setAvatarUploading(false);
     setProfileScreenMode("view");
+    setFeedbackType(FEEDBACK_TYPES[0]);
+    setFeedbackBody("");
+    setFeedbackSaving(false);
+    setFeedbackMessage("");
+    setFeedbackError("");
     setSavedPosts([]);
     setOwnPosts([]);
     setOwnPostsLoading(false);
@@ -5286,12 +5293,25 @@ function App() {
       return;
     }
 
+    const requestSession = captureDataMutationSession();
+    const requestVersion = ++blackHoleItemsRequestVersionRef.current;
+    const isCurrentRequest = () =>
+      isCurrentDataMutationSession(requestSession) &&
+      blackHoleItemsRequestVersionRef.current === requestVersion;
+
     setBlackHoleItemsLoading(true);
     setBlackHoleError("");
 
     try {
-      setBlackHoleItems(await readMyProfileBlocks(supabase));
+      const items = await readMyProfileBlocks(supabase);
+      if (!isCurrentRequest()) {
+        return;
+      }
+      setBlackHoleItems(items);
     } catch (error) {
+      if (!isCurrentRequest()) {
+        return;
+      }
       if (isMissingProfileBlocksSchemaError(error)) {
         setProfileBlockingAvailable(false);
         setBlackHoleItems([]);
@@ -5300,7 +5320,9 @@ function App() {
         setBlackHoleError("ブラックホール管理を読み込めませんでした。");
       }
     } finally {
-      setBlackHoleItemsLoading(false);
+      if (isCurrentRequest()) {
+        setBlackHoleItemsLoading(false);
+      }
     }
   }
 
@@ -5444,12 +5466,21 @@ function App() {
       return;
     }
 
+    const requestSession = captureDataMutationSession();
+    const requestFlight = contentReportSingleFlightRef.current;
+    const isCurrentRequest = () =>
+      isCurrentDataMutationSession(requestSession) &&
+      contentReportSingleFlightRef.current === requestFlight;
+
     setContentReportSaving(true);
 
     try {
-      const result = await contentReportSingleFlightRef.current.run(() =>
+      const result = await requestFlight.run(() =>
         createContentReport(supabase, contentReportDialog),
       );
+      if (!isCurrentRequest()) {
+        return;
+      }
       setContentReportDialog((current) =>
         current
           ? {
@@ -5463,6 +5494,9 @@ function App() {
           : current,
       );
     } catch (error) {
+      if (!isCurrentRequest()) {
+        return;
+      }
       if (isMissingContentReportsSchemaError(error)) {
         setContentReportsAvailable(false);
       }
@@ -5477,7 +5511,9 @@ function App() {
           : current,
       );
     } finally {
-      setContentReportSaving(false);
+      if (isCurrentRequest()) {
+        setContentReportSaving(false);
+      }
     }
   }
 
@@ -5823,6 +5859,7 @@ function App() {
       return;
     }
 
+    const requestSession = captureDataMutationSession();
     setFeedbackSaving(true);
 
     const { error } = await supabase.from("feedbacks").insert({
@@ -5832,6 +5869,9 @@ function App() {
       status: "new",
     });
 
+    if (!isCurrentDataMutationSession(requestSession)) {
+      return;
+    }
     setFeedbackSaving(false);
 
     if (error) {
