@@ -252,3 +252,10 @@ test("onboarding target never mutates posts after effect cleanup", async () => {
   assert.equal(c.calls.readProfile, 0);
   assert.deepEqual(c.state.savedPosts, []);
 });
+test("new progress snapshot with identical step/target must restart target fetch after epoch reset", () => {
+  // Auth epoch reset clears savedPosts and onboardingProgressRef. A fresh progress
+  // row may have the same step and target ID, so depending on their scalar
+  // fields alone misses the refetch if React batches the intermediate null.
+  const dependencies = targetEffect.expression.arguments[1]?.elements?.map((n) => src.slice(n.start, n.end));
+  assert.ok(dependencies.includes("sessionOnboardingProgress"), "fresh progress object identity must retrigger the target request");
+});

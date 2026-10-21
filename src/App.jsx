@@ -4628,6 +4628,9 @@ function App() {
   }, [
     sessionOnboardingProgress?.current_step,
     sessionOnboardingProgress?.target_post_id,
+    // After an Auth epoch reset the progress row may be reloaded with the same
+    // step/target values; track its new object identity to restart hydration.
+    sessionOnboardingProgress,
     profileFrames,
     authIdentityEpoch,
   ]);
