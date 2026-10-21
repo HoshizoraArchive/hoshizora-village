@@ -43,7 +43,9 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
     activeSessionUserIdRef,
     setSession: (value) => { state.session = value; state.authUserId = value?.user?.id ?? null; state.updates.push("session"); },
     setAuthConfirmation: (value) => { state.confirmation = value; },
-    setAuthError: (value) => { state.authError = value; },
+    setAuthError: (value) => {
+      state.authError = typeof value === "function" ? value(state.authError) : value;
+    },
     setAuthMessage: (value) => { state.authMessage = value; },
     setPasswordRecovery: (value) => { state.passwordRecovery = value; },
     setAuthStatus: (value) => { state.authStatus = value; },
@@ -68,9 +70,9 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
 }
 
 test("Auth effect contains the audited latest-event-wins guard", () => {
-  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "17b630200ced3b59351fe78dcc34c766640df8dd33921d59ab0843fcea28ab42");
+  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "b82263b0ca4d6250141f083c591db456bb4620dda064c6f8582e93728128bcf0");
   assert.match(effectCode, /if \(hasAuthStateEvent\) \{[\s\S]*?applyInitialAuthCallback\(latestAuthStateEventSession\);/);
-  assert.match(effectCode, /hasAuthStateEvent = true;[\s\S]*?latestAuthStateEventSession = session;/);
+  assert.match(effectCode, /latestAuthStateEventType = event;[\s\S]*?latestAuthStateEventSession = session;/);
   assert.deepEqual(effect.expression.arguments[1].elements.map((entry) => source.slice(entry.start, entry.end)), [
     "initialAuthCallback.kind", "initialAuthCallback.shouldCleanUrl",
   ]);
@@ -209,6 +211,152 @@ test("stale initial session error after new SIGNED_IN does not show auth error",
   await Promise.resolve();
   assert.equal(app.state.authStatus, "ログイン中");
   assert.equal(app.state.authError, undefined);
+  app.cleanup();
+});
+
+test("failed initial getSession is shown when SDK emits only INITIAL_SESSION(null)", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authStatus, "確認エラー");
+  assert.equal(app.state.authError, "確認できませんでした");
+  assert.equal(app.state.session, null);
+  app.cleanup();
+});
+
+test("failed initial getSession invalidates unresolved recovery after only INITIAL_SESSION(null)", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ kind: "password_recovery", shouldCleanUrl: true, pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "session_not_found" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.passwordRecovery?.kind, AUTH_PASSWORD_RECOVERY_KIND.INVALID);
+  assert.equal(app.state.authStatus, "再設定リンクエラー");
+  assert.equal(app.state.replaceHistory.length, 1);
+  app.cleanup();
+});
+
+test("successful initial anonymous state does not fabricate an error", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: null });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authStatus, "未ログイン");
+  assert.equal(app.state.authError, undefined);
+  app.cleanup();
+});
+
+test("new SIGNED_OUT after INITIAL_SESSION suppresses stale initial error", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  app.emit("SIGNED_OUT", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authStatus, "未ログイン");
+  assert.equal(app.state.authError, undefined);
+  app.cleanup();
+});
+
+test("new SIGNED_IN after INITIAL_SESSION suppresses stale initial error", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  const latest = { user: { id: "latest", email: "latest@example.invalid" } };
+  app.emit("INITIAL_SESSION", null);
+  app.emit("SIGNED_IN", latest);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authStatus, "ログイン中");
+  assert.equal(app.state.authError, undefined);
+  assert.equal(app.state.session, latest);
+  app.cleanup();
+});
+
+test("INITIAL_SESSION with a valid account remains authoritative despite stale getSession error", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  const latest = { user: { id: "latest" } };
+  app.emit("INITIAL_SESSION", latest);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authStatus, "ログイン中");
+  assert.equal(app.state.authError, undefined);
+  assert.equal(app.state.session, latest);
+  app.cleanup();
+});
+
+for (const kind of ["signup_callback", AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"]) {
+  test(`invalid callback ${kind} is finalized and callback URL sanitized after initial session error`, async () => {
+    const pending = deferred();
+    const app = createAuthHarness({ kind, shouldCleanUrl: true, pending });
+    app.emit("INITIAL_SESSION", null);
+    pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(app.env.authCallbackResolvedRef.current, true);
+    assert.equal(app.state.replaceHistory.length, 1, "callback secret must be removed from URL");
+    if (kind === "password_recovery_invalid") {
+      assert.equal(app.state.passwordRecovery?.kind, AUTH_PASSWORD_RECOVERY_KIND.INVALID);
+      assert.equal(app.state.authStatus, "再設定リンクエラー");
+    } else {
+      assert.equal(app.state.confirmation?.kind, AUTH_CONFIRMATION_KIND.INVALID_LINK);
+      assert.equal(app.state.authStatus, "メール確認エラー");
+    }
+    app.cleanup();
+  });
+}
+
+test("successful later SIGNED_IN clears error from initial read failure", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authError, "確認できませんでした");
+  const latest = { user: { id: "current" } };
+  app.emit("SIGNED_IN", latest);
+  assert.equal(app.state.authStatus, "ログイン中");
+  assert.equal(app.state.authError, "");
+  assert.equal(app.state.session, latest);
+  app.cleanup();
+});
+
+test("a later invalid-password error survives a SIGNED_OUT event after initial read failure", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authError, "確認できませんでした");
+  // The existing handleLogin can replace authError with an invalid-credentials
+  // message before a SIGNED_OUT event arrives from Supabase or another tab.
+  app.env.setAuthError("メールアドレスまたはパスワードが違います");
+  app.emit("SIGNED_OUT", null);
+  assert.equal(app.state.authError, "メールアドレスまたはパスワードが違います");
+  app.cleanup();
+});
+
+test("a later signed-out event removes only the owned initial read error", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authError, "確認できませんでした");
+  app.emit("SIGNED_OUT", null);
+  assert.equal(app.state.authError, "");
   app.cleanup();
 });
 

@@ -52,6 +52,12 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - Supabase AuthやDB仕様、Auth発火タイミングは変更しない。既存の認証Effect内で局所的に世代を管理し、listener購読解除・タイマー破棄は維持する。
 - `src/authSessionLifecycle.test.mjs` で、イベントより遅く戻るセッション/エラー、logout、signup、PASSWORD_RECOVERYの競合を実ハンドラにdeferred promiseを与えて固定する。
 
+## 第7段階：初期Auth取得エラーの可視化
+- Supabase Auth JS 2.107.0ではセッション初期読出しが失敗しても`INITIAL_SESSION(null)`を通知する。このケースのみ、`getSession()`のエラーを「確認エラー」としてUIへ表示する。
+- パスワード再設定リンク上の失敗は、従来の失効リンク検証へ戻す。`signup_callback`や無効な確認・再設定リンクでも、失効表示とURLからのcallbackパラメータ消去を維持する。
+- 認証イベントで正常なセッションが確定した場合や、`SIGNED_IN`/`SIGNED_OUT`/回復イベントが到着済みの場合、遅延した初期取得エラーをUIへ伝播させない。初期エラー表示後にAuthイベントが到着したら、stateの最新値と一致する場合に限り初期エラーを消去する。後から表示されたパスワード誤入力などのエラーは`SIGNED_OUT`通知でも消さない。
+- Auth購読の順序、既存のセッション境界・DB/RLS・Auth実行権限は不変。6件のdeferred raceテストで初期失敗・recovery・通常匿名・イベント後の旧エラーを再現する。
+
 ## 必須の設計上の注意
 
 1. `App.jsx` に画面内だけで使う新しい表示コンポーネントを追加しない。既存の担当モジュールを先に確認する。

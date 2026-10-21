@@ -20,7 +20,10 @@ useEffect(() => {
     let isMounted = true;
     let recoveryResolutionTimer = null;
     let hasAuthStateEvent = false;
+    let latestAuthStateEventType = null;
     let latestAuthStateEventSession = null;
+    let initialReadErrorShown = false;
+    let initialReadErrorMessage = null;
 
     function cleanAuthCallbackUrl(force = false) {
       if ((!initialAuthCallback.shouldCleanUrl && !force) || authCallbackCleanedRef.current) {
@@ -155,6 +158,31 @@ useEffect(() => {
       // before the initial getSession() promise settles. Never overwrite the
       // event with an earlier snapshot (including an obsolete error).
       if (hasAuthStateEvent) {
+        // Auth JS emits INITIAL_SESSION(null) even when its initial read fails.
+        // Only that still-authoritative initial event may surface its error.
+        // A later SIGNED_IN/SIGNED_OUT/recovery event must never be overwritten.
+        if (error && latestAuthStateEventType === "INITIAL_SESSION" && !latestAuthStateEventSession) {
+          if (initialAuthCallback.kind === "password_recovery") {
+            markPasswordRecoveryInvalid();
+            return;
+          }
+
+          // Callback-specific errors must still resolve and sanitize the URL,
+          // not leave token/code parameters in browser history.
+          if (["signup_callback", AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"].includes(
+            initialAuthCallback.kind,
+          )) {
+            applyInitialAuthCallback(latestAuthStateEventSession);
+            return;
+          }
+
+          initialReadErrorShown = true;
+          initialReadErrorMessage = getUserFacingError(error, ERROR_OPERATION.AUTH_SESSION);
+          setAuthStatus("確認エラー");
+          setAuthError(initialReadErrorMessage);
+          return;
+        }
+
         // Signup/recovery URL processing was previously completed by this
         // initial read. Keep that callback work, using the latest event
         // session rather than the stale response.
@@ -193,7 +221,16 @@ useEffect(() => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       hasAuthStateEvent = true;
+      latestAuthStateEventType = event;
       latestAuthStateEventSession = session;
+      if (initialReadErrorShown && event !== "INITIAL_SESSION") {
+        const ownedErrorMessage = initialReadErrorMessage;
+        initialReadErrorShown = false;
+        initialReadErrorMessage = null;
+        // A user-initiated login failure may have replaced the startup error.
+        // Do not clear that newer message when a SIGNED_OUT broadcast arrives.
+        setAuthError((current) => current === ownedErrorMessage ? "" : current);
+      }
       activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);
       setAuthStatus(
