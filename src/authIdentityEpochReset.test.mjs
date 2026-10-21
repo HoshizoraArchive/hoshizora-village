@@ -26,6 +26,7 @@ function createHarness({ previousUserId, userId, previousEpoch, epoch }) {
     dataSessionKeyRef: { current: userId + ":4" },
     publicPostsRefreshQueueRef: { current: { pendingOperation: {}, activeController: null } },
     publicPostsRefreshInFlightRef: { current: true },
+    profileNotificationSettingPendingRef: { current: new Set() },
     FEEDBACK_TYPES: ["不具合", "改善案"],
     Set,
     Map,
