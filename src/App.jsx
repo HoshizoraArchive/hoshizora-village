@@ -5862,25 +5862,35 @@ function App() {
     const requestSession = captureDataMutationSession();
     setFeedbackSaving(true);
 
-    const { error } = await supabase.from("feedbacks").insert({
-      user_id: session.user.id,
-      type: feedbackType,
-      body,
-      status: "new",
-    });
+    try {
+      const { error } = await supabase.from("feedbacks").insert({
+        user_id: session.user.id,
+        type: feedbackType,
+        body,
+        status: "new",
+      });
 
-    if (!isCurrentDataMutationSession(requestSession)) {
-      return;
-    }
-    setFeedbackSaving(false);
+      if (!isCurrentDataMutationSession(requestSession)) {
+        return;
+      }
+      if (error) {
+        setFeedbackError(getUserFacingError(error, ERROR_OPERATION.FEEDBACK_SAVE));
+        return;
+      }
 
-    if (error) {
+      setFeedbackBody("");
+      setFeedbackMessage("フィードバックを送信しました。ありがとうございます。");
+    } catch (error) {
+      if (!isCurrentDataMutationSession(requestSession)) {
+        return;
+      }
+      logSafeError(ERROR_OPERATION.FEEDBACK_SAVE, error);
       setFeedbackError(getUserFacingError(error, ERROR_OPERATION.FEEDBACK_SAVE));
-      return;
+    } finally {
+      if (isCurrentDataMutationSession(requestSession)) {
+        setFeedbackSaving(false);
+      }
     }
-
-    setFeedbackBody("");
-    setFeedbackMessage("フィードバックを送信しました。ありがとうございます。");
   }
 
   function currentPostMediaSessionKey() {

@@ -250,6 +250,72 @@ test("A's failed feedback cannot display its error or unset B's saving status", 
   assert.equal(state.feedbackBody, "B private draft");
 });
 
+test("feedback rejected Promise gives a safe error and always clears current loading", async () => {
+  const { isCurrentDataMutationSession, captureDataMutationSession } = makeRuntime();
+  const { state, setters } = createState({ feedbackBody: "Keep my draft", feedbackMessage: "", feedbackError: "", feedbackSaving: false });
+  const pending = deferred();
+  const submit = handler("handleFeedbackSubmit", {
+    session: { user: { id: "A" } }, feedbackBody: "Keep my draft", feedbackType: "不具合",
+    captureDataMutationSession: () => captureDataMutationSession("A"), isCurrentDataMutationSession,
+    FEEDBACK_MAX_LENGTH: 1000, getTrimmedCharacterLength: (text) => text.length,
+    supabase: { from: () => ({ insert: () => pending.promise }) },
+    ERROR_OPERATION: { FEEDBACK_SAVE: "feedback_save" },
+    getUserFacingError: () => "フィードバックを送信できませんでした。",
+    logSafeError: () => {}, setFeedbackMessage: setters.setFeedbackMessage, setFeedbackError: setters.setFeedbackError,
+    setFeedbackBody: setters.setFeedbackBody, setFeedbackSaving: setters.setFeedbackSaving,
+  });
+  const promise = submit({ preventDefault() {} });
+  pending.reject(new Error("Private transport details"));
+  await promise;
+  assert.equal(state.feedbackSaving, false);
+  assert.equal(state.feedbackError, "フィードバックを送信できませんでした。");
+  assert.equal(state.feedbackMessage, "");
+  assert.equal(state.feedbackBody, "Keep my draft");
+});
+
+test("feedback synchronous insert throw leaves the current form usable", async () => {
+  const { isCurrentDataMutationSession, captureDataMutationSession } = makeRuntime();
+  const { state, setters } = createState({ feedbackBody: "Keep my draft", feedbackMessage: "", feedbackError: "", feedbackSaving: false });
+  const submit = handler("handleFeedbackSubmit", {
+    session: { user: { id: "A" } }, feedbackBody: "Keep my draft", feedbackType: "不具合",
+    captureDataMutationSession: () => captureDataMutationSession("A"), isCurrentDataMutationSession,
+    FEEDBACK_MAX_LENGTH: 1000, getTrimmedCharacterLength: (text) => text.length,
+    supabase: { from: () => ({ insert: () => { throw new Error("Private details"); } }) },
+    ERROR_OPERATION: { FEEDBACK_SAVE: "feedback_save" },
+    getUserFacingError: () => "通信エラーが発生しました。",
+    logSafeError: () => {}, setFeedbackMessage: setters.setFeedbackMessage, setFeedbackError: setters.setFeedbackError,
+    setFeedbackBody: setters.setFeedbackBody, setFeedbackSaving: setters.setFeedbackSaving,
+  });
+  await submit({ preventDefault() {} });
+  assert.equal(state.feedbackSaving, false);
+  assert.equal(state.feedbackError, "通信エラーが発生しました。");
+  assert.equal(state.feedbackBody, "Keep my draft");
+});
+
+test("feedback rejected Promise from A does not clear B's saving state or show A's error", async () => {
+  const { runtime, isCurrentDataMutationSession, captureDataMutationSession } = makeRuntime();
+  const { state, setters } = createState({ feedbackBody: "B draft", feedbackMessage: "", feedbackError: "", feedbackSaving: false });
+  const pending = deferred();
+  const submit = handler("handleFeedbackSubmit", {
+    session: { user: { id: "A" } }, feedbackBody: "A draft", feedbackType: "不具合",
+    captureDataMutationSession: () => captureDataMutationSession("A"), isCurrentDataMutationSession,
+    FEEDBACK_MAX_LENGTH: 1000, getTrimmedCharacterLength: (text) => text.length,
+    supabase: { from: () => ({ insert: () => pending.promise }) },
+    ERROR_OPERATION: { FEEDBACK_SAVE: "feedback_save" },
+    getUserFacingError: () => "A error",
+    logSafeError: () => {}, setFeedbackMessage: setters.setFeedbackMessage, setFeedbackError: setters.setFeedbackError,
+    setFeedbackBody: setters.setFeedbackBody, setFeedbackSaving: setters.setFeedbackSaving,
+  });
+  const promise = submit({ preventDefault() {} });
+  runtime.userId = "B"; runtime.sessionKey = "B:2";
+  state.feedbackSaving = true;
+  pending.reject(new Error("Old A private error"));
+  await promise;
+  assert.equal(state.feedbackSaving, true);
+  assert.equal(state.feedbackError, "");
+  assert.equal(state.feedbackBody, "B draft");
+});
+
 test("feedback and report forms reset on Auth account switch", () => {
   const authReset = appSource.slice(appSource.indexOf("previousDataSessionUserIdRef.current = sessionUserId"), appSource.indexOf("}, [sessionUserId]);", appSource.indexOf("previousDataSessionUserIdRef.current = sessionUserId")));
   for (const name of ["setFeedbackBody", "setFeedbackSaving", "setFeedbackError", "setFeedbackMessage"]) {
