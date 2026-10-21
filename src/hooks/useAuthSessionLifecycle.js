@@ -23,6 +23,7 @@ useEffect(() => {
     let latestAuthStateEventType = null;
     let latestAuthStateEventSession = null;
     let initialReadErrorShown = false;
+    let initialReadErrorMessage = null;
 
     function cleanAuthCallbackUrl(force = false) {
       if ((!initialAuthCallback.shouldCleanUrl && !force) || authCallbackCleanedRef.current) {
@@ -176,8 +177,9 @@ useEffect(() => {
           }
 
           initialReadErrorShown = true;
+          initialReadErrorMessage = getUserFacingError(error, ERROR_OPERATION.AUTH_SESSION);
           setAuthStatus("確認エラー");
-          setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SESSION));
+          setAuthError(initialReadErrorMessage);
           return;
         }
 
@@ -222,8 +224,12 @@ useEffect(() => {
       latestAuthStateEventType = event;
       latestAuthStateEventSession = session;
       if (initialReadErrorShown && event !== "INITIAL_SESSION") {
+        const ownedErrorMessage = initialReadErrorMessage;
         initialReadErrorShown = false;
-        setAuthError("");
+        initialReadErrorMessage = null;
+        // A user-initiated login failure may have replaced the startup error.
+        // Do not clear that newer message when a SIGNED_OUT broadcast arrives.
+        setAuthError((current) => current === ownedErrorMessage ? "" : current);
       }
       activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);

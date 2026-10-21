@@ -43,7 +43,9 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
     activeSessionUserIdRef,
     setSession: (value) => { state.session = value; state.authUserId = value?.user?.id ?? null; state.updates.push("session"); },
     setAuthConfirmation: (value) => { state.confirmation = value; },
-    setAuthError: (value) => { state.authError = value; },
+    setAuthError: (value) => {
+      state.authError = typeof value === "function" ? value(state.authError) : value;
+    },
     setAuthMessage: (value) => { state.authMessage = value; },
     setPasswordRecovery: (value) => { state.passwordRecovery = value; },
     setAuthStatus: (value) => { state.authStatus = value; },
@@ -68,7 +70,7 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
 }
 
 test("Auth effect contains the audited latest-event-wins guard", () => {
-  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "5310f9fa053c1bf9df4344d2f96f399875fdf412c3e7b2fd6aab73668d703260");
+  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "b82263b0ca4d6250141f083c591db456bb4620dda064c6f8582e93728128bcf0");
   assert.match(effectCode, /if \(hasAuthStateEvent\) \{[\s\S]*?applyInitialAuthCallback\(latestAuthStateEventSession\);/);
   assert.match(effectCode, /latestAuthStateEventType = event;[\s\S]*?latestAuthStateEventSession = session;/);
   assert.deepEqual(effect.expression.arguments[1].elements.map((entry) => source.slice(entry.start, entry.end)), [
@@ -326,6 +328,35 @@ test("successful later SIGNED_IN clears error from initial read failure", async 
   assert.equal(app.state.authStatus, "ログイン中");
   assert.equal(app.state.authError, "");
   assert.equal(app.state.session, latest);
+  app.cleanup();
+});
+
+test("a later invalid-password error survives a SIGNED_OUT event after initial read failure", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authError, "確認できませんでした");
+  // The existing handleLogin can replace authError with an invalid-credentials
+  // message before a SIGNED_OUT event arrives from Supabase or another tab.
+  app.env.setAuthError("メールアドレスまたはパスワードが違います");
+  app.emit("SIGNED_OUT", null);
+  assert.equal(app.state.authError, "メールアドレスまたはパスワードが違います");
+  app.cleanup();
+});
+
+test("a later signed-out event removes only the owned initial read error", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authError, "確認できませんでした");
+  app.emit("SIGNED_OUT", null);
+  assert.equal(app.state.authError, "");
   app.cleanup();
 });
 
