@@ -28,11 +28,11 @@ test("共鳴・星文・Archive・各post viewは同じrevisionで再取得す�
   for (const dependency of [
     "[allPostIdsKey, resonanceDataRevision, serverDataRevision]",
     "[allPostIdsKey, profileFrames, serverDataRevision]",
-    "[session?.user?.id, profileFrames, serverDataRevision]",
-    "[detailPostId, profileFrames, serverDataRevision, sessionUserId]",
-    "[publicProfileUsername, profileFrames, serverDataRevision, sessionUserId]",
-    "[meteorTagRouteName, profileFrames, serverDataRevision, sessionUserId]",
-    "[activeTab, session?.user?.id, profileFrames, resonanceDataRevision, serverDataRevision]",
+    "[session?.user?.id, profileFrames, serverDataRevision, authIdentityEpoch]",
+    "[detailPostId, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]",
+    "[publicProfileUsername, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]",
+    "[meteorTagRouteName, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]",
+    "[activeTab, session?.user?.id, profileFrames, resonanceDataRevision, serverDataRevision, authIdentityEpoch]",
   ]) {
     assert.equal(appSource.includes(dependency), true, `missing freshness dependency: ${dependency}`);
   }

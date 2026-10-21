@@ -2083,7 +2083,7 @@ function App() {
   useEffect(() => {
     starLetterRequestVersionsRef.current = createEntityRequestVersionStore();
     resonanceRequestVersionsRef.current = createEntityRequestVersionStore();
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     starLettersByPostIdRef.current = starLettersByPostId;
@@ -2135,7 +2135,7 @@ function App() {
     setStarLetterReplyComposer(null);
     setStarLetterResonatingIds(new Set());
     setStarLetterArchivingIds(new Set());
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2195,7 +2195,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     postImageDraftsRef.current = postImageDrafts;
@@ -2275,13 +2275,13 @@ function App() {
 
   useEffect(() => {
     activeSessionUserIdRef.current = session?.user?.id ?? null;
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     onboardingProgressRef.current = isOnboardingProgressForUser(onboardingProgress, sessionUserId)
       ? onboardingProgress
       : null;
-  }, [onboardingProgress, sessionUserId]);
+  }, [onboardingProgress, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2349,7 +2349,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [sessionUserId]);
+  }, [sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2503,7 +2503,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2586,7 +2586,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2626,7 +2626,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2750,7 +2750,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [detailPostId, profileFrames, serverDataRevision, sessionUserId]);
+  }, [detailPostId, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2928,7 +2928,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [publicProfileUsername, profileFrames, serverDataRevision, sessionUserId]);
+  }, [publicProfileUsername, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3116,7 +3116,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [meteorTagRouteName, profileFrames, serverDataRevision, sessionUserId]);
+  }, [meteorTagRouteName, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3349,6 +3349,7 @@ function App() {
     profile?.pinned_post_id,
     profileFrames,
     serverDataRevision,
+    authIdentityEpoch,
   ]);
 
   useEffect(() => {
@@ -3548,7 +3549,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [activeTab, session?.user?.id, profileFrames, resonanceDataRevision, serverDataRevision]);
+  }, [activeTab, session?.user?.id, profileFrames, resonanceDataRevision, serverDataRevision, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3747,6 +3748,7 @@ function App() {
     profileFrames,
     serverDataRevision,
     starLetterDataRevision,
+    authIdentityEpoch,
   ]);
 
   useEffect(() => {
@@ -3879,7 +3881,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profileFrames, serverDataRevision]);
+  }, [session?.user?.id, profileFrames, serverDataRevision, authIdentityEpoch]);
 
   useEffect(() => {
     if (activeTab !== "archive") {
@@ -3887,7 +3889,7 @@ function App() {
     }
 
     void refreshArchivedStarLetters();
-  }, [activeTab, session?.user?.id, profileFrames, serverDataRevision, starLetterDataRevision]);
+  }, [activeTab, session?.user?.id, profileFrames, serverDataRevision, starLetterDataRevision, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3973,7 +3975,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profileFrames]);
+  }, [session?.user?.id, profileFrames, authIdentityEpoch]);
 
   useEffect(() => {
     appMountedRef.current = true;
@@ -4237,7 +4239,7 @@ function App() {
 
   useEffect(() => {
     void refreshPublicPosts({ initial: true });
-  }, [refreshPublicPosts]);
+  }, [refreshPublicPosts, authIdentityEpoch]);
 
   const isObserveTimelineActive = route.name === "home" && activeTab === "observe";
   isObserveTimelineActiveRef.current = isObserveTimelineActive;

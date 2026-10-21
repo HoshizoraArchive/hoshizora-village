@@ -71,6 +71,7 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - `src/hooks/useAuthSessionLifecycle.js` は初期 `getSession()` と `onAuthStateChange` で、実際にセッションをstateへ確定する直前にidentity epochを進める。古い初期読出しを棄却するロジック、メール確認・パスワード回復判定は維持する。
 - 既存の`App.jsx`セッションリセットEffectは`sessionUserId`だけでなく`authIdentityEpoch`も監視する。A→B→AをReactが1回のrenderにまとめても、修正後にもう一度beginSession/resetすることでrevision storeと公開UIを確実に新世代に同期させる。
 - `src/authSessionLifecycle.test.mjs` で実Authイベントを同じマイクロタスク内で往復し、旧request tokenが復活しないことを検証。`src/authIdentityEpochReset.test.mjs` で実AppのリセットEffectが同ユーザー・新epochでも実行され、5種類のrevision storeを同じキーへ再初期化し、同一epochで重複リセットしないことを確認する。
+- 上記resetで破棄したプロフィール・ブラックホール・通知・onboarding・自身の投稿等を復旧できるよう、ユーザーに依存する18本の`useEffect`の依存配列にも`authIdentityEpoch`を加える。公開タイムラインの初期`refreshPublicPosts`も新epochで再実行する。単なるTOKEN_REFRESHEDでは再取得しない。
 - 既存の投稿・共鳴・Archive・星文・メディアのsession guardを再利用し、Authの権限判定、Supabase SDK、DB/RLS、Function設定、ネットワーク通信形式は変更しない。
 
 ## 必須の設計上の注意

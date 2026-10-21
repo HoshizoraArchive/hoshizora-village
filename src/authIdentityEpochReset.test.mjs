@@ -103,3 +103,26 @@ test("reset effect dependency array includes user ID and Auth identity epoch", (
   const dependencies = reset.expression.arguments[1].elements.map((entry) => source.slice(entry.start, entry.end));
   assert.deepEqual(dependencies, ["sessionUserId", "authIdentityEpoch"]);
 });
+
+test("every Auth-user-dependent effect refreshes after a batched A→B→A identity epoch", () => {
+  const tracked = [];
+  for (const node of app.body.body) {
+    if (node.type !== "ExpressionStatement" || node.expression.callee?.name !== "useEffect") continue;
+    const deps = node.expression.arguments[1]?.elements?.map((v) => source.slice(v.start, v.end)) ?? [];
+    if (!deps.some((value) => value === "sessionUserId" || value === "session?.user?.id")) continue;
+    const line = source.slice(0, node.start).split("\n").length;
+    assert.ok(deps.includes("authIdentityEpoch"), `Auth dependent effect at line ${line} must rerun after A→B→A`);
+    tracked.push(line);
+  }
+  assert.ok(tracked.length >= 14, "track all user-scoped async fetch/reset effects");
+});
+
+test("public timeline reloads after a batched A→B→A even with unchanged refresh callback", () => {
+  const timeline = app.body.body.find((node) =>
+    node.type === "ExpressionStatement" && node.expression.callee?.name === "useEffect" &&
+    source.slice(node.expression.arguments[0].start, node.expression.arguments[0].end).includes("refreshPublicPosts({ initial: true })")
+  );
+  assert.ok(timeline, "public timeline bootstrap effect must exist");
+  const deps = timeline.expression.arguments[1].elements.map((node) => source.slice(node.start, node.end));
+  assert.deepEqual(deps, ["refreshPublicPosts", "authIdentityEpoch"]);
+});
