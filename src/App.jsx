@@ -1665,6 +1665,8 @@ function App() {
   const authIdentityEpochRef = useRef(0);
   const [onboardingProgress, setOnboardingProgress] = useState(null);
   const onboardingProgressRef = useRef(null);
+  // Latest-started read wins; a successful advance invalidates earlier reads.
+  const onboardingProgressReadVersionRef = useRef(0);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [onboardingError, setOnboardingError] = useState("");
@@ -2291,6 +2293,7 @@ function App() {
 
     activeSessionUserIdRef.current = userId;
     onboardingProgressRef.current = null;
+    onboardingProgressReadVersionRef.current += 1;
     onboardingAdvanceInFlightRef.current = false;
     onboardingPostCompletionRef.current = false;
     setOnboardingProgress(null);
@@ -2305,44 +2308,59 @@ function App() {
     }
 
     async function readOnboardingProgress() {
+      const requestedSession = captureDataMutationSession();
+      const requestVersion = ++onboardingProgressReadVersionRef.current;
+      const isCurrentRequest = () =>
+        isMounted &&
+        isCurrentDataMutationSession(requestedSession) &&
+        onboardingProgressReadVersionRef.current === requestVersion;
       setOnboardingLoading(true);
       setOnboardingError("");
 
-      const { data, error } = await supabase
-        .from("user_onboarding_progress")
-        .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
-        .eq("user_id", userId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from("user_onboarding_progress")
+          .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
+          .eq("user_id", userId)
+          .maybeSingle();
 
-      if (!isMounted || activeSessionUserIdRef.current !== userId) {
-        return;
-      }
-
-      setOnboardingLoading(false);
-
-      if (error) {
-        if (!isMissingOnboardingSchemaError(error)) {
-          logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+        if (!isCurrentRequest()) {
+          return;
         }
-        return;
-      }
 
-      if (
-        !canApplyOnboardingProgressResponse({
-          activeUserId: activeSessionUserIdRef.current,
-          progress: data,
-          requestedUserId: userId,
-        })
-      ) {
-        setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
-        return;
-      }
+        if (error) {
+          if (!isMissingOnboardingSchemaError(error)) {
+            logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+          }
+          return;
+        }
 
-      onboardingProgressRef.current = data;
-      setOnboardingProgress(data);
+        if (
+          !canApplyOnboardingProgressResponse({
+            activeUserId: activeSessionUserIdRef.current,
+            progress: data,
+            requestedUserId: userId,
+          })
+        ) {
+          setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
+          return;
+        }
 
-      if (isOnboardingActive(data) && !["welcome_video", "mini_chia_intro"].includes(data.current_step)) {
-        handleTabChange(getOnboardingResumeTab(data.current_step));
+        onboardingProgressRef.current = data;
+        setOnboardingProgress(data);
+
+        if (isOnboardingActive(data) && !["welcome_video", "mini_chia_intro"].includes(data.current_step)) {
+          handleTabChange(getOnboardingResumeTab(data.current_step));
+        }
+      } catch (error) {
+        if (isCurrentRequest()) {
+          logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+          setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
+        }
+      } finally {
+        if (isCurrentRequest()) {
+          setOnboardingLoading(false);
+        }
       }
     }
 
@@ -8823,6 +8841,7 @@ function App() {
       return null;
     }
 
+    const mutationSession = captureDataMutationSession();
     onboardingAdvanceInFlightRef.current = true;
     setOnboardingBusy(true);
     setOnboardingError("");
@@ -8839,7 +8858,7 @@ function App() {
       data = result.data;
       error = result.error;
     } catch (requestError) {
-      if (activeSessionUserIdRef.current === requestedUserId) {
+      if (isCurrentDataMutationSession(mutationSession)) {
         onboardingAdvanceInFlightRef.current = false;
         setOnboardingBusy(false);
         logSafeError(ERROR_OPERATION.ONBOARDING_SAVE, requestError);
@@ -8848,7 +8867,7 @@ function App() {
       return null;
     }
 
-    if (activeSessionUserIdRef.current !== requestedUserId) {
+    if (!isCurrentDataMutationSession(mutationSession)) {
       return null;
     }
 
@@ -8886,6 +8905,8 @@ function App() {
       return null;
     }
 
+    // New progress must not be rewound by an earlier same-session fetch.
+    onboardingProgressReadVersionRef.current += 1;
     onboardingProgressRef.current = data.progress;
     setOnboardingProgress(data.progress);
 
@@ -8907,34 +8928,46 @@ function App() {
     }
 
     const requestSession = captureDataMutationSession();
-    const { data, error } = await supabase
-      .from("user_onboarding_progress")
-      .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
-      .eq("user_id", userId)
-      .maybeSingle();
+    const requestVersion = ++onboardingProgressReadVersionRef.current;
+    const isCurrentRequest = () =>
+      isCurrentDataMutationSession(requestSession) &&
+      onboardingProgressReadVersionRef.current === requestVersion;
+    try {
+      const { data, error } = await supabase
+        .from("user_onboarding_progress")
+        .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
+        .eq("user_id", userId)
+        .maybeSingle();
 
-    if (
-      !isCurrentDataMutationSession(requestSession) ||
-      !canApplyOnboardingProgressResponse({
-        activeUserId: activeSessionUserIdRef.current,
-        progress: data,
-        requestedUserId: userId,
-      })
-    ) {
-      return null;
-    }
+      if (
+        !isCurrentRequest() ||
+        !canApplyOnboardingProgressResponse({
+          activeUserId: activeSessionUserIdRef.current,
+          progress: data,
+          requestedUserId: userId,
+        })
+      ) {
+        return null;
+      }
 
-    if (error) {
-      if (!isMissingOnboardingSchemaError(error)) {
+      if (error) {
+        if (!isMissingOnboardingSchemaError(error)) {
+          logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+          setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
+        }
+        return null;
+      }
+
+      onboardingProgressRef.current = data;
+      setOnboardingProgress(data);
+      return data;
+    } catch (error) {
+      if (isCurrentRequest()) {
         logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
         setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
       }
       return null;
     }
-
-    onboardingProgressRef.current = data;
-    setOnboardingProgress(data);
-    return data;
   }
 
   function handleOnboardingAdvance(action, options = {}) {
