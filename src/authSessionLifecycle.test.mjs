@@ -15,6 +15,11 @@ assert.ok(effect, "auth lifecycle must install its useEffect");
 const effectCode = source.slice(effect.start, effect.end);
 const callback = effect.expression.arguments[0];
 const callbackCode = source.slice(callback.start, callback.end);
+const appAst = parse(appSource, { sourceType: "module", plugins: ["jsx"] });
+const appDeclaration = appAst.program.body.find((node) => node.type === "FunctionDeclaration" && node.id?.name === "App");
+const identityFunctionNode = appDeclaration.body.body.find((node) => node.type === "FunctionDeclaration" && node.id?.name === "advanceAuthIdentityEpoch");
+assert.ok(identityFunctionNode, "App must define its identity epoch updater");
+const identityFunctionCode = appSource.slice(identityFunctionNode.start, identityFunctionNode.end);
 
 function deferred() {
   let resolve;
@@ -34,7 +39,21 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
     clearTimeout: (id) => state.clearTimeouts.push(id),
   };
   const activeSessionUserIdRef = { current: null };
+  const authIdentityEpochRef = { current: 0 };
+  const dataSessionEpochRef = { current: 1 };
+  const dataSessionKeyRef = { current: "anonymous:1" };
+  const updateIdentity = new Function(
+    "activeSessionUserIdRef", "authIdentityEpochRef", "dataSessionEpochRef",
+    "dataSessionKeyRef", "setAuthIdentityEpoch", "return (" + identityFunctionCode + ");",
+  )(
+    activeSessionUserIdRef, authIdentityEpochRef, dataSessionEpochRef,
+    dataSessionKeyRef, (epoch) => { state.identityEpoch = epoch; },
+  );
   const env = {
+    advanceAuthIdentityEpoch: updateIdentity,
+    authIdentityEpochRef,
+    dataSessionEpochRef,
+    dataSessionKeyRef,
     window: fakeWindow,
     initialAuthCallback: { kind, shouldCleanUrl },
     authCallbackCleanedRef: { current: false },
@@ -70,7 +89,7 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
 }
 
 test("Auth effect contains the audited latest-event-wins guard", () => {
-  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "b82263b0ca4d6250141f083c591db456bb4620dda064c6f8582e93728128bcf0");
+  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "a61c618a45e059fc1aa0c6dc70f2f2b41e598ecc3f182e939fc23bbbc92a8705");
   assert.match(effectCode, /if \(hasAuthStateEvent\) \{[\s\S]*?applyInitialAuthCallback\(latestAuthStateEventSession\);/);
   assert.match(effectCode, /latestAuthStateEventType = event;[\s\S]*?latestAuthStateEventSession = session;/);
   assert.deepEqual(effect.expression.arguments[1].elements.map((entry) => source.slice(entry.start, entry.end)), [
@@ -88,6 +107,59 @@ test("App installs lifecycle hook in the former Auth effect slot and keeps sessi
   for (const name of ["initialAuthCallback", "authCallbackResolvedRef", "passwordRecoveryVerifiedUserIdRef", "setAuthStatus", "setSession", "activeSessionUserIdRef"]) {
     assert.ok(appSource.slice(hookIndex, hookIndex + 420).includes(name), "missing dependency: " + name);
   }
+});
+
+test("Auth callback must invalidate old requests on A→B→A before React renders", () => {
+  assert.match(effectCode, /advanceAuthIdentityEpoch\(session\)/);
+  assert.match(appSource, /function advanceAuthIdentityEpoch\(nextSession\)/);
+  assert.match(appSource, /previousResetAuthIdentityEpochRef\.current === authIdentityEpoch/);
+  assert.match(appSource, /}, \[sessionUserId, authIdentityEpoch\]\);/);
+});
+
+test("A→B→A without any React render invalidates A's original request token immediately", () => {
+  const app = createAuthHarness({ pending: deferred() });
+  const sessionA = { user: { id: "A" } };
+  const sessionB = { user: { id: "B" } };
+  app.emit("SIGNED_IN", sessionA);
+  const originalAKey = app.env.dataSessionKeyRef.current;
+  const originalEpoch = app.env.authIdentityEpochRef.current;
+  app.emit("SIGNED_IN", sessionB);
+  app.emit("SIGNED_IN", sessionA);
+  assert.equal(app.state.session, sessionA);
+  assert.equal(app.env.activeSessionUserIdRef.current, "A");
+  assert.notEqual(app.env.dataSessionKeyRef.current, originalAKey);
+  assert.equal(app.env.authIdentityEpochRef.current, originalEpoch + 2);
+  assert.equal(app.state.identityEpoch, originalEpoch + 2);
+  app.cleanup();
+});
+
+test("A→logout→A before rerender rejects old A's request and preserves same-user refresh", () => {
+  const app = createAuthHarness({ pending: deferred() });
+  const sessionA = { user: { id: "A" } };
+  app.emit("SIGNED_IN", sessionA);
+  const tokenA = app.env.dataSessionKeyRef.current;
+  app.emit("SIGNED_OUT", null);
+  app.emit("SIGNED_IN", sessionA);
+  assert.notEqual(app.env.dataSessionKeyRef.current, tokenA);
+  const afterReturn = app.env.dataSessionKeyRef.current;
+  app.emit("TOKEN_REFRESHED", sessionA);
+  assert.equal(app.env.dataSessionKeyRef.current, afterReturn, "token refresh must not reset data");
+  app.cleanup();
+});
+
+test("AUTH INITIAL_SESSION / startup read only advances identity once for the same account", async () => {
+  const sessionA = { user: { id: "A" } };
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", sessionA);
+  const epoch = app.env.authIdentityEpochRef.current;
+  pending.resolve({ data: { session: sessionA }, error: null });
+  await Promise.resolve();
+  await Promise.resolve();
+  app.emit("SIGNED_IN", sessionA);
+  assert.equal(app.env.authIdentityEpochRef.current, epoch);
+  assert.equal(app.env.dataSessionKeyRef.current, "A:2");
+  app.cleanup();
 });
 
 test("normal Auth session bootstraps and listener unsubscribe happens on cleanup", async () => {

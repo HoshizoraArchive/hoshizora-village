@@ -1660,6 +1660,9 @@ function App() {
   const [initialAuthCallback] = useState(() => getAuthCallbackIntent(window.location));
   const [session, setSession] = useState(null);
   const activeSessionUserIdRef = useRef(null);
+  // A→B→A may be batched before React renders; keep a monotonic Auth event epoch.
+  const [authIdentityEpoch, setAuthIdentityEpoch] = useState(0);
+  const authIdentityEpochRef = useRef(0);
   const [onboardingProgress, setOnboardingProgress] = useState(null);
   const onboardingProgressRef = useRef(null);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
@@ -1775,6 +1778,7 @@ function App() {
   const dataSessionEpochRef = useRef(0);
   const dataSessionKeyRef = useRef("anonymous:0");
   const previousDataSessionUserIdRef = useRef(undefined);
+  const previousResetAuthIdentityEpochRef = useRef(undefined);
   const postContentRevisionsRef = useRef(createEntityRevisionStore());
   const postAssetsRevisionsRef = useRef(createEntityRevisionStore());
   const resonanceRevisionsRef = useRef(createEntityRevisionStore());
@@ -1898,11 +1902,15 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (previousDataSessionUserIdRef.current === sessionUserId) {
+    if (
+      previousDataSessionUserIdRef.current === sessionUserId &&
+      previousResetAuthIdentityEpochRef.current === authIdentityEpoch
+    ) {
       return;
     }
 
     previousDataSessionUserIdRef.current = sessionUserId;
+    previousResetAuthIdentityEpochRef.current = authIdentityEpoch;
     blackHoleItemsRequestVersionRef.current += 1;
     dataSessionEpochRef.current += 1;
     const sessionKey = `${sessionUserId ?? "anonymous"}:${dataSessionEpochRef.current}`;
@@ -2019,7 +2027,7 @@ function App() {
     setStarLetterArchivingIds(new Set());
     starLetterRequestIdsRef.current = createOperationRequestIdStore();
     setServerDataRevision((current) => current + 1);
-  }, [sessionUserId]);
+  }, [sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     function handlePopState() {
@@ -2075,7 +2083,7 @@ function App() {
   useEffect(() => {
     starLetterRequestVersionsRef.current = createEntityRequestVersionStore();
     resonanceRequestVersionsRef.current = createEntityRequestVersionStore();
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     starLettersByPostIdRef.current = starLettersByPostId;
@@ -2127,7 +2135,7 @@ function App() {
     setStarLetterReplyComposer(null);
     setStarLetterResonatingIds(new Set());
     setStarLetterArchivingIds(new Set());
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2187,7 +2195,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     postImageDraftsRef.current = postImageDrafts;
@@ -2235,7 +2243,23 @@ function App() {
     };
   }, [avatarModal]);
 
+  function advanceAuthIdentityEpoch(nextSession) {
+    const nextUserId = nextSession?.user?.id ?? null;
+    if (activeSessionUserIdRef.current === nextUserId) {
+      return;
+    }
+
+    // Invalidate in-flight requests synchronously. Waiting for the reset
+    // effect would allow A→B→A in one batch to make old A tokens valid again.
+    authIdentityEpochRef.current += 1;
+    dataSessionEpochRef.current += 1;
+    dataSessionKeyRef.current = `${nextUserId ?? "anonymous"}:${dataSessionEpochRef.current}`;
+    // Force the reset effect even when React batches the final user back to A.
+    setAuthIdentityEpoch(authIdentityEpochRef.current);
+  }
+
   useAuthSessionLifecycle({
+    advanceAuthIdentityEpoch,
     initialAuthCallback,
     authCallbackCleanedRef,
     authCallbackResolvedRef,
@@ -2251,13 +2275,13 @@ function App() {
 
   useEffect(() => {
     activeSessionUserIdRef.current = session?.user?.id ?? null;
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     onboardingProgressRef.current = isOnboardingProgressForUser(onboardingProgress, sessionUserId)
       ? onboardingProgress
       : null;
-  }, [onboardingProgress, sessionUserId]);
+  }, [onboardingProgress, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2325,7 +2349,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [sessionUserId]);
+  }, [sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2479,7 +2503,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2562,7 +2586,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2602,7 +2626,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2726,7 +2750,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [detailPostId, profileFrames, serverDataRevision, sessionUserId]);
+  }, [detailPostId, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2904,7 +2928,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [publicProfileUsername, profileFrames, serverDataRevision, sessionUserId]);
+  }, [publicProfileUsername, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3092,7 +3116,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [meteorTagRouteName, profileFrames, serverDataRevision, sessionUserId]);
+  }, [meteorTagRouteName, profileFrames, serverDataRevision, sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3325,6 +3349,7 @@ function App() {
     profile?.pinned_post_id,
     profileFrames,
     serverDataRevision,
+    authIdentityEpoch,
   ]);
 
   useEffect(() => {
@@ -3524,7 +3549,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [activeTab, session?.user?.id, profileFrames, resonanceDataRevision, serverDataRevision]);
+  }, [activeTab, session?.user?.id, profileFrames, resonanceDataRevision, serverDataRevision, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3723,6 +3748,7 @@ function App() {
     profileFrames,
     serverDataRevision,
     starLetterDataRevision,
+    authIdentityEpoch,
   ]);
 
   useEffect(() => {
@@ -3855,7 +3881,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profileFrames, serverDataRevision]);
+  }, [session?.user?.id, profileFrames, serverDataRevision, authIdentityEpoch]);
 
   useEffect(() => {
     if (activeTab !== "archive") {
@@ -3863,7 +3889,7 @@ function App() {
     }
 
     void refreshArchivedStarLetters();
-  }, [activeTab, session?.user?.id, profileFrames, serverDataRevision, starLetterDataRevision]);
+  }, [activeTab, session?.user?.id, profileFrames, serverDataRevision, starLetterDataRevision, authIdentityEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3949,7 +3975,7 @@ function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profileFrames]);
+  }, [session?.user?.id, profileFrames, authIdentityEpoch]);
 
   useEffect(() => {
     appMountedRef.current = true;
@@ -4213,7 +4239,7 @@ function App() {
 
   useEffect(() => {
     void refreshPublicPosts({ initial: true });
-  }, [refreshPublicPosts]);
+  }, [refreshPublicPosts, authIdentityEpoch]);
 
   const isObserveTimelineActive = route.name === "home" && activeTab === "observe";
   isObserveTimelineActiveRef.current = isObserveTimelineActive;

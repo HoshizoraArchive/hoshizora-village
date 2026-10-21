@@ -262,7 +262,7 @@ test("late cover crop must not replace the next session's thumbnail", async () =
 });
 
 test("logout resets trim and cover drafts as well as existing media drafts", () => {
-  const region = appSource.slice(appSource.indexOf('useEffect(() => {\n    if (previousDataSessionUserIdRef.current === sessionUserId)'), appSource.indexOf('}, [sessionUserId]);'));
+  const region = appSource.slice(appSource.indexOf('useEffect(() => {\n    if (\n      previousDataSessionUserIdRef.current === sessionUserId'), appSource.indexOf('}, [sessionUserId, authIdentityEpoch]);'));
   for (const action of [
     "invalidatePendingPostMediaWork();",
     "clearPostImageDrafts();",
