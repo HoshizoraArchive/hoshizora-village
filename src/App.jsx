@@ -2305,44 +2305,56 @@ function App() {
     }
 
     async function readOnboardingProgress() {
+      const requestedSession = captureDataMutationSession();
+      const isCurrentRequest = () =>
+        isMounted && isCurrentDataMutationSession(requestedSession);
       setOnboardingLoading(true);
       setOnboardingError("");
 
-      const { data, error } = await supabase
-        .from("user_onboarding_progress")
-        .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
-        .eq("user_id", userId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from("user_onboarding_progress")
+          .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
+          .eq("user_id", userId)
+          .maybeSingle();
 
-      if (!isMounted || activeSessionUserIdRef.current !== userId) {
-        return;
-      }
-
-      setOnboardingLoading(false);
-
-      if (error) {
-        if (!isMissingOnboardingSchemaError(error)) {
-          logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+        if (!isCurrentRequest()) {
+          return;
         }
-        return;
-      }
 
-      if (
-        !canApplyOnboardingProgressResponse({
-          activeUserId: activeSessionUserIdRef.current,
-          progress: data,
-          requestedUserId: userId,
-        })
-      ) {
-        setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
-        return;
-      }
+        if (error) {
+          if (!isMissingOnboardingSchemaError(error)) {
+            logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+          }
+          return;
+        }
 
-      onboardingProgressRef.current = data;
-      setOnboardingProgress(data);
+        if (
+          !canApplyOnboardingProgressResponse({
+            activeUserId: activeSessionUserIdRef.current,
+            progress: data,
+            requestedUserId: userId,
+          })
+        ) {
+          setOnboardingError("入村案内の進捗を確認できませんでした。画面を開き直してください。");
+          return;
+        }
 
-      if (isOnboardingActive(data) && !["welcome_video", "mini_chia_intro"].includes(data.current_step)) {
-        handleTabChange(getOnboardingResumeTab(data.current_step));
+        onboardingProgressRef.current = data;
+        setOnboardingProgress(data);
+
+        if (isOnboardingActive(data) && !["welcome_video", "mini_chia_intro"].includes(data.current_step)) {
+          handleTabChange(getOnboardingResumeTab(data.current_step));
+        }
+      } catch (error) {
+        if (isCurrentRequest()) {
+          logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+          setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
+        }
+      } finally {
+        if (isCurrentRequest()) {
+          setOnboardingLoading(false);
+        }
       }
     }
 
@@ -8823,6 +8835,7 @@ function App() {
       return null;
     }
 
+    const mutationSession = captureDataMutationSession();
     onboardingAdvanceInFlightRef.current = true;
     setOnboardingBusy(true);
     setOnboardingError("");
@@ -8839,7 +8852,7 @@ function App() {
       data = result.data;
       error = result.error;
     } catch (requestError) {
-      if (activeSessionUserIdRef.current === requestedUserId) {
+      if (isCurrentDataMutationSession(mutationSession)) {
         onboardingAdvanceInFlightRef.current = false;
         setOnboardingBusy(false);
         logSafeError(ERROR_OPERATION.ONBOARDING_SAVE, requestError);
@@ -8848,7 +8861,7 @@ function App() {
       return null;
     }
 
-    if (activeSessionUserIdRef.current !== requestedUserId) {
+    if (!isCurrentDataMutationSession(mutationSession)) {
       return null;
     }
 
@@ -8907,34 +8920,42 @@ function App() {
     }
 
     const requestSession = captureDataMutationSession();
-    const { data, error } = await supabase
-      .from("user_onboarding_progress")
-      .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
-      .eq("user_id", userId)
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from("user_onboarding_progress")
+        .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
+        .eq("user_id", userId)
+        .maybeSingle();
 
-    if (
-      !isCurrentDataMutationSession(requestSession) ||
-      !canApplyOnboardingProgressResponse({
-        activeUserId: activeSessionUserIdRef.current,
-        progress: data,
-        requestedUserId: userId,
-      })
-    ) {
-      return null;
-    }
+      if (
+        !isCurrentDataMutationSession(requestSession) ||
+        !canApplyOnboardingProgressResponse({
+          activeUserId: activeSessionUserIdRef.current,
+          progress: data,
+          requestedUserId: userId,
+        })
+      ) {
+        return null;
+      }
 
-    if (error) {
-      if (!isMissingOnboardingSchemaError(error)) {
+      if (error) {
+        if (!isMissingOnboardingSchemaError(error)) {
+          logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
+          setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
+        }
+        return null;
+      }
+
+      onboardingProgressRef.current = data;
+      setOnboardingProgress(data);
+      return data;
+    } catch (error) {
+      if (isCurrentDataMutationSession(requestSession)) {
         logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
         setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
       }
       return null;
     }
-
-    onboardingProgressRef.current = data;
-    setOnboardingProgress(data);
-    return data;
   }
 
   function handleOnboardingAdvance(action, options = {}) {

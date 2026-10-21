@@ -81,6 +81,12 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - `src/accountAsyncSettings.test.mjs`: 実Appの3ハンドラを抽出し、13の保存成功/失敗、アカウント切替、同項目連続操作、異項目並行操作、複数通知、通信例外、A→B→A進捗復活をdeferred promiseで検証。
 - Supabase Auth、DB/RLS/RPC、通知配信仕様、APIのpayload、秘密値・Netlify Functions設定は不変。
 
+## 第11段階：入村案内RPCと初期データ取得の世代隔離
+- `src/App.jsx`の`advanceInitialOnboarding`は実行直前にデータセッション（user ID＋単調増加epoch）を捕捉。RPCが戻るまでにA→B、A→B→Aが発生した場合、古い進捗・エラー・busy flag・single-flight解除・画面遷移を現セッションへ反映しない。同セッションの成功・エラー・throwの既存動作は維持する。RPCのサーバー側適用自体のキャンセルは行わない。
+- 入村案内の初期`readOnboardingProgress` Effectもデータセッションを捕捉。React再描画によるcleanupを待たず、A→B→A中に返った旧進捗・エラー・loading完了・タブ遷移を破棄する。同期throw/Promise rejectでも現セッションだけsafe errorとloading解除を実施する。
+- 既存の`refreshInitialOnboardingProgress`に通信例外を処理する`catch`を追加。`void refreshInitialOnboardingProgress()`を使う再読込でunhandled rejectionを生じさせず、他セッションのエラーは表示しない。
+- `src/onboardingGenerationIsolation.test.mjs`は実Appハンドラと初期EffectをBabel ASTから抽出、deferred responseとAuth generation模擬で旧/新セッションの成功・失敗・例外・single-flight/画面遷移を固定する。Supabase/RLS/RPC・通信payload/権限、DB・Production設定は変更しない。
+
 ## 必須の設計上の注意
 
 1. `App.jsx` に画面内だけで使う新しい表示コンポーネントを追加しない。既存の担当モジュールを先に確認する。
