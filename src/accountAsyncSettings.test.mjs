@@ -35,7 +35,7 @@ function stateHarness(initial) {
   } });
   return { state, setters };
 }
-function settingHarness({ pending, env, state, setters, id = "A", field = "notify_authors_when_i_archive", next = false, versionRef = { current: new Map() }, pendingRef = { current: new Set() } }) {
+function settingHarness({ pending, env, state, setters, id = "A", field = "notify_authors_when_i_archive", next = false, pendingRef = { current: new Set() } }) {
   const calls = [];
   const update = () => ({
     eq: (column, value) => {
@@ -48,7 +48,6 @@ function settingHarness({ pending, env, state, setters, id = "A", field = "notif
     profile: { id, [field]: !next },
     captureDataMutationSession: env.captureDataMutationSession,
     isCurrentDataMutationSession: env.isCurrentDataMutationSession,
-    profileNotificationSettingRequestVersionsRef: versionRef,
     profileNotificationSettingPendingRef: pendingRef,
     supabase: { from: (name) => { assert.equal(name, "profiles"); return { update: (payload) => { assert.deepEqual(payload, { [field]: next }); return update(); } }; } },
     setProfileSaving: setters.setProfileSaving, setProfileMessage: setters.setProfileMessage, setProfileError: setters.setProfileError,
@@ -94,19 +93,20 @@ test("late failed setting save from A cannot rollback B's setting", async () => 
   assert.equal(state.profileSaving, true);
 });
 
-test("same-account overlapping setting saves preserve the newest response", async () => {
+test("same-account duplicate setting saves are blocked before a second DB write", async () => {
   const env = environment();
   const { state, setters } = stateHarness({ profile: { id: "A", notify_authors_when_i_archive: true }, profileForm: { notify_authors_when_i_archive: true }, profileSaving: false, profileMessage: "", profileError: "" });
   const first = deferred(), second = deferred();
-  const versions = { current: new Map() };
   const pendingFields = { current: new Set() };
-  const a = settingHarness({ pending: first, env, state, setters, versionRef: versions, pendingRef: pendingFields, next: false });
-  const b = settingHarness({ pending: second, env, state, setters, versionRef: versions, pendingRef: pendingFields, next: true });
+  const a = settingHarness({ pending: first, env, state, setters, pendingRef: pendingFields, next: false });
+  const b = settingHarness({ pending: second, env, state, setters, pendingRef: pendingFields, next: true });
   const runA = a.save(), runB = b.save();
-  second.resolve({ error: null }); await runB;
+  await runB;
+  assert.equal(b.calls.length, 0, "duplicate request must never write to DB");
+  assert.equal(state.profileSaving, true);
   first.resolve({ error: null }); await runA;
-  assert.equal(state.profile.notify_authors_when_i_archive, true);
-  assert.equal(state.profileForm.notify_authors_when_i_archive, true);
+  assert.equal(state.profile.notify_authors_when_i_archive, false);
+  assert.equal(state.profileForm.notify_authors_when_i_archive, false);
   assert.equal(state.profileSaving, false);
 });
 
@@ -208,6 +208,7 @@ test("current user's settings Promise rejection restores saving state and a safe
   pending.reject(new Error("private transport details"));
   await promise;
   assert.equal(state.profileSaving, false);
+  assert.equal(state.profileForm.notify_authors_when_i_archive, true);
   assert.equal(state.profileError.includes("設定の保存に失敗しました"), true);
   assert.equal(state.profileMessage, "");
 });
@@ -216,9 +217,9 @@ test("two independent notification settings keep busy state until both complete"
   const env = environment();
   const { state, setters } = stateHarness({ profile: { id: "A" }, profileForm: {}, profileSaving: false, profileMessage: "", profileError: "" });
   const pending1 = deferred(), pending2 = deferred();
-  const versions = { current: new Map() }, activeFields = { current: new Set() };
-  const first = settingHarness({ pending: pending1, env, state, setters, versionRef: versions, pendingRef: activeFields, field: "notify_authors_when_i_archive" });
-  const second = settingHarness({ pending: pending2, env, state, setters, versionRef: versions, pendingRef: activeFields, field: "notify_authors_when_i_resonate" });
+  const activeFields = { current: new Set() };
+  const first = settingHarness({ pending: pending1, env, state, setters, pendingRef: activeFields, field: "notify_authors_when_i_archive" });
+  const second = settingHarness({ pending: pending2, env, state, setters, pendingRef: activeFields, field: "notify_authors_when_i_resonate" });
   const p1 = first.save(), p2 = second.save();
   pending1.resolve({ error: null }); await p1;
   assert.equal(state.profileSaving, true);

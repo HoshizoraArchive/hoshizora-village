@@ -1710,7 +1710,6 @@ function App() {
   const [profileForm, setProfileForm] = useState(emptyProfileForm);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
-  const profileNotificationSettingRequestVersionsRef = useRef(new Map());
   const profileNotificationSettingPendingRef = useRef(new Set());
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
@@ -5813,12 +5812,12 @@ function App() {
 
     const userId = session.user.id;
     const requestSession = captureDataMutationSession();
-    const requestVersions = profileNotificationSettingRequestVersionsRef.current;
-    const requestVersion = (requestVersions.get(field) ?? 0) + 1;
-    requestVersions.set(field, requestVersion);
-    const isCurrentRequest = () =>
-      isCurrentDataMutationSession(requestSession) &&
-      requestVersions.get(field) === requestVersion;
+    // The settings controls are disabled while saving. Guard the handler as
+    // well so duplicate programmatic submits cannot race at the DB boundary.
+    if (profileNotificationSettingPendingRef.current.has(field)) {
+      return;
+    }
+    const isCurrentRequest = () => isCurrentDataMutationSession(requestSession);
     profileNotificationSettingPendingRef.current.add(field);
     setProfileSaving(true);
     setProfileMessage("");
@@ -5861,6 +5860,10 @@ function App() {
         return;
       }
       logSafeError("profile_notification_setting_save", error);
+      setProfileForm((currentForm) => ({
+        ...currentForm,
+        [field]: profile?.[field] ?? true,
+      }));
       setProfileError(`${label}設定の保存に失敗しました。時間をおいてもう一度お試しください。`);
     } finally {
       if (isCurrentRequest()) {

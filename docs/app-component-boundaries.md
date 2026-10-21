@@ -75,7 +75,7 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - 既存の投稿・共鳴・Archive・星文・メディアのsession guardを再利用し、Authの権限判定、Supabase SDK、DB/RLS、Function設定、ネットワーク通信形式は変更しない。
 
 ## 第10段階：アカウント別の設定・通知・入村案内の非同期隔離
-- My Universeの`saveProfileNotificationSetting`は、送信時のデータセッション（user ID＋Auth epoch）と設定項目別リクエスト世代で成功・失敗・finallyのUI更新を制御。旧Aの結果がBの通知設定・フォーム・保存中状態を変更しない。別項目を同時保存した場合は最後の送信が終わるまで保存中表示を維持し、通信例外も処理する。
+- My Universeの`saveProfileNotificationSetting`は、送信時のデータセッション（user ID＋Auth epoch）と設定項目別リクエスト世代で成功・失敗・finallyのUI更新を制御。旧Aの結果がBの通知設定・フォーム・保存中状態を変更しない。別項目を同時保存した場合は最後の送信が終わるまで保存中表示を維持し、通信例外でもフォームを元の保存値へ戻して保存中を解除する。
 - Re:Connectの`handleMarkNotificationRead`は、更新完了後に同じデータセッションか確認。旧アカウントの既読結果・エラー・loading完了を新画面へ反映しない。異なる通知の同時更新では遅い応答が新しい通知の保存中表示を消さない。
 - 入村案内の`refreshInitialOnboardingProgress`は、既存のuser ID/progress整合性検証に加えリクエスト時のセッション世代を検証。A→B→Aの短時間往復で旧Aの進捗とエラーが復活しない。
 - `src/accountAsyncSettings.test.mjs`: 実Appの3ハンドラを抽出し、13の保存成功/失敗、アカウント切替、同項目連続操作、異項目並行操作、複数通知、通信例外、A→B→A進捗復活をdeferred promiseで検証。
