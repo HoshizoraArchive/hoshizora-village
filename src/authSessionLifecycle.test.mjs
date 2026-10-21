@@ -68,7 +68,7 @@ function createAuthHarness({ kind = "normal", shouldCleanUrl = false, session = 
 }
 
 test("Auth effect contains the audited latest-event-wins guard", () => {
-  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "fda8f3fecc7523b500c2af8092e2e396c170ae94bc2820e39e7ee7abb8012af0");
+  assert.equal(createHash("sha256").update(effectCode).digest("hex"), "5310f9fa053c1bf9df4344d2f96f399875fdf412c3e7b2fd6aab73668d703260");
   assert.match(effectCode, /if \(hasAuthStateEvent\) \{[\s\S]*?applyInitialAuthCallback\(latestAuthStateEventSession\);/);
   assert.match(effectCode, /latestAuthStateEventType = event;[\s\S]*?latestAuthStateEventSession = session;/);
   assert.deepEqual(effect.expression.arguments[1].elements.map((entry) => source.slice(entry.start, entry.end)), [
@@ -288,6 +288,43 @@ test("INITIAL_SESSION with a valid account remains authoritative despite stale g
   await Promise.resolve();
   assert.equal(app.state.authStatus, "ログイン中");
   assert.equal(app.state.authError, undefined);
+  assert.equal(app.state.session, latest);
+  app.cleanup();
+});
+
+for (const kind of ["signup_callback", AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"]) {
+  test(`invalid callback ${kind} is finalized and callback URL sanitized after initial session error`, async () => {
+    const pending = deferred();
+    const app = createAuthHarness({ kind, shouldCleanUrl: true, pending });
+    app.emit("INITIAL_SESSION", null);
+    pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(app.env.authCallbackResolvedRef.current, true);
+    assert.equal(app.state.replaceHistory.length, 1, "callback secret must be removed from URL");
+    if (kind === "password_recovery_invalid") {
+      assert.equal(app.state.passwordRecovery?.kind, AUTH_PASSWORD_RECOVERY_KIND.INVALID);
+      assert.equal(app.state.authStatus, "再設定リンクエラー");
+    } else {
+      assert.equal(app.state.confirmation?.kind, AUTH_CONFIRMATION_KIND.INVALID_LINK);
+      assert.equal(app.state.authStatus, "メール確認エラー");
+    }
+    app.cleanup();
+  });
+}
+
+test("successful later SIGNED_IN clears error from initial read failure", async () => {
+  const pending = deferred();
+  const app = createAuthHarness({ pending });
+  app.emit("INITIAL_SESSION", null);
+  pending.resolve({ data: { session: null }, error: { code: "network_failure" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(app.state.authError, "確認できませんでした");
+  const latest = { user: { id: "current" } };
+  app.emit("SIGNED_IN", latest);
+  assert.equal(app.state.authStatus, "ログイン中");
+  assert.equal(app.state.authError, "");
   assert.equal(app.state.session, latest);
   app.cleanup();
 });

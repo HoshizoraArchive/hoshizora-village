@@ -22,6 +22,7 @@ useEffect(() => {
     let hasAuthStateEvent = false;
     let latestAuthStateEventType = null;
     let latestAuthStateEventSession = null;
+    let initialReadErrorShown = false;
 
     function cleanAuthCallbackUrl(force = false) {
       if ((!initialAuthCallback.shouldCleanUrl && !force) || authCallbackCleanedRef.current) {
@@ -165,6 +166,16 @@ useEffect(() => {
             return;
           }
 
+          // Callback-specific errors must still resolve and sanitize the URL,
+          // not leave token/code parameters in browser history.
+          if (["signup_callback", AUTH_CONFIRMATION_KIND.INVALID_LINK, "password_recovery_invalid"].includes(
+            initialAuthCallback.kind,
+          )) {
+            applyInitialAuthCallback(latestAuthStateEventSession);
+            return;
+          }
+
+          initialReadErrorShown = true;
           setAuthStatus("確認エラー");
           setAuthError(getUserFacingError(error, ERROR_OPERATION.AUTH_SESSION));
           return;
@@ -210,6 +221,10 @@ useEffect(() => {
       hasAuthStateEvent = true;
       latestAuthStateEventType = event;
       latestAuthStateEventSession = session;
+      if (initialReadErrorShown && event !== "INITIAL_SESSION") {
+        initialReadErrorShown = false;
+        setAuthError("");
+      }
       activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);
       setAuthStatus(
