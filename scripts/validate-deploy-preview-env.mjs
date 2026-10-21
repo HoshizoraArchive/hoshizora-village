@@ -1,4 +1,4 @@
-const DEPLOY_PREVIEW_CONTEXT = "deploy-preview";
+const PREVIEW_CONTEXTS = new Set(["deploy-preview", "branch-deploy"]);
 const PREVIEW_PROJECT_REF = "qskeezefmvnutuzpevbc";
 const PRODUCTION_PROJECT_REF = "dhfecpymvmursozfgjlr";
 import { pathToFileURL } from "node:url";
@@ -11,7 +11,7 @@ function fail(message) {
 }
 
 export function validateDeployPreviewEnv(env = process.env) {
-  if (env.CONTEXT !== DEPLOY_PREVIEW_CONTEXT) {
+  if (!PREVIEW_CONTEXTS.has(env.CONTEXT)) {
     return;
   }
 
@@ -31,7 +31,7 @@ export function validateDeployPreviewEnv(env = process.env) {
   }
 
   if (browserUrl.includes(PRODUCTION_PROJECT_REF)) {
-    fail("Production Supabase is forbidden in deploy-preview");
+    fail(`Production Supabase is forbidden in ${env.CONTEXT}`);
   }
 
   let parsedUrl;

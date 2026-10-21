@@ -37,6 +37,14 @@ Deploy Previewでは、少なくとも次の秘密値を空または未設定に
 
 Productionの秘密値をDeploy Previewへ再追加する変更は、通常の環境調整ではなく**セキュリティ境界の変更**として扱い、明示的な確認なしに行いません。
 
+## Branch Deployも同じProduction分離境界
+
+Branch DeployはPR Deploy Previewとは別のNetlify context（`branch-deploy`）ですが、ここでも未マージのフロントエンドとFunctionsが実行され得ます。そのため**ProductionのSupabaseを接続先にしてはいけません**。
+
+`npm run build`のprebuild guardは`deploy-preview`に加えて`branch-deploy`も検査し、`VITE_SUPABASE_URL`と`SUPABASE_URL`がどちらもPreview-v2の同一URLである場合に限りビルドできます。Production向き・未設定・不一致・第三者のSupabase URLの場合は**fail-closedでビルド失敗**にします。Production contextとローカル開発の既存挙動は変わりません。
+
+2026-10-21の実設定確認では、Netlify上の`branch-deploy`用公開接続先2項目はProduction Supabaseを指していました。**この修正が反映されると、その設定のままではBranch Deployは失敗します（意図した安全動作）**。Branch Deployの運用が必要になったら、対象contextの2項目をPreview-v2へ移し、サーバー秘密値4種類を未設定のままにして、再ビルドがReadyになることを確認します。Production接続先や秘密値をBranch Deployへコピーして解決してはいけません。Branch Deploy機能が有効かどうかはNetlify管理画面で別途確認が必要です。
+
 ## やらないこと
 
 通常のDeploy Preview確認のために、次のことはしません。

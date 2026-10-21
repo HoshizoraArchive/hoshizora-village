@@ -70,3 +70,43 @@ test("rejects Production and other Supabase projects in deploy-preview", () => {
     /Supabase host must be qskeezefmvnutuzpevbc\.supabase\.co/,
   );
 });
+
+test("accepts only Preview-v2 Supabase in branch-deploy", () => {
+  assert.doesNotThrow(() => validateDeployPreviewEnv({
+    CONTEXT: "branch-deploy",
+    VITE_SUPABASE_URL: PREVIEW_URL,
+    SUPABASE_URL: PREVIEW_URL,
+  }));
+});
+
+test("rejects Production Supabase in branch-deploy", () => {
+  assert.throws(() => validateDeployPreviewEnv({
+    CONTEXT: "branch-deploy",
+    VITE_SUPABASE_URL: PRODUCTION_URL,
+    SUPABASE_URL: PRODUCTION_URL,
+  }), /Production Supabase is forbidden/);
+});
+
+test("rejects mismatched and missing branch-deploy Supabase URLs", () => {
+  assert.throws(() => validateDeployPreviewEnv({ CONTEXT: "branch-deploy" }), /VITE_SUPABASE_URL is required/);
+  assert.throws(() => validateDeployPreviewEnv({
+    CONTEXT: "branch-deploy",
+    VITE_SUPABASE_URL: PREVIEW_URL,
+    SUPABASE_URL: PRODUCTION_URL,
+  }), /must match/);
+  assert.throws(() => validateDeployPreviewEnv({
+    CONTEXT: "branch-deploy",
+    VITE_SUPABASE_URL: "https://nonpreview.supabase.co",
+    SUPABASE_URL: "https://nonpreview.supabase.co",
+  }), /Supabase host must be/);
+});
+
+test("other build contexts retain pre-existing behavior", () => {
+  for (const context of ["production", "dev", "deploy-context", ""]) {
+    assert.doesNotThrow(() => validateDeployPreviewEnv({
+      CONTEXT: context,
+      VITE_SUPABASE_URL: PRODUCTION_URL,
+      SUPABASE_URL: PRODUCTION_URL,
+    }));
+  }
+});
