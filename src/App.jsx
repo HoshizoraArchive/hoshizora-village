@@ -1660,6 +1660,9 @@ function App() {
   const [initialAuthCallback] = useState(() => getAuthCallbackIntent(window.location));
   const [session, setSession] = useState(null);
   const activeSessionUserIdRef = useRef(null);
+  // A→B→A may be batched before React renders; keep a monotonic Auth event epoch.
+  const [authIdentityEpoch, setAuthIdentityEpoch] = useState(0);
+  const authIdentityEpochRef = useRef(0);
   const [onboardingProgress, setOnboardingProgress] = useState(null);
   const onboardingProgressRef = useRef(null);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
@@ -1775,6 +1778,7 @@ function App() {
   const dataSessionEpochRef = useRef(0);
   const dataSessionKeyRef = useRef("anonymous:0");
   const previousDataSessionUserIdRef = useRef(undefined);
+  const previousResetAuthIdentityEpochRef = useRef(undefined);
   const postContentRevisionsRef = useRef(createEntityRevisionStore());
   const postAssetsRevisionsRef = useRef(createEntityRevisionStore());
   const resonanceRevisionsRef = useRef(createEntityRevisionStore());
@@ -1898,11 +1902,15 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (previousDataSessionUserIdRef.current === sessionUserId) {
+    if (
+      previousDataSessionUserIdRef.current === sessionUserId &&
+      previousResetAuthIdentityEpochRef.current === authIdentityEpoch
+    ) {
       return;
     }
 
     previousDataSessionUserIdRef.current = sessionUserId;
+    previousResetAuthIdentityEpochRef.current = authIdentityEpoch;
     blackHoleItemsRequestVersionRef.current += 1;
     dataSessionEpochRef.current += 1;
     const sessionKey = `${sessionUserId ?? "anonymous"}:${dataSessionEpochRef.current}`;
@@ -2019,7 +2027,7 @@ function App() {
     setStarLetterArchivingIds(new Set());
     starLetterRequestIdsRef.current = createOperationRequestIdStore();
     setServerDataRevision((current) => current + 1);
-  }, [sessionUserId]);
+  }, [sessionUserId, authIdentityEpoch]);
 
   useEffect(() => {
     function handlePopState() {
@@ -2235,7 +2243,23 @@ function App() {
     };
   }, [avatarModal]);
 
+  function advanceAuthIdentityEpoch(nextSession) {
+    const nextUserId = nextSession?.user?.id ?? null;
+    if (activeSessionUserIdRef.current === nextUserId) {
+      return;
+    }
+
+    // Invalidate in-flight requests synchronously. Waiting for the reset
+    // effect would allow A→B→A in one batch to make old A tokens valid again.
+    authIdentityEpochRef.current += 1;
+    dataSessionEpochRef.current += 1;
+    dataSessionKeyRef.current = `${nextUserId ?? "anonymous"}:${dataSessionEpochRef.current}`;
+    // Force the reset effect even when React batches the final user back to A.
+    setAuthIdentityEpoch(authIdentityEpochRef.current);
+  }
+
   useAuthSessionLifecycle({
+    advanceAuthIdentityEpoch,
     initialAuthCallback,
     authCallbackCleanedRef,
     authCallbackResolvedRef,

@@ -66,6 +66,13 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - `src/dataSessionAsyncHandlers.test.mjs`: 実Appハンドラを抽出し、遅延した成功と失敗、A→Bアカウント切替、同一アカウントの要求順序、フォーム初期化をモック応答で検証。
 - 既存の投稿・共鳴・Archive・星文のrevisionガードは変更しない。Supabase Auth・DB/RLS/権限・通信先/形式・Netlify設定・秘密値は不変。
 
+## 第9段階：Authイベント時点のデータセッション世代切替
+- `src/App.jsx` は `advanceAuthIdentityEpoch(nextSession)` をAuthイベントの同期処理から呼ぶ。現在のユーザーIDと次のIDが異なる場合、単調増加するAuth identity epochとデータセッションのキーを**即時更新**し、Reactの再描画がなくても旧リクエストを無効にする。ユーザーID不変のTOKEN_REFRESHED等では世代を変えない。
+- `src/hooks/useAuthSessionLifecycle.js` は初期 `getSession()` と `onAuthStateChange` で、実際にセッションをstateへ確定する直前にidentity epochを進める。古い初期読出しを棄却するロジック、メール確認・パスワード回復判定は維持する。
+- 既存の`App.jsx`セッションリセットEffectは`sessionUserId`だけでなく`authIdentityEpoch`も監視する。A→B→AをReactが1回のrenderにまとめても、修正後にもう一度beginSession/resetすることでrevision storeと公開UIを確実に新世代に同期させる。
+- `src/authSessionLifecycle.test.mjs` で実Authイベントを同じマイクロタスク内で往復し、旧request tokenが復活しないことを検証。`src/authIdentityEpochReset.test.mjs` で実AppのリセットEffectが同ユーザー・新epochでも実行され、5種類のrevision storeを同じキーへ再初期化し、同一epochで重複リセットしないことを確認する。
+- 既存の投稿・共鳴・Archive・星文・メディアのsession guardを再利用し、Authの権限判定、Supabase SDK、DB/RLS、Function設定、ネットワーク通信形式は変更しない。
+
 ## 必須の設計上の注意
 
 1. `App.jsx` に画面内だけで使う新しい表示コンポーネントを追加しない。既存の担当モジュールを先に確認する。

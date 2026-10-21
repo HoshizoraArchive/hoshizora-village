@@ -4,6 +4,7 @@ import { ERROR_OPERATION, getUserFacingError } from "../safeErrors";
 import { AUTH_CONFIRMATION_KIND, AUTH_PASSWORD_RECOVERY_KIND, getSanitizedAuthCallbackPath } from "../authConfirmation";
 
 export function useAuthSessionLifecycle({
+  advanceAuthIdentityEpoch,
   initialAuthCallback,
   authCallbackCleanedRef,
   authCallbackResolvedRef,
@@ -201,6 +202,7 @@ useEffect(() => {
         return;
       }
 
+      advanceAuthIdentityEpoch(data.session);
       activeSessionUserIdRef.current = data.session?.user?.id ?? null;
       setSession(data.session);
       setAuthStatus(
@@ -231,6 +233,7 @@ useEffect(() => {
         // Do not clear that newer message when a SIGNED_OUT broadcast arrives.
         setAuthError((current) => current === ownedErrorMessage ? "" : current);
       }
+      advanceAuthIdentityEpoch(session);
       activeSessionUserIdRef.current = session?.user?.id ?? null;
       setSession(session);
       setAuthStatus(

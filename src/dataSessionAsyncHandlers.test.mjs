@@ -317,7 +317,7 @@ test("feedback rejected Promise from A does not clear B's saving state or show A
 });
 
 test("feedback and report forms reset on Auth account switch", () => {
-  const authReset = appSource.slice(appSource.indexOf("previousDataSessionUserIdRef.current = sessionUserId"), appSource.indexOf("}, [sessionUserId]);", appSource.indexOf("previousDataSessionUserIdRef.current = sessionUserId")));
+  const authReset = appSource.slice(appSource.indexOf("previousDataSessionUserIdRef.current = sessionUserId"), appSource.indexOf("}, [sessionUserId, authIdentityEpoch]);", appSource.indexOf("previousDataSessionUserIdRef.current = sessionUserId")));
   for (const name of ["setFeedbackBody", "setFeedbackSaving", "setFeedbackError", "setFeedbackMessage"]) {
     assert.match(authReset, new RegExp(name + "\\("), name + " must reset with the account");
   }
