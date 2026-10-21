@@ -1710,6 +1710,8 @@ function App() {
   const [profileForm, setProfileForm] = useState(emptyProfileForm);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const profileNotificationSettingRequestVersionsRef = useRef(new Map());
+  const profileNotificationSettingPendingRef = useRef(new Set());
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [profileScreenMode, setProfileScreenMode] = useState("view");
@@ -1946,6 +1948,7 @@ function App() {
     setProfile(null);
     setProfileForm(emptyProfileForm);
     setProfileSaving(false);
+    profileNotificationSettingPendingRef.current.clear();
     setAvatarUploading(false);
     setProfileScreenMode("view");
     setFeedbackType(FEEDBACK_TYPES[0]);
@@ -5808,41 +5811,63 @@ function App() {
       return;
     }
 
+    const userId = session.user.id;
+    const requestSession = captureDataMutationSession();
+    const requestVersions = profileNotificationSettingRequestVersionsRef.current;
+    const requestVersion = (requestVersions.get(field) ?? 0) + 1;
+    requestVersions.set(field, requestVersion);
+    const isCurrentRequest = () =>
+      isCurrentDataMutationSession(requestSession) &&
+      requestVersions.get(field) === requestVersion;
+    profileNotificationSettingPendingRef.current.add(field);
     setProfileSaving(true);
     setProfileMessage("");
     setProfileError("");
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({ [field]: nextSetting })
-      .eq("id", session.user.id);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ [field]: nextSetting })
+        .eq("id", userId);
 
-    setProfileSaving(false);
+      if (!isCurrentRequest()) {
+        return;
+      }
 
-    if (error) {
+      if (error) {
+        setProfileForm((currentForm) => ({
+          ...currentForm,
+          [field]: profile?.[field] ?? true,
+        }));
+        setProfileError(`${label}設定の保存に失敗しました。時間をおいてもう一度お試しください。`);
+        return;
+      }
+
+      setProfile((currentProfile) =>
+        currentProfile?.id === userId
+          ? {
+              ...currentProfile,
+              [field]: nextSetting,
+            }
+          : currentProfile,
+      );
       setProfileForm((currentForm) => ({
         ...currentForm,
-        [field]: profile?.[field] ?? true,
+        [field]: nextSetting,
       }));
+      setProfileMessage(`${label}設定を保存しました。`);
+    } catch (error) {
+      if (!isCurrentRequest()) {
+        return;
+      }
+      logSafeError("profile_notification_setting_save", error);
       setProfileError(`${label}設定の保存に失敗しました。時間をおいてもう一度お試しください。`);
-      return;
+    } finally {
+      if (isCurrentRequest()) {
+        profileNotificationSettingPendingRef.current.delete(field);
+        setProfileSaving(profileNotificationSettingPendingRef.current.size > 0);
+      }
     }
-
-    const savedSetting = nextSetting;
-
-    setProfile((currentProfile) =>
-      currentProfile
-        ? {
-            ...currentProfile,
-            [field]: savedSetting,
-          }
-        : currentProfile,
-    );
-    setProfileForm((currentForm) => ({
-      ...currentForm,
-      [field]: savedSetting,
-    }));
-    setProfileMessage(`${label}設定を保存しました。`);
   }
 
   async function handleArchiveNotificationSettingSubmit(event) {
@@ -7613,34 +7638,49 @@ function App() {
       return;
     }
 
+    const requestSession = captureDataMutationSession();
     setNotificationUpdatingId(notificationId);
 
-    const { data, error } = await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("id", notificationId)
-      .eq("recipient_id", session.user.id)
-      .select("id, is_read")
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", notificationId)
+        .eq("recipient_id", session.user.id)
+        .select("id, is_read")
+        .single();
 
-    setNotificationUpdatingId(null);
+      if (!isCurrentDataMutationSession(requestSession)) {
+        return;
+      }
 
-    if (error) {
+      if (error) {
+        setNotificationsError(getUserFacingError(error, ERROR_OPERATION.NOTIFICATION_SAVE));
+        return;
+      }
+
+      setNotifications((currentNotifications) =>
+        currentNotifications.map((notification) =>
+          notification.id === notificationId
+            ? {
+                ...notification,
+                is_read: data?.is_read ?? true,
+              }
+            : notification,
+        ),
+      );
+      setNotificationsMessage("通知を既読にしました。");
+    } catch (error) {
+      if (!isCurrentDataMutationSession(requestSession)) {
+        return;
+      }
+      logSafeError(ERROR_OPERATION.NOTIFICATION_SAVE, error);
       setNotificationsError(getUserFacingError(error, ERROR_OPERATION.NOTIFICATION_SAVE));
-      return;
+    } finally {
+      if (isCurrentDataMutationSession(requestSession)) {
+        setNotificationUpdatingId((currentId) => currentId === notificationId ? null : currentId);
+      }
     }
-
-    setNotifications((currentNotifications) =>
-      currentNotifications.map((notification) =>
-        notification.id === notificationId
-          ? {
-              ...notification,
-              is_read: data?.is_read ?? true,
-            }
-          : notification,
-      ),
-    );
-    setNotificationsMessage("通知を既読にしました。");
   }
 
   async function refreshStarLettersForPost(postId) {
@@ -8863,6 +8903,7 @@ function App() {
       return null;
     }
 
+    const requestSession = captureDataMutationSession();
     const { data, error } = await supabase
       .from("user_onboarding_progress")
       .select(ONBOARDING_PROGRESS_SELECT_COLUMNS)
@@ -8870,6 +8911,7 @@ function App() {
       .maybeSingle();
 
     if (
+      !isCurrentDataMutationSession(requestSession) ||
       !canApplyOnboardingProgressResponse({
         activeUserId: activeSessionUserIdRef.current,
         progress: data,
