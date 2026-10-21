@@ -4544,6 +4544,13 @@ function App() {
       };
     }
 
+    const requestedSession = captureDataMutationSession();
+    const isCurrentTargetRequest = () =>
+      isMounted &&
+      isCurrentDataMutationSession(requestedSession) &&
+      onboardingProgressRef.current?.user_id === requestedSession.userId &&
+      onboardingProgressRef.current?.target_post_id === targetPostId;
+
     async function readOnboardingTargetPost() {
       const { data: post, error } = await runPostQuery((columns, supportsSoftDelete) => {
         let query = applyVisiblePostTypeFilter(
@@ -4557,7 +4564,7 @@ function App() {
         return query.maybeSingle();
       });
 
-      if (!isMounted) {
+      if (!isCurrentTargetRequest()) {
         return;
       }
 
@@ -4578,14 +4585,14 @@ function App() {
         PROFILE_BASIC_SELECT_COLUMNS,
       );
 
-      if (!isMounted) {
+      if (!isCurrentTargetRequest()) {
         return;
       }
 
       const basePost = mapSavedPost(post, authorProfile, profileFrames);
       const { posts: hydratedPosts, error: assetsError } = await hydratePostsWithAssets([basePost]);
 
-      if (!isMounted) {
+      if (!isCurrentTargetRequest()) {
         return;
       }
 
@@ -4595,6 +4602,10 @@ function App() {
 
       const targetPost = hydratedPosts[0] ?? basePost;
       setSavedPosts((currentPosts) => {
+        // React may apply an updater after the originating Auth session ends.
+        if (!isCurrentTargetRequest()) {
+          return currentPosts;
+        }
         const reconciledTarget = reconcilePostSnapshots(currentPosts, [targetPost])[0] ?? targetPost;
         return [
           reconciledTarget,
@@ -4603,7 +4614,13 @@ function App() {
       });
     }
 
-    readOnboardingTargetPost();
+    void readOnboardingTargetPost().catch((error) => {
+      if (!isCurrentTargetRequest()) {
+        return;
+      }
+      logSafeError(ERROR_OPERATION.POST_LOAD, error);
+      setOnboardingError("案内に使う流星便を読み込めませんでした。もう一度お試しください。");
+    });
 
     return () => {
       isMounted = false;
@@ -4611,7 +4628,11 @@ function App() {
   }, [
     sessionOnboardingProgress?.current_step,
     sessionOnboardingProgress?.target_post_id,
+    // After an Auth epoch reset the progress row may be reloaded with the same
+    // step/target values; track its new object identity to restart hydration.
+    sessionOnboardingProgress,
     profileFrames,
+    authIdentityEpoch,
   ]);
 
   useEffect(() => {

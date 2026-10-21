@@ -88,6 +88,12 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - 既存の`refreshInitialOnboardingProgress`に通信例外を処理する`catch`を追加。`void refreshInitialOnboardingProgress()`を使う再読込でunhandled rejectionを生じさせず、他セッションのエラーは表示しない。
 - `src/onboardingGenerationIsolation.test.mjs`は実Appハンドラと初期EffectをBabel ASTから抽出、deferred responseとAuth generation模擬で旧/新セッションの成功・失敗・例外・single-flight/画面遷移を固定する。Supabase/RLS/RPC・通信payload/権限、DB・Production設定は変更しない。
 
+## 第12段階：入村案内のターゲット流星便・作者・メディア取得のセッション隔離
+- `src/App.jsx`の案内用ターゲット流星便取得Effectは`captureDataMutationSession`（userId＋単調増加Auth epoch）を取得前に捕捉し、投稿取得・作者プロフィール取得・メディアhydrateの各非同期戻り口を`isCurrentDataMutationSession`と`isMounted`で検査。別アカウントや瞬時A→B→Aでも旧結果・エラー・ensure_target RPCを次の案内へ反映しない。
+- 読込対象の`target_post_id`が現`onboardingProgressRef`と一致することも要求し、同一セッションで別ターゲットへ更新された後の旧応答を破棄。Reactの`setSavedPosts` functional updaterの実行時にも再度検査し、Reactの後続バッチで新アカウントの保存済み流星便を上書きしない。
+- Effect依存配列に`authIdentityEpoch`と進捗オブジェクト自体`sessionOnboardingProgress`を加える。Reactが中間レンダーを省くA→B→A後、再取得した進捗のstep/target IDが元と同じでも案内用流星便を再取得する。Promise reject・同期throwは捕捉し、現在のユーザーにのみ安全なエラーを表示。Supabase、RPCやpayload、Auth/DB/RLS、Storage/CDN、秘密情報とNetlify設定は変更しない。
+- `src/onboardingTargetSession.test.mjs`は実EffectをBabel ASTから抽出し、17の成功・失敗・進捗切替・Auth世代切替・queued updater・例外/cleanupを遅延Promiseで回帰検証。
+
 ## 必須の設計上の注意
 
 1. `App.jsx` に画面内だけで使う新しい表示コンポーネントを追加しない。既存の担当モジュールを先に確認する。
