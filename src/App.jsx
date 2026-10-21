@@ -1665,6 +1665,8 @@ function App() {
   const authIdentityEpochRef = useRef(0);
   const [onboardingProgress, setOnboardingProgress] = useState(null);
   const onboardingProgressRef = useRef(null);
+  // Latest-started read wins; a successful advance invalidates earlier reads.
+  const onboardingProgressReadVersionRef = useRef(0);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [onboardingError, setOnboardingError] = useState("");
@@ -2291,6 +2293,7 @@ function App() {
 
     activeSessionUserIdRef.current = userId;
     onboardingProgressRef.current = null;
+    onboardingProgressReadVersionRef.current += 1;
     onboardingAdvanceInFlightRef.current = false;
     onboardingPostCompletionRef.current = false;
     setOnboardingProgress(null);
@@ -2306,8 +2309,11 @@ function App() {
 
     async function readOnboardingProgress() {
       const requestedSession = captureDataMutationSession();
+      const requestVersion = ++onboardingProgressReadVersionRef.current;
       const isCurrentRequest = () =>
-        isMounted && isCurrentDataMutationSession(requestedSession);
+        isMounted &&
+        isCurrentDataMutationSession(requestedSession) &&
+        onboardingProgressReadVersionRef.current === requestVersion;
       setOnboardingLoading(true);
       setOnboardingError("");
 
@@ -8899,6 +8905,8 @@ function App() {
       return null;
     }
 
+    // New progress must not be rewound by an earlier same-session fetch.
+    onboardingProgressReadVersionRef.current += 1;
     onboardingProgressRef.current = data.progress;
     setOnboardingProgress(data.progress);
 
@@ -8920,6 +8928,10 @@ function App() {
     }
 
     const requestSession = captureDataMutationSession();
+    const requestVersion = ++onboardingProgressReadVersionRef.current;
+    const isCurrentRequest = () =>
+      isCurrentDataMutationSession(requestSession) &&
+      onboardingProgressReadVersionRef.current === requestVersion;
     try {
       const { data, error } = await supabase
         .from("user_onboarding_progress")
@@ -8928,7 +8940,7 @@ function App() {
         .maybeSingle();
 
       if (
-        !isCurrentDataMutationSession(requestSession) ||
+        !isCurrentRequest() ||
         !canApplyOnboardingProgressResponse({
           activeUserId: activeSessionUserIdRef.current,
           progress: data,
@@ -8950,7 +8962,7 @@ function App() {
       setOnboardingProgress(data);
       return data;
     } catch (error) {
-      if (isCurrentDataMutationSession(requestSession)) {
+      if (isCurrentRequest()) {
         logSafeError(ERROR_OPERATION.ONBOARDING_LOAD, error);
         setOnboardingError(getUserFacingError(error, ERROR_OPERATION.ONBOARDING_LOAD));
       }

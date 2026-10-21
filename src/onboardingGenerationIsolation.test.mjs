@@ -40,13 +40,14 @@ function advanceHarness({ pending, currentStep = "profile_setup", initialBusy = 
   const run = runtime();
   const { state, setters } = createState({ onboardingBusy: initialBusy, onboardingError: "", onboardingProgress: { user_id: "A", current_step: currentStep } });
   const onboardingProgressRef = { current: state.onboardingProgress };
+  const onboardingProgressReadVersionRef = { current: 0 };
   const onboardingAdvanceInFlightRef = { current: false };
   const errors = [];
   const navigation = [];
   const rpcCalls = [];
   const advance = getFunction("advanceInitialOnboarding", {
     session: { user: { id: "A" } },
-    onboardingProgressRef,
+    onboardingProgressRef, onboardingProgressReadVersionRef,
     onboardingAdvanceInFlightRef,
     captureDataMutationSession: run.captureDataMutationSession,
     isCurrentDataMutationSession: run.isCurrentDataMutationSession,
@@ -61,7 +62,7 @@ function advanceHarness({ pending, currentStep = "profile_setup", initialBusy = 
     ERROR_OPERATION: { ONBOARDING_SAVE: "onboarding_save" },
     handleTabChange: (tab) => navigation.push(tab),
   });
-  return { ...run, state, onboardingProgressRef, onboardingAdvanceInFlightRef, rpcCalls, navigation, errors, advance };
+  return { ...run, state, setters, onboardingProgressRef, onboardingProgressReadVersionRef, onboardingAdvanceInFlightRef, rpcCalls, navigation, errors, advance };
 }
 function successful(step = "post_intro_1", id = "A") {
   return { data: { outcome: "advanced", progress: { user_id: id, current_step: step } }, error: null };
@@ -163,7 +164,8 @@ function initialHarness({ userId = "A", key = "A:1" } = {}) {
   const { state, setters } = createState({ onboardingProgress: null, onboardingLoading: false, onboardingError: "" });
   const r = runtime();
   r.active.id = userId; r.active.key = key;
-  const onboardRef = { current: null }, inFlight = { current: false }, postComplete = { current: false };
+  const onboardRef = { current: null }, onboardingProgressReadVersionRef = { current: 0 };
+  const inFlight = { current: false }, postComplete = { current: false };
   const pending = deferred();
   const calls = [], navigation = [];
   const context = {
@@ -171,7 +173,7 @@ function initialHarness({ userId = "A", key = "A:1" } = {}) {
     activeSessionUserIdRef: { current: userId },
     captureDataMutationSession: r.captureDataMutationSession,
     isCurrentDataMutationSession: r.isCurrentDataMutationSession,
-    onboardingProgressRef: onboardRef, onboardingAdvanceInFlightRef: inFlight,
+    onboardingProgressRef: onboardRef, onboardingProgressReadVersionRef, onboardingAdvanceInFlightRef: inFlight,
     onboardingPostCompletionRef: postComplete,
     setOnboardingProgress: setters.setOnboardingProgress, setOnboardingBusy: setters.setOnboardingBusy,
     setOnboardingLoading: setters.setOnboardingLoading, setOnboardingError: setters.setOnboardingError,
@@ -259,6 +261,7 @@ test("manual onboarding refresh same-session transport rejection is handled", as
     captureDataMutationSession: r.captureDataMutationSession,
     isCurrentDataMutationSession: r.isCurrentDataMutationSession,
     onboardingProgressRef: progress,
+    onboardingProgressReadVersionRef: { current: 0 },
     isOnboardingProgressForUser: (item, id) => item?.user_id === id,
     canApplyOnboardingProgressResponse: () => true,
     activeSessionUserIdRef: { current: "A" },
@@ -289,6 +292,7 @@ test("manual onboarding refresh rejected old A request does not affect current A
     captureDataMutationSession: r.captureDataMutationSession,
     isCurrentDataMutationSession: r.isCurrentDataMutationSession,
     onboardingProgressRef: progress,
+    onboardingProgressReadVersionRef: { current: 0 },
     isOnboardingProgressForUser: (item, id) => item?.user_id === id,
     canApplyOnboardingProgressResponse: () => true,
     activeSessionUserIdRef: { current: "A" },
@@ -308,4 +312,62 @@ test("manual onboarding refresh rejected old A request does not affect current A
   pending.reject(new Error("old private failure"));
   assert.equal(await result, null);
   assert.equal(state.onboardingError, "current state");
+});
+
+test("earlier same-session refresh cannot rewind progress after a later advance succeeds", async () => {
+  const pendingAdvance = deferred(), pendingRead = deferred();
+  const ctx = advanceHarness({ pending: pendingAdvance });
+  const query = { select: () => query, eq: () => query, maybeSingle: () => pendingRead.promise };
+  const refresh = getFunction("refreshInitialOnboardingProgress", {
+    session: { user: { id: "A" } },
+    captureDataMutationSession: ctx.captureDataMutationSession,
+    isCurrentDataMutationSession: ctx.isCurrentDataMutationSession,
+    onboardingProgressReadVersionRef: ctx.onboardingProgressReadVersionRef,
+    onboardingProgressRef: ctx.onboardingProgressRef,
+    isOnboardingProgressForUser: (progress, id) => progress?.user_id === id,
+    canApplyOnboardingProgressResponse: ({ activeUserId, progress, requestedUserId }) =>
+      activeUserId === requestedUserId && progress?.user_id === requestedUserId,
+    activeSessionUserIdRef: { current: "A" },
+    supabase: { from: () => query },
+    ONBOARDING_PROGRESS_SELECT_COLUMNS: "user_id,current_step",
+    isMissingOnboardingSchemaError: () => false,
+    logSafeError() {}, getUserFacingError: () => "Error",
+    ERROR_OPERATION: { ONBOARDING_LOAD: "onboarding_load" },
+    setOnboardingProgress: ctx.setters.setOnboardingProgress,
+    setOnboardingError: ctx.setters.setOnboardingError,
+  });
+  const oldRead = refresh();
+  const saving = ctx.advance("profile_saved");
+  pendingAdvance.resolve(successful("post_intro_1"));
+  await saving;
+  pendingRead.resolve({ data: { user_id: "A", current_step: "profile_setup" }, error: null });
+  assert.equal(await oldRead, null, "old read discarded as stale");
+  assert.equal(ctx.state.onboardingProgress.current_step, "post_intro_1");
+  assert.equal(ctx.onboardingProgressRef.current.current_step, "post_intro_1");
+});
+
+test("within one account, older parallel refresh must not supersede latest-started refresh", async () => {
+  const ctx = advanceHarness({ pending: deferred() });
+  const older = deferred(), newer = deferred(); let reads = 0;
+  const query = { select: () => query, eq: () => query, maybeSingle: () => ++reads === 1 ? older.promise : newer.promise };
+  const refresh = getFunction("refreshInitialOnboardingProgress", {
+    session: { user: { id: "A" } },
+    captureDataMutationSession: ctx.captureDataMutationSession,
+    isCurrentDataMutationSession: ctx.isCurrentDataMutationSession,
+    onboardingProgressReadVersionRef: ctx.onboardingProgressReadVersionRef,
+    onboardingProgressRef: ctx.onboardingProgressRef,
+    isOnboardingProgressForUser: (progress, id) => progress?.user_id === id,
+    canApplyOnboardingProgressResponse: () => true, activeSessionUserIdRef: { current: "A" },
+    supabase: { from: () => query }, ONBOARDING_PROGRESS_SELECT_COLUMNS: "user_id,current_step",
+    isMissingOnboardingSchemaError: () => false,
+    logSafeError() {}, getUserFacingError: () => "Error",
+    ERROR_OPERATION: { ONBOARDING_LOAD: "onboarding_load" },
+    setOnboardingProgress: ctx.setters.setOnboardingProgress, setOnboardingError: ctx.setters.setOnboardingError,
+  });
+  const oldRead = refresh(); const newRead = refresh();
+  newer.resolve({ data: { user_id: "A", current_step: "new_step" }, error: null });
+  await newRead;
+  older.resolve({ data: { user_id: "A", current_step: "old_step" }, error: null });
+  assert.equal(await oldRead, null);
+  assert.equal(ctx.state.onboardingProgress.current_step, "new_step");
 });

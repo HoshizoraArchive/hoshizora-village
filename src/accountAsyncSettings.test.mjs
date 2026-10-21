@@ -165,6 +165,7 @@ test("onboarding refresh from A→B→A discards prior-generation response", asy
   const query = { select: () => query, eq: () => query, maybeSingle: () => pending.promise };
   const execute = handler("refreshInitialOnboardingProgress", {
     session: { user: { id: "A" } }, onboardingProgressRef: progressRef,
+    onboardingProgressReadVersionRef: { current: 0 },
     captureDataMutationSession: env.captureDataMutationSession, isCurrentDataMutationSession: env.isCurrentDataMutationSession,
     isOnboardingProgressForUser: (progress, userId) => progress?.user_id === userId,
     canApplyOnboardingProgressResponse: ({ activeUserId, progress, requestedUserId }) => activeUserId === requestedUserId && progress?.user_id === requestedUserId,
@@ -275,6 +276,7 @@ test("onboarding old generation's error also cannot disturb restored A", async (
   const query = { select: () => query, eq: () => query, maybeSingle: () => pending.promise };
   const execute = handler("refreshInitialOnboardingProgress", {
     session: { user: { id: "A" } }, onboardingProgressRef: progressRef,
+    onboardingProgressReadVersionRef: { current: 0 },
     captureDataMutationSession: env.captureDataMutationSession, isCurrentDataMutationSession: env.isCurrentDataMutationSession,
     isOnboardingProgressForUser: (progress, userId) => progress?.user_id === userId,
     canApplyOnboardingProgressResponse: () => true, activeSessionUserIdRef: { current: "A" },
