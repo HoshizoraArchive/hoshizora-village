@@ -18,6 +18,7 @@
   const chatLinkPanel = document.getElementById('chat-link-panel');
   const chatLinkInput = document.getElementById('chat-link-input');
   const chatLinkStatus = document.getElementById('chat-link-status');
+  const chatLinkDefault = document.getElementById('chat-link-default');
   const chatLinkOpen = document.getElementById('chat-link-open');
   const chatLinkRemove = document.getElementById('chat-link-remove');
   const CHAT_LINKS_CACHE = 'cos-chat-links-v1';
@@ -35,6 +36,7 @@
     } catch { return ''; }
   }
   function chatLinkCacheKey(key) { return new URL('chat-link/' + key, location.href).href; }
+  const chatLinkDefaultKey = () => new URL('chat-link/default', location.href).href;
   async function chatLinkRead(key) {
     if (!opaque(key) || !('caches' in window)) return '';
     const cache = await caches.open(CHAT_LINKS_CACHE), entry = await cache.match(chatLinkCacheKey(key));
@@ -50,12 +52,17 @@
   async function showChatLink(key) {
     activeChatLinkKey = key;
     chatLinkPanel.hidden = false;
-    chatLinkInput.value = ''; chatLinkOpen.hidden = true; chatLinkRemove.hidden = true;
+    chatLinkInput.value = ''; chatLinkOpen.hidden = true; chatLinkRemove.hidden = true; chatLinkDefault.checked = false;
     chatLinkStatus.textContent = 'この通知から元のChatGPTチャットへ戻るためのリンクを登録できます。';
     try {
       const linked = await chatLinkRead(key);
       if (activeChatLinkKey !== key) return;
+      const cache = await caches.open(CHAT_LINKS_CACHE);
+      const defaultResponse = await cache.match(chatLinkDefaultKey());
+      const defaultLink = defaultResponse ? chatUrl(await defaultResponse.text()) : '';
+      if (activeChatLinkKey !== key) return;
       if (linked) { chatLinkInput.value = linked; chatLinkOpen.hidden = false; chatLinkRemove.hidden = false; chatLinkStatus.textContent = 'この通知は元チャットと登録済みです。'; }
+      if (defaultLink) { chatLinkDefault.checked = true; if (!linked) { chatLinkInput.value = defaultLink; chatLinkOpen.hidden = false; chatLinkStatus.textContent = 'すべての通知の既定リンクを使用中です。'; } }
     } catch { if (activeChatLinkKey === key) chatLinkStatus.textContent = '端末の保存領域が利用できません。'; }
   }
   function visitChatUrl(url) { const safe = chatUrl(url); if (safe) location.assign(safe); }
@@ -301,10 +308,13 @@
     catch { proposalPrompt.focus(); proposalPrompt.select(); proposalFeedback.textContent = 'コピーに失敗しました。テキストを選択してコピーしてね。'; }
   });
   document.getElementById('chat-link-save').addEventListener('click', () => action(async () => {
-    const key = activeChatLinkKey, saved = await chatLinkSave(key, chatLinkInput.value);
+    const key = activeChatLinkKey, isDefault = chatLinkDefault.checked, saved = await chatLinkSave(key, chatLinkInput.value);
+    const cache = await caches.open(CHAT_LINKS_CACHE);
+    if (isDefault) await cache.put(chatLinkDefaultKey(), new Response(saved, {headers:{'Content-Type':'text/plain'}}));
+    else await cache.delete(chatLinkDefaultKey());
     if (activeChatLinkKey !== key) return;
     chatLinkInput.value = saved; chatLinkOpen.hidden = false; chatLinkRemove.hidden = false;
-    chatLinkStatus.textContent = '登録できました。次からこの通知をタップすると元チャットを直接開きます。';
+    chatLinkStatus.textContent = isDefault ? '登録できました。今後の通知はこのチャットを直接開きます。' : '登録できました。この通知をタップすると元チャットを直接開きます。';
   }));
   chatLinkOpen.addEventListener('click', () => visitChatUrl(chatLinkInput.value));
   chatLinkRemove.addEventListener('click', () => action(async () => {
@@ -314,7 +324,7 @@
     await cache.delete(chatLinkCacheKey(key));
     if (activeChatLinkKey !== key) return;
     chatLinkOpen.hidden = true; chatLinkRemove.hidden = true; chatLinkInput.value = '';
-    chatLinkStatus.textContent = 'リンクの登録を解除しました。';
+    chatLinkStatus.textContent = chatLinkDefault.checked ? 'この通知専用のリンクを解除しました。全通知の既定リンクは有効です。' : 'リンクの登録を解除しました。';
   }));
   document.getElementById('report-close').addEventListener('click', closeReport);
   reportRetry.addEventListener('click', () => { if (currentReport) action(() => openReport(currentReport)); });
