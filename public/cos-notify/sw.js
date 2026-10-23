@@ -25,8 +25,12 @@ self.addEventListener('notificationclick', event => {
           const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
           const pattern = new RegExp('^/(?:c/' + uuid + '|g/g-p-[a-f0-9]{32}(?:-[a-z0-9-]+)?/c/' + uuid + ')$','i');
           if (url.protocol === 'https:' && url.hostname === 'chatgpt.com' && !url.username && !url.password && !url.port && !url.search && !url.hash && pattern.test(url.pathname)) {
-            const opened = await self.clients.openWindow(url.href);
-            if (opened !== null) return;
+            // For cross-origin ChatGPT navigation the browser may open the
+            // requested URL but return null because the new tab is not a
+            // same-origin WindowClient. A null result is not a navigation
+            // failure; opening the inbox as well would create two windows.
+            await self.clients.openWindow(url.href);
+            return;
           }
         }
       } catch { /* unsafe, unsupported or unavailable link: open authenticated inbox instead */ }
