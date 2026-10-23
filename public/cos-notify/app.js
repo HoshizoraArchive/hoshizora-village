@@ -175,6 +175,31 @@
       reportRetry.hidden = e.status === 401;
     }
   }
+  // Ordinary Dot/Scheduler events are just as navigable as daily reports.
+  // Resolve the event key only from this device's authenticated inbox: the
+  // untrusted notification payload supplies no chat URL, title or result.
+  function openEvent(row) {
+    const epoch = ++viewEpoch;
+    currentReport = null; pendingEvent = ''; activeProposal = null;
+    document.body.classList.add('report-open');
+    reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
+    proposalPanel.hidden = true; proposalResult.hidden = true;
+    const heading = document.getElementById('report-heading');
+    heading.textContent = row.title; heading.hidden = false;
+    reportText.replaceChildren();
+    const info = document.createElement('p');
+    const stateLabels = {completed:'完了しました',failed:'失敗しました',blocked:'対応待ちです',cancelled:'中止されました',test:'テスト通知です'};
+    info.textContent = '作業の状態：' + (stateLabels[row.state] || '状態が更新されました');
+    reportText.append(info);
+    const date = document.createElement('p');
+    date.textContent = '通知日時：' + new Date(row.created_at).toLocaleString('ja-JP');
+    reportText.append(date);
+    reportStatus.textContent = 'この通知は該当する作業の記録です。元のChatGPTチャットへの移動は、CoSがそのチャットを正確に確認できる場合のみ利用できます。';
+    reportRetry.hidden = true;
+    history.replaceState(null, '', location.pathname + '#report-event=' + row.event_key);
+    reportView.scrollIntoView?.({ block: 'start' }); heading.focus({ preventScroll: true });
+    return epoch;
+  }
   async function inbox() {
     const epoch = ++inboxEpoch;
     const rows = (await call('inbox', 'GET', undefined, true)).events;
@@ -185,20 +210,21 @@
     for (const {row,report} of entries) {
       const li = document.createElement('li');
       const label = row.title + ' — ' + row.state + ' (' + new Date(row.created_at).toLocaleString('ja-JP') + ')';
-      if (report) {
-        rowsByKey.set(report.event_key, report);
+      if (opaque(row.event_key)) {
+        rowsByKey.set(row.event_key, { row, report });
         const button = document.createElement('button'); button.className = 'report-row'; button.type = 'button'; button.textContent = label;
-        button.setAttribute('aria-label', row.title + 'の本文を読む（' + row.state + '）');
-        button.addEventListener('click', () => action(() => openReport(report))); li.append(button);
+        button.setAttribute('aria-label', report ? row.title + 'の本文を読む（' + row.state + '）' : row.title + 'の通知内容を読む（' + row.state + '）');
+        button.addEventListener('click', () => action(() => report ? openReport(report) : openEvent(row))); li.append(button);
       } else li.textContent = label;
       list.append(li);
     }
     if (!rows.length) { const li = document.createElement('li'); li.textContent = 'まだ通知はありません'; list.append(li); }
     if (pendingEvent) {
-      const row = rowsByKey.get(pendingEvent);
-      if (row) await openReport(row);
-      else if (rows.some(row => row.event_key === pendingEvent)) pendingEvent = '';
-      else status.textContent = '対象の日報通知は受信箱にありません。「更新」で再確認できます。';
+      const entry = rowsByKey.get(pendingEvent);
+      if (entry) {
+        if (entry.report) await openReport(entry.report);
+        else openEvent(entry.row);
+      } else status.textContent = '対象の作業通知は受信箱にありません。「更新」で再確認できます。';
     }
   }
   async function connect() {
