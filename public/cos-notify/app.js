@@ -14,7 +14,59 @@
   const proposalResult = document.getElementById('proposal-result');
   const proposalFeedback = document.getElementById('proposal-feedback');
   const proposalPrompt = document.getElementById('proposal-prompt');
-  let activeProposal = null, proposalBusy = false;
+  let activeProposal = null, proposalBusy = false, activeChatLinkKey = '';
+  const chatLinkPanel = document.getElementById('chat-link-panel');
+  const chatLinkInput = document.getElementById('chat-link-input');
+  const chatLinkStatus = document.getElementById('chat-link-status');
+  const chatLinkDefault = document.getElementById('chat-link-default');
+  const chatLinkOpen = document.getElementById('chat-link-open');
+  const chatLinkRemove = document.getElementById('chat-link-remove');
+  const CHAT_LINKS_CACHE = 'cos-chat-links-v1';
+  // Only a direct existing ChatGPT conversation is a permissible navigation
+  // target. Shared/public links, arbitrary hosts, redirects and query tokens
+  // are refused. This is navigation only, never proof of execution authority.
+  function chatUrl(value) {
+    try {
+      if (typeof value !== 'string' || value.length > 512) return '';
+      const u = new URL(value.trim());
+      if (u.protocol !== 'https:' || u.hostname !== 'chatgpt.com' || u.username || u.password || u.port || u.search || u.hash) return '';
+      const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
+      const pattern = new RegExp('^/(?:c/' + uuid + '|g/g-p-[a-f0-9]{32}(?:-[a-z0-9-]+)?/c/' + uuid + ')$','i');
+      return pattern.test(u.pathname) ? u.href : '';
+    } catch { return ''; }
+  }
+  function chatLinkCacheKey(key) { return new URL('chat-link/' + key, location.href).href; }
+  const chatLinkDefaultKey = () => new URL('chat-link/default', location.href).href;
+  async function chatLinkRead(key) {
+    if (!opaque(key) || !('caches' in window)) return '';
+    const cache = await caches.open(CHAT_LINKS_CACHE), entry = await cache.match(chatLinkCacheKey(key));
+    return entry ? chatUrl(await entry.text()) : '';
+  }
+  async function chatLinkSave(key, url) {
+    if (!opaque(key) || !rowsByKey.has(key) || !('caches' in window)) throw Error('リンクを保存できません');
+    const safe = chatUrl(url); if (!safe) throw Error('元のChatGPTチャットのURLを貼ってください');
+    const cache = await caches.open(CHAT_LINKS_CACHE);
+    await cache.put(chatLinkCacheKey(key), new Response(safe, {headers:{'Content-Type':'text/plain'}}));
+    return safe;
+  }
+  async function showChatLink(key) {
+    activeChatLinkKey = key;
+    chatLinkPanel.hidden = false;
+    chatLinkInput.value = ''; chatLinkOpen.hidden = true; chatLinkRemove.hidden = true; chatLinkDefault.checked = false;
+    chatLinkStatus.textContent = 'この通知から元のChatGPTチャットへ戻るためのリンクを登録できます。';
+    try {
+      const linked = await chatLinkRead(key);
+      if (activeChatLinkKey !== key) return;
+      const cache = await caches.open(CHAT_LINKS_CACHE);
+      const defaultResponse = await cache.match(chatLinkDefaultKey());
+      const defaultLink = defaultResponse ? chatUrl(await defaultResponse.text()) : '';
+      if (activeChatLinkKey !== key) return;
+      if (linked) { chatLinkInput.value = linked; chatLinkOpen.hidden = false; chatLinkRemove.hidden = false; chatLinkStatus.textContent = 'この通知は元チャットと登録済みです。'; }
+      if (defaultLink) { chatLinkDefault.checked = true; if (!linked) { chatLinkInput.value = defaultLink; chatLinkOpen.hidden = false; chatLinkStatus.textContent = 'すべての通知の既定リンクを使用中です。'; } }
+    } catch { if (activeChatLinkKey === key) chatLinkStatus.textContent = '端末の保存領域が利用できません。'; }
+  }
+  function visitChatUrl(url) { const safe = chatUrl(url); if (safe) location.assign(safe); }
+
   const opaque = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
   function deepLink() { const value = new URLSearchParams(location.hash.slice(1)).get('report-event'); return opaque(value) ? value : ''; }
   const hex = a => [...a].map(x => x.toString(16).padStart(2, '0')).join('');
@@ -143,13 +195,14 @@
   }
   function closeReport() {
     document.body.classList.remove('report-open');
-    viewEpoch++; currentReport = null; pendingEvent = ''; activeProposal = null; proposalPanel.hidden = true; proposalResult.hidden = true; proposalFeedback.textContent = ''; reportText.textContent = ''; reportStatus.textContent = ''; reportRetry.hidden = true;
+    viewEpoch++; currentReport = null; pendingEvent = ''; activeProposal = null; activeChatLinkKey = ''; chatLinkPanel.hidden = true; proposalPanel.hidden = true; proposalResult.hidden = true; proposalFeedback.textContent = ''; reportText.textContent = ''; reportStatus.textContent = ''; reportRetry.hidden = true;
     reportView.hidden = true; document.getElementById('inbox-view').hidden = false;
     document.getElementById('refresh').focus();
     history.replaceState(null, '', location.pathname);
   }
   async function openReport(row) {
     const epoch = ++viewEpoch; currentReport = row; pendingEvent = '';
+    void showChatLink(row.event_key);
     document.body.classList.add('report-open');
     reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
     const heading = document.getElementById('report-heading'); heading.textContent = row.title; heading.hidden = false;
@@ -181,6 +234,7 @@
   function openEvent(row) {
     const epoch = ++viewEpoch;
     currentReport = null; pendingEvent = ''; activeProposal = null;
+    void showChatLink(row.event_key);
     document.body.classList.add('report-open');
     reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
     proposalPanel.hidden = true; proposalResult.hidden = true;
@@ -253,6 +307,25 @@
     try { await navigator.clipboard.writeText(proposalPrompt.value); proposalFeedback.textContent = 'コピーできたよ。いつものChatGPTチャットに貼ってね。'; }
     catch { proposalPrompt.focus(); proposalPrompt.select(); proposalFeedback.textContent = 'コピーに失敗しました。テキストを選択してコピーしてね。'; }
   });
+  document.getElementById('chat-link-save').addEventListener('click', () => action(async () => {
+    const key = activeChatLinkKey, isDefault = chatLinkDefault.checked, saved = await chatLinkSave(key, chatLinkInput.value);
+    const cache = await caches.open(CHAT_LINKS_CACHE);
+    if (isDefault) await cache.put(chatLinkDefaultKey(), new Response(saved, {headers:{'Content-Type':'text/plain'}}));
+    else await cache.delete(chatLinkDefaultKey());
+    if (activeChatLinkKey !== key) return;
+    chatLinkInput.value = saved; chatLinkOpen.hidden = false; chatLinkRemove.hidden = false;
+    chatLinkStatus.textContent = isDefault ? '登録できました。今後の通知はこのチャットを直接開きます。' : '登録できました。この通知をタップすると元チャットを直接開きます。';
+  }));
+  chatLinkOpen.addEventListener('click', () => visitChatUrl(chatLinkInput.value));
+  chatLinkRemove.addEventListener('click', () => action(async () => {
+    const key = activeChatLinkKey;
+    if (!opaque(key)) return;
+    const cache = await caches.open(CHAT_LINKS_CACHE);
+    await cache.delete(chatLinkCacheKey(key));
+    if (activeChatLinkKey !== key) return;
+    chatLinkOpen.hidden = true; chatLinkRemove.hidden = true; chatLinkInput.value = '';
+    chatLinkStatus.textContent = chatLinkDefault.checked ? 'この通知専用のリンクを解除しました。全通知の既定リンクは有効です。' : 'リンクの登録を解除しました。';
+  }));
   document.getElementById('report-close').addEventListener('click', closeReport);
   reportRetry.addEventListener('click', () => { if (currentReport) action(() => openReport(currentReport)); });
   async function openPending(key) { if (!opaque(key)) return; pendingEvent = key; await inbox(); }
@@ -263,7 +336,7 @@
   });
   document.getElementById('connect').addEventListener('click', () => action(connect));
   document.getElementById('refresh').addEventListener('click', () => action(inbox));
-  document.getElementById('revoke').addEventListener('click', () => action(async () => { await call('revoke-self', 'POST', {}, true); const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription(); await sub?.unsubscribe(); localStorage.removeItem('cos-device'); localStorage.removeItem('cos-paired'); inboxEpoch++; closeReport(); rowsByKey.clear(); document.getElementById('inbox').replaceChildren(); showState(); }));
+  document.getElementById('revoke').addEventListener('click', () => action(async () => { await call('revoke-self', 'POST', {}, true); const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription(); await sub?.unsubscribe(); localStorage.removeItem('cos-device'); localStorage.removeItem('cos-paired'); if ('caches' in window) await caches.delete(CHAT_LINKS_CACHE); inboxEpoch++; closeReport(); rowsByKey.clear(); document.getElementById('inbox').replaceChildren(); showState(); }));
   addEventListener('online', showState); addEventListener('offline', showState); showState();
   if (installed() && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).catch(() => { status.textContent='Service Workerを登録できません'; });
   if (localStorage.getItem('cos-paired')) action(inbox);
