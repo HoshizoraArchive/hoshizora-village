@@ -1,7 +1,7 @@
 # Production deploys are built from the main branch through Netlify Git integration.
 # Redeploy requested after restoring Netlify credits.
 [build]
-  command = "npm run build"
+  command = "node scripts/verify-netlify-node-version.mjs && npm run build"
   publish = "dist"
 
 [[redirects]]
