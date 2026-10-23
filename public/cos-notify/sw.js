@@ -1,43 +1,50 @@
-// direct-chat-link-v3: update without caching report bodies or bearer credentials.
+// exact-origin-only-v4. No blanket redirect, manual link registry or guesses.
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+self.addEventListener('activate', event => event.waitUntil((async () => {
+  // Delete obsolete user-entered blanket redirects. Earlier versions could
+  // route every unrelated Dot back to one conversation, which is unsafe.
+  try { await caches.delete('cos-chat-links-v1'); } catch {}
+  await self.clients.claim();
+})()));
+function chatUrl(value) {
+  try {
+    if (typeof value !== 'string' || value.length > 512) return '';
+    const u = new URL(value);
+    const conversation = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
+    const valid = new RegExp('^/c/' + conversation + '$','i');
+    return u.protocol === 'https:' && u.hostname === 'chatgpt.com' && !u.username && !u.password && !u.port && !u.search && !u.hash && valid.test(u.pathname) ? u.href : '';
+  } catch { return ''; }
+}
 self.addEventListener('push', event => {
   let data = {}; try { data = event.data?.json() || {}; } catch {}
   const allowed = ['completed','failed','cancelled','blocked','test'];
   const state = typeof data.body === 'string' ? data.body.replace(/^CoS: /,'') : '';
   const tag = /^[a-f0-9]{64}$/.test(data.tag || '') ? data.tag : 'cos-status';
-  event.waitUntil(self.registration.showNotification('CoS 通知', { body: allowed.includes(state) ? 'CoS: ' + state : 'CoSの状態が更新されました', tag, icon: 'icon.svg', data: { url: self.registration.scope } }));
+  // The URL came only from a verified local ChatGPT request correlation, then
+  // from the encrypted Web Push payload. Never display it on the lock screen.
+  const chat_url = tag === 'cos-status' ? '' : chatUrl(data.origin_chat_url);
+  event.waitUntil(self.registration.showNotification('CoS 通知', { body: allowed.includes(state) ? 'CoS: ' + state : 'CoSの状態が更新されました', tag, icon: 'icon.svg', data: { origin_chat_url:chat_url, event_key:tag } }));
 });
 self.addEventListener('notificationclick', event => {
-  event.notification.close(); const target = new URL(self.registration.scope);
+  event.notification.close();
+  const target = new URL(self.registration.scope);
   const key = /^[a-f0-9]{64}$/.test(event.notification.tag || '') ? event.notification.tag : '';
   if (key) target.hash = 'report-event=' + key;
   event.waitUntil((async () => {
-    // A user-registered per-event link is stored in same-origin CacheStorage
-    // and read only by this service worker. Do not use arbitrary push payload
-    // URLs or route unrelated notification keys to a guessed chat.
-    if (key && typeof caches !== 'undefined') {
-      try {
-        const cache = await caches.open('cos-chat-links-v1');
-        const exact = await cache.match(new URL('chat-link/' + key, self.registration.scope).href);
-        const saved = exact || await cache.match(new URL('chat-link/default', self.registration.scope).href);
-        if (saved) {
-          const value = await saved.text(), url = new URL(value);
-          const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
-          const pattern = new RegExp('^/(?:c/' + uuid + '|g/g-p-[a-f0-9]{32}(?:-[a-z0-9-]+)?/c/' + uuid + ')$','i');
-          if (url.protocol === 'https:' && url.hostname === 'chatgpt.com' && !url.username && !url.password && !url.port && !url.search && !url.hash && pattern.test(url.pathname)) {
-            // For cross-origin ChatGPT navigation the browser may open the
-            // requested URL but return null because the new tab is not a
-            // same-origin WindowClient. A null result is not a navigation
-            // failure; opening the inbox as well would create two windows.
-            await self.clients.openWindow(url.href);
-            return;
-          }
-        }
-      } catch { /* unsafe, unsupported or unavailable link: open authenticated inbox instead */ }
+    const data = event.notification.data;
+    const proven = key && data?.event_key === key ? chatUrl(data.origin_chat_url) : '';
+    if (proven) {
+      try { await self.clients.openWindow(proven); return; }
+      catch { /* unsupported universal link: use the authenticated inbox */ }
     }
-    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const w of windows) { const u = new URL(w.url); if (u.origin === target.origin && (u.pathname === target.pathname || u.pathname === target.pathname + 'index.html')) { if (key) { await w.navigate(target.href); } await w.focus(); return; } }
+    const windows = await self.clients.matchAll({ type:'window', includeUncontrolled:true });
+    for (const w of windows) {
+      const u = new URL(w.url);
+      if (u.origin === target.origin && (u.pathname === target.pathname || u.pathname === target.pathname + 'index.html')) {
+        if (key) await w.navigate(target.href);
+        await w.focus(); return;
+      }
+    }
     await self.clients.openWindow(target.href);
   })());
 });
