@@ -1,0 +1,113 @@
+/*
+ * Mobile-only glass treatment for inline YouTube and uploaded 星映 cards.
+ * Keep layout, playback controls, and desktop presentation unchanged.
+ */
+@media (max-width: 1023px) {
+  .post-video-shell {
+    position: relative;
+    isolation: isolate;
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /*
+   * Keep only a faint glass reflection behind media. No outline and no blur,
+   * so the video feels embedded in the post instead of pasted on as a second card.
+   */
+  .post-video-shell::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      linear-gradient(180deg, rgb(248 252 255 / 0.025) 0%, rgb(184 220 255 / 0.008) 18%, transparent 38%),
+      radial-gradient(ellipse at 8% 0%, rgb(229 246 255 / 0.025), transparent 34%),
+      radial-gradient(ellipse at 94% 100%, rgb(89 151 237 / 0.014), transparent 42%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    pointer-events: none;
+  }
+
+  .post-video-shell::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset: 1px;
+    border: 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.055) 0%, transparent 14%);
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  /*
+   * Preserve the chosen transparency and brightness while removing the media frame.
+   * Slightly overscan the YouTube iframe so stray internal player edges are clipped.
+   */
+  .post-video-youtube > .star-movie-surface {
+    position: relative;
+    z-index: 2;
+    opacity: 0.55;
+    filter: brightness(1.14);
+    transform: scale(1.08);
+    transform-origin: center center;
+    pointer-events: auto;
+    touch-action: manipulation;
+  }
+
+  .post-video-upload .post-video-viewport {
+    background: transparent !important;
+  }
+
+  .post-video-upload .post-video-viewport > .star-movie-surface {
+    position: relative;
+    z-index: 2;
+    background: transparent !important;
+    opacity: 0.53;
+    filter: brightness(1.14);
+  }
+
+  .post-video-upload .post-video-viewport > button {
+    position: relative;
+    z-index: 2;
+    background: transparent !important;
+  }
+
+  .post-video-upload .post-video-viewport > button > img {
+    opacity: 0.55;
+    filter: brightness(1.14);
+  }
+
+  /* Existing first span is the thumbnail tint; keep it light so it does not darken the media. */
+  .post-video-upload .post-video-viewport > button > span:first-of-type {
+    z-index: 1;
+    background:
+      linear-gradient(180deg, rgb(6 23 62 / 0.018), rgb(3 12 40 / 0.035)),
+      linear-gradient(135deg, rgb(39 104 177 / 0.018), rgb(36 25 96 / 0.014));
+    pointer-events: none;
+  }
+
+  .post-video-upload .post-video-viewport > button > span:nth-of-type(2) {
+    z-index: 2;
+    border-color: rgb(243 250 255 / 0.78);
+    background: rgb(229 244 255 / 0.30);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.42),
+      0 0 34px rgb(137 226 255 / 0.46),
+      0 10px 30px rgb(0 5 20 / 0.24);
+  }
+}
+
+/*
+ * Landscape iPhone playback exposes a wider black strip on the player's left edge.
+ * Keep portrait exactly as approved, and crop only landscape further to the left.
+ */
+@media (max-width: 1023px) and (orientation: landscape) {
+  .post-video-youtube > .star-movie-surface {
+    transform: translateX(-5%) scale(1.20);
+  }
+}
