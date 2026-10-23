@@ -19,7 +19,8 @@ self.addEventListener('notificationclick', event => {
     if (key && typeof caches !== 'undefined') {
       try {
         const cache = await caches.open('cos-chat-links-v1');
-        const saved = await cache.match(new URL('chat-link/' + key, self.registration.scope).href);
+        const exact = await cache.match(new URL('chat-link/' + key, self.registration.scope).href);
+        const saved = exact || await cache.match(new URL('chat-link/default', self.registration.scope).href);
         if (saved) {
           const value = await saved.text(), url = new URL(value);
           const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
