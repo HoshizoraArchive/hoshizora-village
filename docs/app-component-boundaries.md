@@ -95,7 +95,7 @@ Hookの移動では**元の呼出し順序・lazy initializer・refの独立性�
 - `src/onboardingTargetSession.test.mjs`は実EffectをBabel ASTから抽出し、17の成功・失敗・進捗切替・Auth世代切替・queued updater・例外/cleanupを遅延Promiseで回帰検証。
 
 ## 運用中のRe:Connect：未読件数とAuth世代隔離（Issue #66・運用監査 #312）
-- 通知取得Effectはuser IDと`captureDataMutationSession()`（Auth epoch含む）を捕捉し、各通信戻り口・error/finally・後続React functional updater実行時に`isCurrentDataMutationSession`を検査。A→Bまたはレンダーを挟まないA→B→Aでも旧ユーザーの通知とエラーを現在の画面へ反映しない。返却された通知も`recipient_id`で絞り込む。
+- 通知取得Effectはuser IDと`captureDataMutationSession()`（Auth epoch含む）を捕捉し、各通信戻り口・error/finally・後続React functional updater実行時に`isCurrentDataMutationSession`を検査。A→Bまたはレンダーを挟まないA→B→Aでも旧ユーザーの通知とエラーを現在の画面へ反映しない。返却された通知も`recipient_id`で絞り込む。**表示用通知一覧自体**もReact描画時点で現在のsession.user.idに絞り、別ユーザーのロード済み通知が切替直後に表示される瞬間を無くす。
 - 下部Re:Connectには**ログイン中の本人の未読数**だけをバッジ表示。0件では非表示、1〜99は件数、100件以上は99+。既読更新で即時に件数が減る。別タブからRe:Connectに戻った時は再取得し、前回以降に届いた通知も反映する。
 - `src/rconnectSessionUnread.test.mjs`: 実App通知EffectとBottomNav SSRを対象に16件、`e2e/rconnect-unread-badge.spec.mjs`: ブラウザで件数2→1→0およびタブ復帰後の再読込。PWA/Web Pushの実機受信は引き続き別受入であり、このコード変更だけで端末Pushの到達保証はしない。Supabase DB/RLS、RPC、API payload、Netlify Functions/Secretsは不変。
 

@@ -167,20 +167,32 @@ test('malformed notification response with another recipient is not surfaced',as
   assert.deepEqual(h.state.notifications.map(n=>n.id),['own']);
 });
 
-test('unread count calculation scopes all rows to logged-in account',()=>{
+test('unread count counts unread only from the current-account visible list',()=>{
   const node=app.body.body.find(n=>n.type==='VariableDeclaration'&&n.declarations.some(x=>x.id?.name==='unreadNotificationCount'));
   assert.ok(node,'App computes unread count');
   const declaration=node.declarations.find(x=>x.id.name==='unreadNotificationCount');
   const expression=appSource.slice(declaration.init.start,declaration.init.end);
-  const calc=new Function('session','notifications','return ('+expression+')');
-  const notifications=[{recipient_id:'A',is_read:false},{recipient_id:'B',is_read:false},
-    {recipient_id:'A',is_read:true},{recipient_id:'A',is_read:false}];
-  assert.equal(calc({user:{id:'A'}},notifications),2);
-  assert.equal(calc({user:{id:'B'}},notifications),1);
-  assert.equal(calc(null,notifications),0);
+  const calc=new Function('visibleNotifications','return ('+expression+')');
+  assert.equal(calc([{recipient_id:'A',is_read:false},{recipient_id:'A',is_read:true},{recipient_id:'A',is_read:false}]),2);
+  assert.equal(calc([{recipient_id:'B',is_read:false}]),1);
+  assert.equal(calc([]),0);
 });
 
 test('notification reader refreshes when user opens Re:Connect tab again',()=>{
   const deps=effectNode.expression.arguments[1].elements.map(n=>appSource.slice(n.start,n.end));
   assert.ok(deps.includes('activeTab'));
+});
+test('Re:Connect list immediately scopes previously loaded notifications to current account',()=>{
+  const declaration=app.body.body.find(n=>n.type==='VariableDeclaration' && n.declarations.some(x=>x.id?.name==='visibleNotifications'));
+  assert.ok(declaration, 'App must derive current-session-only notifications before render');
+  const expression=declaration.declarations.find(x=>x.id.name==='visibleNotifications').init;
+  const select=new Function('session','notifications','return ('+appSource.slice(expression.start,expression.end)+')');
+  const stale=[{id:'A-1',recipient_id:'A',is_read:false},{id:'B-1',recipient_id:'B',is_read:false}];
+  assert.deepEqual(select({user:{id:'B'}},stale).map(x=>x.id),['B-1']);
+  assert.deepEqual(select(null,stale),[]);
+  const notificationState=app.body.body.find(n=>n.type==='VariableDeclaration' && n.declarations.some(x=>x.id?.name==='notificationState'));
+  assert.ok(notificationState,'notificationState should be built from visibleNotifications');
+  const initializer=notificationState.declarations.find(x=>x.id.name==='notificationState').init;
+  const items=initializer.properties.find(x=>x.key?.name==='items');
+  assert.equal(items?.value?.name,'visibleNotifications');
 });

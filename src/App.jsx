@@ -9264,14 +9264,15 @@ function App() {
     session,
     updatingId: postUpdatingId,
   };
-  const unreadNotificationCount = session?.user?.id
-    ? notifications.filter((notification) =>
-        notification.recipient_id === session.user.id && !notification.is_read
-      ).length
-    : 0;
+  // Auth can switch before the next effect cleans up previously loaded data.
+  // Never render another account's notification text during that transition.
+  const visibleNotifications = session?.user?.id
+    ? notifications.filter((notification) => notification.recipient_id === session.user.id)
+    : [];
+  const unreadNotificationCount = visibleNotifications.filter((notification) => !notification.is_read).length;
   const notificationState = {
     error: notificationsError,
-    items: notifications,
+    items: visibleNotifications,
     loading: notificationsLoading,
     message: notificationsMessage,
     onMarkRead: handleMarkNotificationRead,
