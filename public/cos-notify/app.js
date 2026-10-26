@@ -272,7 +272,7 @@
     if (!secret) { secret = hex(crypto.getRandomValues(new Uint8Array(32))); localStorage.setItem('cos-device', secret); }
     if (invite) await call('subscribe', 'POST', { invite, device_secret: secret, subscription: sub.toJSON() });
     else await call('refresh-device', 'POST', { subscription: sub.toJSON() }, true);
-    invite = ''; pairInput.value = ''; localStorage.setItem('cos-paired', '1'); showState(); await inbox();
+    invite = ''; pairInput.value = ''; localStorage.setItem('cos-paired', '1'); ephemeralOrigins.clear(); try { navigator.serviceWorker?.controller?.postMessage?.({type:'cos-origin-clear'}); } catch {} showState(); await inbox();
   }
   async function action(fn) { try { await fn(); } catch(e) { const codes = ['unauthorized','pair_refused','device_limit','rate_limited','credential_or_endpoint_conflict']; status.textContent = codes.includes(e.message) ? '接続を確認してください: ' + e.message : '操作できません: ' + (e.message || '接続エラー').slice(0, 120); } }
   for (const [name,choice] of [['proposal-adopt','adopted'],['proposal-defer','deferred'],['proposal-reject','rejected']]) {
@@ -302,7 +302,7 @@
   });
   document.getElementById('connect').addEventListener('click', () => action(connect));
   document.getElementById('refresh').addEventListener('click', () => action(inbox));
-  document.getElementById('revoke').addEventListener('click', () => action(async () => { await call('revoke-self', 'POST', {}, true); const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription(); await sub?.unsubscribe(); localStorage.removeItem('cos-device'); localStorage.removeItem('cos-paired'); navigator.serviceWorker?.controller?.postMessage({type:'cos-origin-clear'}); ephemeralOrigins.clear(); inboxEpoch++; closeReport(); rowsByKey.clear(); document.getElementById('inbox').replaceChildren(); showState(); }));
+  document.getElementById('revoke').addEventListener('click', () => action(async () => { await call('revoke-self', 'POST', {}, true); const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription(); await sub?.unsubscribe(); localStorage.removeItem('cos-device'); localStorage.removeItem('cos-paired'); navigator.serviceWorker?.controller?.postMessage?.({type:'cos-origin-clear'}); ephemeralOrigins.clear(); inboxEpoch++; closeReport(); rowsByKey.clear(); document.getElementById('inbox').replaceChildren(); showState(); }));
   addEventListener('online', showState); addEventListener('offline', showState); showState();
   if (installed() && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).catch(() => { status.textContent='Service Workerを登録できません'; });
   if (localStorage.getItem('cos-paired')) action(inbox);
