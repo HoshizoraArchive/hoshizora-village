@@ -9,6 +9,8 @@
   const reportText = document.getElementById('report-text');
   const reportStatus = document.getElementById('report-status');
   const reportRetry = document.getElementById('report-retry');
+  const originChatOpen = document.getElementById('origin-chat-open');
+  const originChatStandard = document.getElementById('origin-chat-standard');
   const proposalPanel = document.getElementById('proposal-panel');
   const proposalActions = document.getElementById('proposal-actions');
   const proposalResult = document.getElementById('proposal-result');
@@ -16,6 +18,73 @@
   const proposalPrompt = document.getElementById('proposal-prompt');
   let activeProposal = null, proposalBusy = false;
   const opaque = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  // Notification origins exist only during a genuine notification-tap handoff.
+  // No plaintext URL ever enters CacheStorage, IndexedDB or origin-wide storage.
+  const ephemeralOrigins = new Map();
+  let activeEventKey = '';
+  function originChatUrl(value) {
+    try {
+      if (typeof value !== 'string' || value.length > 512) return '';
+      const u = new URL(value);
+      return u.protocol === 'https:' && u.hostname === 'chatgpt.com' && !u.port && !u.username && !u.password && !u.search && !u.hash &&
+        /^\/(?:g\/g-p-[a-f0-9]{32}\/)?c\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(u.pathname) ? u.href : '';
+    } catch { return ''; }
+  }
+  // OpenAI ChatGPT's iOS custom URL scheme can ask iOS to launch the app
+  // directly. A human tap on a literal anchor is essential: SW.openWindow()
+  // opens a browser/webview instead of guaranteeing a native-app handoff.
+  // Never construct a scheme URL from any string not first validated as a
+  // specific https://chatgpt.com/c/<UUID> or native Project conversation hint.
+  function nativeChatUrl(value) {
+    const verified=originChatUrl(value);
+    return verified ? 'com.openai.chat://chatgpt.com' + new URL(verified).pathname : '';
+  }
+  function clearOriginLinks() {
+    for (const link of [originChatOpen,originChatStandard]) {
+      link.hidden=true;
+      link.removeAttribute('href');
+    }
+  }
+  function displayOriginLinks(value) {
+    const verified=originChatUrl(value),native=nativeChatUrl(value);
+    clearOriginLinks();
+    if (!verified || !native) return;
+    originChatOpen.href=native;
+    originChatOpen.hidden=false;
+    // Apple's officially declared Universal Link /c/* is the safe fallback.
+    // It must be a real tap on the anchor (not window.open or auto-redirect).
+    originChatStandard.href=verified;
+    originChatStandard.hidden=false;
+  }
+  // No initially empty href may accidentally navigate to the PWA itself.
+  clearOriginLinks();
+  // Ask before fetching the authenticated inbox: a cold iPhone page can
+  // take longer than a service worker's notificationclick lifetime to load
+  // the inbox. A hint received here stays only in page memory and is never
+  // displayed until the exact inbox event has been authenticated and opened.
+  function prefetchPendingOrigin() {
+    if (!opaque(pendingEvent) || !localStorage.getItem('cos-paired')) return;
+    try { navigator.serviceWorker?.controller?.postMessage?.({type:'cos-origin-get',event_key:pendingEvent}); }
+    catch { /* No controlled SW: leave the link hidden */ }
+  }
+  function showOriginForEvent(row,epoch) {
+    clearOriginLinks();
+    const key=row?.event_key;
+    if (!opaque(key) || !localStorage.getItem('cos-paired')) return;
+    // This field came from this device's authenticated host-scoped inbox;
+    // unlike a raw push payload it may be displayed after exact event selection.
+    const late=originChatUrl(row.origin_chat_url);
+    if (late) { displayOriginLinks(late); return; }
+    const record=ephemeralOrigins.get(key);
+    if (record && record.at <= Date.now() && Date.now()-record.at < 2*60_000 && epoch===viewEpoch) {
+      const url=originChatUrl(record.url);
+      if(url){displayOriginLinks(url);return;}
+    }
+    // The controlled SW owns the link for this single notification click.
+    // Delivery is only after an authenticated inbox event is selected.
+    try { navigator.serviceWorker?.controller?.postMessage({type:'cos-origin-get',event_key:key}); }
+    catch { /* No active SW: no link, never a guessed fallback */ }
+  }
   function deepLink() { const value = new URLSearchParams(location.hash.slice(1)).get('report-event'); return opaque(value) ? value : ''; }
   const hex = a => [...a].map(x => x.toString(16).padStart(2, '0')).join('');
   const installed = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -143,13 +212,13 @@
   }
   function closeReport() {
     document.body.classList.remove('report-open');
-    viewEpoch++; currentReport = null; pendingEvent = ''; activeProposal = null; proposalPanel.hidden = true; proposalResult.hidden = true; proposalFeedback.textContent = ''; reportText.textContent = ''; reportStatus.textContent = ''; reportRetry.hidden = true;
+    viewEpoch++; currentReport = null; pendingEvent = ''; activeEventKey = ''; clearOriginLinks(); proposalPanel.hidden = true; proposalResult.hidden = true; proposalFeedback.textContent = ''; reportText.textContent = ''; reportStatus.textContent = ''; reportRetry.hidden = true;
     reportView.hidden = true; document.getElementById('inbox-view').hidden = false;
     document.getElementById('refresh').focus();
     history.replaceState(null, '', location.pathname);
   }
   async function openReport(row) {
-    const epoch = ++viewEpoch; currentReport = row; pendingEvent = '';
+    const epoch = ++viewEpoch; currentReport = row; pendingEvent = ''; activeEventKey=''; clearOriginLinks();
     document.body.classList.add('report-open');
     reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
     const heading = document.getElementById('report-heading'); heading.textContent = row.title; heading.hidden = false;
@@ -180,7 +249,8 @@
   // untrusted notification payload supplies no chat URL, title or result.
   function openEvent(row) {
     const epoch = ++viewEpoch;
-    currentReport = null; pendingEvent = ''; activeProposal = null;
+    currentReport = null; pendingEvent = ''; activeProposal = null; activeEventKey=row.event_key;
+    clearOriginLinks();
     document.body.classList.add('report-open');
     reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
     proposalPanel.hidden = true; proposalResult.hidden = true;
@@ -194,7 +264,8 @@
     const date = document.createElement('p');
     date.textContent = '通知日時：' + new Date(row.created_at).toLocaleString('ja-JP');
     reportText.append(date);
-    reportStatus.textContent = 'この通知は該当する作業の記録です。元のチャットが確認できない通知は、別のチャットへ誤って飛ばないよう、この記録を表示します。';
+    reportStatus.textContent = '通知に対応する元チャットが確認できた場合は「ChatGPTアプリで元チャットを開く」を押してください。アプリが反応しない場合のみ標準リンクを使えます。';
+    showOriginForEvent(row,epoch);
     reportRetry.hidden = true;
     history.replaceState(null, '', location.pathname + '#report-event=' + row.event_key);
     reportView.scrollIntoView?.({ block: 'start' }); heading.focus({ preventScroll: true });
@@ -242,7 +313,7 @@
     if (!secret) { secret = hex(crypto.getRandomValues(new Uint8Array(32))); localStorage.setItem('cos-device', secret); }
     if (invite) await call('subscribe', 'POST', { invite, device_secret: secret, subscription: sub.toJSON() });
     else await call('refresh-device', 'POST', { subscription: sub.toJSON() }, true);
-    invite = ''; pairInput.value = ''; localStorage.setItem('cos-paired', '1'); showState(); await inbox();
+    invite = ''; pairInput.value = ''; localStorage.setItem('cos-paired', '1'); ephemeralOrigins.clear(); try { navigator.serviceWorker?.controller?.postMessage?.({type:'cos-origin-clear'}); } catch {} showState(); await inbox();
   }
   async function action(fn) { try { await fn(); } catch(e) { const codes = ['unauthorized','pair_refused','device_limit','rate_limited','credential_or_endpoint_conflict']; status.textContent = codes.includes(e.message) ? '接続を確認してください: ' + e.message : '操作できません: ' + (e.message || '接続エラー').slice(0, 120); } }
   for (const [name,choice] of [['proposal-adopt','adopted'],['proposal-defer','deferred'],['proposal-reject','rejected']]) {
@@ -258,12 +329,32 @@
   async function openPending(key) { if (!opaque(key)) return; pendingEvent = key; await inbox(); }
   addEventListener('hashchange', () => { const key = deepLink(); if (key) action(() => openPending(key)); else closeReport(); });
   navigator.serviceWorker?.addEventListener('message', event => {
-    if (event.source !== navigator.serviceWorker.controller || event.data?.type !== 'cos-report-event') return;
+    if (event.source !== navigator.serviceWorker.controller) return;
+    if (event.data?.type === 'cos-origin-link') {
+      const key=event.data.event_key, url=originChatUrl(event.data.origin_chat_url);
+      if (!opaque(key) || !url || !localStorage.getItem('cos-paired')) return;
+      const preparing = key===pendingEvent && opaque(pendingEvent);
+      const displaying = key===activeEventKey && rowsByKey.has(key) &&
+        !document.getElementById('report-view').hidden && currentReport === null;
+      if (!preparing && !displaying) return;
+      ephemeralOrigins.set(key,{url,at:Date.now()});
+      if (ephemeralOrigins.size>16) ephemeralOrigins.delete(ephemeralOrigins.keys().next().value);
+      // The initial cache fill is not a UI authorization. Only the matching
+      // authenticated inbox row becoming visible permits the actual links.
+      if (displaying) displayOriginLinks(url);
+      return;
+    }
+    if (event.data?.type !== 'cos-report-event') return;
     action(() => openPending(event.data.event_key));
   });
+  // Register message capture before the first network request. Also retry
+  // after controller adoption (iOS can open an uncontrolled PWA on upgrade).
+  prefetchPendingOrigin();
+  navigator.serviceWorker?.addEventListener?.('controllerchange',prefetchPendingOrigin);
+  navigator.serviceWorker?.ready?.then(prefetchPendingOrigin).catch(() => {});
   document.getElementById('connect').addEventListener('click', () => action(connect));
   document.getElementById('refresh').addEventListener('click', () => action(inbox));
-  document.getElementById('revoke').addEventListener('click', () => action(async () => { await call('revoke-self', 'POST', {}, true); const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription(); await sub?.unsubscribe(); localStorage.removeItem('cos-device'); localStorage.removeItem('cos-paired'); inboxEpoch++; closeReport(); rowsByKey.clear(); document.getElementById('inbox').replaceChildren(); showState(); }));
+  document.getElementById('revoke').addEventListener('click', () => action(async () => { await call('revoke-self', 'POST', {}, true); const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription(); await sub?.unsubscribe(); localStorage.removeItem('cos-device'); localStorage.removeItem('cos-paired'); navigator.serviceWorker?.controller?.postMessage?.({type:'cos-origin-clear'}); ephemeralOrigins.clear(); inboxEpoch++; closeReport(); rowsByKey.clear(); document.getElementById('inbox').replaceChildren(); showState(); }));
   addEventListener('online', showState); addEventListener('offline', showState); showState();
   if (installed() && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).catch(() => { status.textContent='Service Workerを登録できません'; });
   if (localStorage.getItem('cos-paired')) action(inbox);
