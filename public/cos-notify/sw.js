@@ -1,50 +1,89 @@
-// exact-origin-only-v4. No blanket redirect, manual link registry or guesses.
+// exact-origin-only-v6. Notification-tap handoff in memory, never origin-wide disk storage.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil((async () => {
-  // Delete obsolete user-entered blanket redirects. Earlier versions could
-  // route every unrelated Dot back to one conversation, which is unsafe.
-  try { await caches.delete('cos-chat-links-v1'); } catch {}
+  // Remove obsolete global and per-event plaintext redirect caches when
+  // upgrading the installed PWA; event links now live only in volatile memory.
+  for (const name of ['cos-chat-links-v1','cos-chat-links-by-event-v1']) try { await caches.delete(name); } catch {}
   await self.clients.claim();
 })()));
 function chatUrl(value) {
   try {
     if (typeof value !== 'string' || value.length > 512) return '';
     const u = new URL(value);
-    const conversation = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
-    const valid = new RegExp('^/c/' + conversation + '$','i');
+    const valid = /^\/(?:g\/g-p-[a-f0-9]{32}\/)?c\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
     return u.protocol === 'https:' && u.hostname === 'chatgpt.com' && !u.username && !u.password && !u.port && !u.search && !u.hash && valid.test(u.pathname) ? u.href : '';
   } catch { return ''; }
+}
+const fresh = new Map();
+function freshLink(key) {
+  const row=fresh.get(key);
+  if (!row || Date.now()-row.at > 2*60_000 || row.at > Date.now()+1000) { fresh.delete(key); return ''; }
+  return row.url;
 }
 self.addEventListener('push', event => {
   let data = {}; try { data = event.data?.json() || {}; } catch {}
   const allowed = ['completed','failed','cancelled','blocked','test'];
   const state = typeof data.body === 'string' ? data.body.replace(/^CoS: /,'') : '';
   const tag = /^[a-f0-9]{64}$/.test(data.tag || '') ? data.tag : 'cos-status';
-  // The URL came only from a verified local ChatGPT request correlation, then
-  // from the encrypted Web Push payload. Never display it on the lock screen.
+  // The URL came from a per-notification CoS navigation hint, carried via
+  // encrypted Web Push. It is NOT an execution authorization credential.
   const chat_url = tag === 'cos-status' ? '' : chatUrl(data.origin_chat_url);
   event.waitUntil(self.registration.showNotification('CoS 通知', { body: allowed.includes(state) ? 'CoS: ' + state : 'CoSの状態が更新されました', tag, icon: 'icon.svg', data: { origin_chat_url:chat_url, event_key:tag } }));
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const target = new URL(self.registration.scope);
   const key = /^[a-f0-9]{64}$/.test(event.notification.tag || '') ? event.notification.tag : '';
+  const data=event.notification.data;
+  const proven = key && data?.event_key===key ? chatUrl(data.origin_chat_url) : '';
+  if (proven) {
+    fresh.set(key,{url:proven,at:Date.now()});
+    for(const k of fresh.keys()) if(!freshLink(k))fresh.delete(k);
+    while(fresh.size>16) fresh.delete(fresh.keys().next().value);
+  }
+  // The iOS home-screen PWA may open cross-origin links in an isolated
+  // logged-out browser view. Open the paired, same-origin inbox first. The
+  // user can then tap the REAL anchor to ChatGPT, preserving a user gesture
+  // for Universal Link resolution. Never silently reauthenticate or guess.
+  const target = new URL(self.registration.scope);
   if (key) target.hash = 'report-event=' + key;
+  let opening=null;
+  try { opening=self.clients.openWindow(target.href); } catch {}
   event.waitUntil((async () => {
-    const data = event.notification.data;
-    const proven = key && data?.event_key === key ? chatUrl(data.origin_chat_url) : '';
-    if (proven) {
-      try { await self.clients.openWindow(proven); return; }
-      catch { /* unsupported universal link: use the authenticated inbox */ }
-    }
-    const windows = await self.clients.matchAll({ type:'window', includeUncontrolled:true });
-    for (const w of windows) {
-      const u = new URL(w.url);
-      if (u.origin === target.origin && (u.pathname === target.pathname || u.pathname === target.pathname + 'index.html')) {
-        if (key) await w.navigate(target.href);
-        await w.focus(); return;
+    let opened=null;
+    try { opened=opening ? await opening : null; } catch {}
+    if (!opened) {
+      // Safari/WebKit may deny opening or ignore a deep hash. A previously
+      // opened in-scope PWA is still safe as long as it receives the event.
+      const windows = await self.clients.matchAll({ type:'window', includeUncontrolled:true });
+      for (const w of windows) {
+        const u = new URL(w.url);
+        if (u.origin === target.origin && (u.pathname === target.pathname || u.pathname === target.pathname + 'index.html')) {
+          if (key) try { await w.navigate(target.href); } catch {}
+          await w.focus();
+          opened=w;
+          break;
+        }
       }
     }
-    await self.clients.openWindow(target.href);
+    // Keep the SW alive for the slow initial authenticated inbox path,
+    // including cold starts on cellular. The PWA requests the keyed hint
+    // immediately on bootstrap, BEFORE the slower inbox fetch.
+    if (proven) await new Promise(resolve=>setTimeout(resolve,20000));
   })());
+});
+self.addEventListener('message', event => {
+  const client=event.source;
+  if(!client || typeof client.url!=='string' || typeof client.postMessage!=='function')return;
+  const origin=new URL(self.registration.scope);
+  let url;
+  try{url=new URL(client.url);}catch{return;}
+  if(url.origin!==origin.origin || (url.pathname!==origin.pathname && url.pathname!==origin.pathname+'index.html'))return;
+  if(event.data?.type==='cos-origin-clear'){fresh.clear();return;}
+  if(event.data?.type!=='cos-origin-get')return;
+  const key=event.data.event_key;
+  if(typeof key!=='string' || !/^[a-f0-9]{64}$/.test(key))return;
+  const value=freshLink(key);
+  if(!value)return;
+  fresh.delete(key);
+  client.postMessage({type:'cos-origin-link',event_key:key,origin_chat_url:value});
 });
