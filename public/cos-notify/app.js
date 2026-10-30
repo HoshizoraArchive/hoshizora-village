@@ -213,12 +213,63 @@
   function closeReport() {
     document.body.classList.remove('report-open');
     viewEpoch++; currentReport = null; pendingEvent = ''; activeEventKey = ''; clearOriginLinks(); proposalPanel.hidden = true; proposalResult.hidden = true; proposalFeedback.textContent = ''; reportText.textContent = ''; reportStatus.textContent = ''; reportRetry.hidden = true;
+    originChatOpen.textContent = 'ChatGPTアプリで元チャットを開く';
     reportView.hidden = true; document.getElementById('inbox-view').hidden = false;
     document.getElementById('refresh').focus();
     history.replaceState(null, '', location.pathname);
   }
+  async function openScheduledReport(row, prefetched=null) {
+    const epoch = ++viewEpoch;
+    currentReport = {...row,scheduled:true}; pendingEvent=''; activeEventKey=row.event_key;
+    clearOriginLinks();
+    originChatOpen.textContent = 'ChatGPTアプリで会話を開く';
+    document.body.classList.add('report-open');
+    reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
+    proposalPanel.hidden = true; proposalResult.hidden = true; activeProposal = null;
+    const heading = document.getElementById('report-heading');
+    heading.textContent = row.title; heading.hidden = false;
+    reportText.replaceChildren(); reportStatus.textContent = '実行レポートを取得中…'; reportRetry.hidden = true;
+    history.replaceState(null, '', location.pathname + '#report-event=' + row.event_key);
+    showOriginForEvent(row,epoch);
+    reportView.scrollIntoView?.({block:'start'}); heading.focus({preventScroll:true});
+    try {
+      const value = prefetched ?? await call('scheduled-result/' + row.event_key,'GET',undefined,true);
+      if (epoch !== viewEpoch) return;
+      if (value.event_key !== row.event_key || value.dot_id !== row.dot_id || value.state !== row.state ||
+        !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.schedule_id || '') ||
+        !Number.isSafeInteger(value.scheduled_at) || !Number.isSafeInteger(value.revision) ||
+        typeof value.text !== 'string' || new TextEncoder().encode(value.text).length > 32768 ||
+        !opaque(value.sha256)) throw Error('レポートの確認に失敗しました');
+      const actual = hex(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value.text))));
+      if (epoch !== viewEpoch) return;
+      if (actual !== value.sha256) throw Error('レポートの確認に失敗しました');
+      // Literal text nodes only; embedded HTML/Markdown never execute.
+      renderReport(value.text); reportStatus.textContent = ''; heading.hidden = false;
+    } catch(e) {
+      if (epoch !== viewEpoch) return;
+      reportStatus.textContent = e.status === 404 ? '実行レポートを同期中です。再取得できます。' :
+        e.status === 401 ? 'この端末の接続が無効です。' : '実行レポートを確認できません。再取得してください。';
+      reportRetry.hidden = e.status === 401;
+    }
+  }
+  // A push can outlive the inbox's latest-50 window. Resolve its opaque key
+  // through a separate exact-event device-authenticated request, never a guess.
+  async function openOlderScheduledReport(key, inboxAtStart, viewAtStart) {
+    try {
+      const value=await call('scheduled-result/' + key,'GET',undefined,true);
+      if(inboxAtStart!==inboxEpoch || viewAtStart!==viewEpoch || pendingEvent!==key) return;
+      const e=value?.event;
+      if(!e || e.event_key!==key || e.dot_id!==value.dot_id || e.state!==value.state ||
+        typeof e.title!=='string' || typeof e.created_at!=='string') throw Error('イベントが見つかりません');
+      await openScheduledReport({...e,scheduled_result:true},value);
+    } catch(e) {
+      if(inboxAtStart!==inboxEpoch || viewAtStart!==viewEpoch || pendingEvent!==key) return;
+      status.textContent=e.status===401?'端末の接続を確認してください。':'通知に対応するレポートを確認できませんでした。';
+    }
+  }
   async function openReport(row) {
     const epoch = ++viewEpoch; currentReport = row; pendingEvent = ''; activeEventKey=''; clearOriginLinks();
+    originChatOpen.textContent = 'ChatGPTアプリで元チャットを開く';
     document.body.classList.add('report-open');
     reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
     const heading = document.getElementById('report-heading'); heading.textContent = row.title; heading.hidden = false;
@@ -251,6 +302,7 @@
     const epoch = ++viewEpoch;
     currentReport = null; pendingEvent = ''; activeProposal = null; activeEventKey=row.event_key;
     clearOriginLinks();
+    originChatOpen.textContent = 'ChatGPTアプリで元チャットを開く';
     document.body.classList.add('report-open');
     reportView.hidden = false; document.getElementById('inbox-view').hidden = true;
     proposalPanel.hidden = true; proposalResult.hidden = true;
@@ -284,8 +336,8 @@
       if (opaque(row.event_key)) {
         rowsByKey.set(row.event_key, { row, report });
         const button = document.createElement('button'); button.className = 'report-row'; button.type = 'button'; button.textContent = label;
-        button.setAttribute('aria-label', report ? row.title + 'の本文を読む（' + row.state + '）' : row.title + 'の通知内容を読む（' + row.state + '）');
-        button.addEventListener('click', () => action(() => report ? openReport(report) : openEvent(row))); li.append(button);
+        button.setAttribute('aria-label', report || row.scheduled_result === true ? row.title + 'の本文を読む（' + row.state + '）' : row.title + 'の通知内容を読む（' + row.state + '）');
+        button.addEventListener('click', () => action(() => report ? openReport(report) : row.scheduled_result === true ? openScheduledReport(row) : openEvent(row))); li.append(button);
       } else li.textContent = label;
       list.append(li);
     }
@@ -294,8 +346,9 @@
       const entry = rowsByKey.get(pendingEvent);
       if (entry) {
         if (entry.report) await openReport(entry.report);
+        else if (entry.row.scheduled_result === true) await openScheduledReport(entry.row);
         else openEvent(entry.row);
-      } else status.textContent = '対象の作業通知は受信箱にありません。「更新」で再確認できます。';
+      } else await openOlderScheduledReport(pendingEvent,epoch,viewEpoch);
     }
   }
   async function connect() {
@@ -325,7 +378,7 @@
     catch { proposalPrompt.focus(); proposalPrompt.select(); proposalFeedback.textContent = 'コピーに失敗しました。テキストを選択してコピーしてね。'; }
   });
   document.getElementById('report-close').addEventListener('click', closeReport);
-  reportRetry.addEventListener('click', () => { if (currentReport) action(() => openReport(currentReport)); });
+  reportRetry.addEventListener('click', () => { if (currentReport) action(() => currentReport.scheduled === true ? openScheduledReport(currentReport) : openReport(currentReport)); });
   async function openPending(key) { if (!opaque(key)) return; pendingEvent = key; await inbox(); }
   addEventListener('hashchange', () => { const key = deepLink(); if (key) action(() => openPending(key)); else closeReport(); });
   navigator.serviceWorker?.addEventListener('message', event => {
