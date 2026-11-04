@@ -62,3 +62,29 @@ test("mobile background serves and renders the exact selected WebP", async ({
 
   expect(dimensions).toEqual({ width: 864, height: 1536 });
 });
+
+test('desktop background displays the separately selected landscape artwork at PC width', async ({page, request}) => {
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.route('**/__supabase/**', async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({status: 204, body: ''}); return;
+    }
+    await route.fulfill({status: 200, contentType:'application/json', headers:{'access-control-allow-origin':'*','content-range':'0-0/0'},body:'[]'});
+  });
+  await page.goto('/');
+  const background = page.locator('.cosmic-background');
+  await expect(background).toBeVisible();
+  const css = await background.evaluate(el => getComputedStyle(el).backgroundImage);
+  expect(css).toContain('hoshizora-village-background-desktop.webp?v=20261105-desktop-source-verified');
+  const response = await request.get('/images/hoshizora-village-background-desktop.webp');
+  expect(response.ok()).toBe(true);
+  expect(response.headers()['content-type']).toContain('image/webp');
+  const data = await response.body();
+  expect(createHash('sha256').update(data).digest('hex')).toBe('24c1879889f506fe22ebc8e747cde955a7a5d88e99e85ca2c042db8922eb0b5d');
+  const dimensions = await page.evaluate(src => new Promise((resolve,reject)=>{
+    const img = new Image(); img.onload=()=>resolve({width:img.naturalWidth,height:img.naturalHeight});
+    img.onerror=()=>reject(new Error('desktop background decode failed')); img.src=src;
+  }), '/images/hoshizora-village-background-desktop.webp');
+  expect(dimensions).toEqual({width:1536,height:864});
+  await page.screenshot({path:'../../desktop-village-local-browser-20261105.png'});
+});
