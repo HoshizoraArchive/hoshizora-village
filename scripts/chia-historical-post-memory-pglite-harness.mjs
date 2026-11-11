@@ -153,16 +153,23 @@ async function main() {
     // INVOKER, unlike the prior superuser-only synthetic inserts. The helper
     // function must be executable by that role.
     const serviceSource='42000000-0000-4000-8000-000000000007';
-    await db.exec(`insert into public.posts(id,author_id,body)
-      values('${serviceSource}','${human}','Verified service role source.');
+    const serviceSource2='42000000-0000-4000-8000-000000000008';
+    await db.exec(`insert into public.posts(id,author_id,body) values
+      ('${serviceSource}','${human}','Verified service role source.'),
+      ('${serviceSource2}','${human}','Second service role source.');
       grant select,update on public.profiles to service_role;
       grant select,update on public.posts,public.star_letters to service_role;
       grant select on public.profile_kinds,public.profile_blocks to service_role;
       set role service_role;`);
-    await db.exec(memorySQL(serviceSource,human,'Verified service role source.'));
+    // One SQL statement with multiple sources must remain executable under
+    // service_role; true concurrent sessions are a separate test gate.
+    await db.exec(`insert into public.chia_person_memories
+      (chia_profile_id,person_profile_id,source_post_id,memory_key,content) values
+      ('${chia}','${human}','${serviceSource}','${key(serviceSource)}','Verified service role source.'),
+      ('${chia}','${human}','${serviceSource2}','${key(serviceSource2)}','Second service role source.')`);
     await db.exec('reset role;');
-    assert.equal(await count(db),1, 'service_role can insert an evidenced memory through the invoker trigger');
-    await db.exec(`delete from public.chia_person_memories where source_post_id='${serviceSource}'`);
+    assert.equal(await count(db),2, 'service_role can multi-row INSERT evidenced sources through the invoker trigger');
+    await db.exec(`delete from public.chia_person_memories where source_post_id in ('${serviceSource}','${serviceSource2}')`);
 
     console.log('PGLITE_GREEN: legacy star letters, historical quotes, authenticated source edit vs explicit deletion, atomic owner RPC, different-key exclusion, RLS, revision');
     console.log('PGLITE_BOUNDARY: synthetic in-memory database; no Supabase or Production access');
