@@ -82,7 +82,13 @@ begin
     (chia_profile_id,person_profile_id,source_type,source_id)
     values(v_memory.chia_profile_id,v_person_id,v_type,v_id)
     on conflict do nothing;
-  delete from public.chia_person_memories where id=p_memory_id and person_profile_id=v_person_id;
+  -- Forget the entire source, not just this memory_key: one source may have
+  -- several facts under different keys. The source-wide tombstone would be
+  -- inconsistent if any other facts from that source remained readable.
+  delete from public.chia_person_memories
+    where chia_profile_id=v_memory.chia_profile_id and person_profile_id=v_person_id
+      and ((v_type='post' and source_post_id=v_id) or
+           (v_type='star_letter' and source_star_letter_id=v_id));
   return jsonb_build_object('outcome','deleted');
 end;
 $function$;
@@ -148,15 +154,19 @@ begin
       raise exception 'memory source has changed since observation' using errcode='23514';
     end if;
     new.source_updated_at := v_source_updated_at;
-    -- The owner deletion RPC takes this same key before locking the memory.
-    -- This closes both same-key and different-key concurrent reimport gaps.
+    -- Acquire the common per-person admission lock BEFORE any per-source
+    -- advisory locks. This also handles multi-row INSERT statements whose
+    -- individual rows may have different source orders. Owner-deletion RPC
+    -- takes only source advisory + memory row locks; the exclusion FK uses
+    -- KEY SHARE, which is compatible with this NO KEY UPDATE profile lock.
+    perform 1 from public.profiles where id=new.person_profile_id for no key update;
+    -- Source lock pairs with the explicit owner deletion RPC, which obtains
+    -- it before locking a memory row. Same- and different-key reimports are
+    -- serialized against source-wide tombstones.
     perform pg_advisory_xact_lock(public.chia_memory_source_lock_key(
       new.chia_profile_id,new.person_profile_id,
       case when new.source_post_id is not null then 'post' else 'star_letter' end,
       coalesce(new.source_post_id,new.source_star_letter_id)));
-    -- Serialize admissions without blocking exclusion FK KEY SHARE, so owner
-    -- deletion cannot deadlock waiting on the same profile row.
-    perform 1 from public.profiles where id=new.person_profile_id for no key update;
     if exists(select 1 from public.profile_blocks b where
       (b.blocker_id=new.person_profile_id and b.blocked_id=new.chia_profile_id) or
       (b.blocker_id=new.chia_profile_id and b.blocked_id=new.person_profile_id)) then
