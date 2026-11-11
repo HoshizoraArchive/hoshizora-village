@@ -54,3 +54,12 @@
 6. CoS 7役が正式なCallerとして認可された後、Obsidian知識の正規読込と業務知識の範囲を監査。7役とちあの住人別私的記憶を混合しない。
 
 このPRは第2段階の安全基盤を準備するもので、まだ公開中のちあが昔の投稿を認識できるようになったとは評価しない。
+
+## 2026-11-11 15:30 JST｜独立監査HOLD #1 を踏まえた修正（再監査待ち）
+
+- 対象：前回の監査Dot `05466bff-b917-4ac8-b0f9-87e5ef920457` が PR #329 head `28fe3f2` に対して **P1 2件、P2 3件、HOLD** を返した。
+- **P1-a 解消案**：`auth.uid()` ベースの DELETE トリガーから tombstone を作る方法を廃止。投稿・星文の編集/削除/非公開化時の自動失効は除外履歴を作らない。明示的なユーザー削除だけ、Owner認可済み RPC `delete_own_chia_memory` で `exclusions` と `DELETE` を同一DBトランザクションにする。認証ユーザーからの直接 DELETE 権限は revoke。画面 `ChiaMemorySettings.jsx` は RPC に変更。
+- **P1-b 解消案**：入庫前と明示的な削除RPCの両方で、ちあ・本人・source type・source IDを元にした同一 advisory transaction lock を取得。Deleteはメモリー行ロックの前に取得し、insertはユニークキー競合の前に取得。**同一星文に別キーの記憶を記録する場合でも**順序を揃える。
+- P2：再訪判定 `assessChiaReturnVisit` は、本人ID・時刻範囲・全記録であることを申告した `verifiedWindow` がない場合に fail closed。再訪には全履歴から該当範囲を網羅したサーバー検索が前提。旧migration件数のピンを、90件・新latest SHAの固定検証に戻した。
+- PGlite合成DBで、旧星文記憶、Owner RPCによる明示的忘却、直DELETE拒否、本人認証下での投稿編集（誤tombstone禁止）、非公開化、物理削除、作者変更、星文本文変更、別memory_keyからの再取り込み拒否、RLS、revisionを試験。
+- **未実施**：実際の並列二トランザクション競合試験（PGlite単一接続では証明できない）。新コミットの独立監査GOまでは本番反映しない。
