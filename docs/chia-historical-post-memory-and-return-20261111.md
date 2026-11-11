@@ -63,3 +63,11 @@
 - P2：再訪判定 `assessChiaReturnVisit` は、本人ID・時刻範囲・全記録であることを申告した `verifiedWindow` がない場合に fail closed。再訪には全履歴から該当範囲を網羅したサーバー検索が前提。旧migration件数のピンを、90件・新latest SHAの固定検証に戻した。
 - PGlite合成DBで、旧星文記憶、Owner RPCによる明示的忘却、直DELETE拒否、本人認証下での投稿編集（誤tombstone禁止）、非公開化、物理削除、作者変更、星文本文変更、別memory_keyからの再取り込み拒否、RLS、revisionを試験。
 - **未実施**：実際の並列二トランザクション競合試験（PGlite単一接続では証明できない）。新コミットの独立監査GOまでは本番反映しない。
+
+## 2026-11-11 15:35 JST｜独立再監査・追加入庫競合レビューの指摘対応（ローカル検証中）
+
+- レビュアーの途中経過で、新たなP1候補：同一星文から2件の記憶が存在する時にownerが1件削除しても他の記憶が残る、複数出典の同時INSERTがsource advisory lock→person profile lock順序でdeadlockしうる。
+- Owner RPCは選んだ記憶の**出典全体**を削除し、同じ星文の全memory_keyが消える。UI確認文も「この流星便・星文に由来する記憶を、まとめて削除」に変更。
+- INSERT guardは、全候補に共通する **person profile `FOR NO KEY UPDATE` を先に取得**し、その後各source advisory lockを取得する順序へ。Owner RPCではsource advisory→memory rowの順序を保持。Profile KEY SHARE（exclusion FK）との互換性を維持し、異なるsource順のmulti-row insertが互いにsource lockを保持してからperson lockを待つ循環を解消する。
+- 合成PGliteで同じ星文の別memory_key 2件→ownerの1件忘却で両件消失・再取込両キー拒否を検証。**別セッションの同時INSERT/DELETEによる実競合試験は未実施**。
+- 旧HEAD `6afcf11` への監査結果は旧コミットだけに対するもの。変更後の新SHAについて独立レビューを取り直す。
