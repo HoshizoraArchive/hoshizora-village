@@ -84,3 +84,11 @@
 - `delete_own_chia_memory` RPC: source advisory lockの後、メモリー行をロックする**前**に、ちあ／本人の `public.profiles` 行にID順 `FOR KEY SHARE` を取得する。Profile DELETE のFOR UPDATE→FK cascade DELETEと、owner忘却RPCの memory row→profile FKの逆順で発生する循環を防止する。投稿の自動無効化は除外履歴を残さない。
 - INSERT guard: 同じ人のprofile FOR NO KEY UPDATEを最初に取得してからsource advisoryを取る。2つの出典を一回の SQL INSERT で導入する合成PGliteケースを追加。**別の本物のDB接続2セッションでのrace実測は未実施**なので、追加の独立レビューによって静的ロック順序を点検する。
 - SQL補助関数 `chia_memory_source_lock_key` の `service_role EXECUTE` を付与。PGliteで `SET ROLE service_role` の1 statement・2 source INSERT成功を確認。Browser authenticatedからの EXECUTE は認めない。
+
+## 2026-11-12 02時台｜PostgreSQL 17実並列試験と残る監査
+
+- 独立監査（HEAD `9e0b24d`）の結果はHOLD：P1①メモリINSERT時の `source FOR SHARE → profile FOR NO KEY UPDATE` の逆順とprofile DELETE間で死活停止しうる、P1②元投稿の失効DELETEがowner RPCの事前読込後・行ロック前に入ると明示的な忘却が消える。
+- 修正：memory INSERT guardは**本人プロフィール行を最初に `FOR NO KEY UPDATE`** でロックし、出典（公開投稿／星文）を `FOR SHARE` で検証し、その後source advisory lock。owner RPCは、事前の本人所属メモリの読み取りからsourceを確定し、source lock＋profile KEY SHAREの後、元の記憶行が編集・自動失効済みでも**source exclusionを確実に記録**。存在しないアカウントは`account_gone`。明示的本人削除と自動失効の区別は保持。
+- 真の PostgreSQL 17.10 Mac localhost限定の一時テストDB（`embedded-postgres@17.10.0-beta.17`）を実行。本物の5接続・合成UUIDのみ。①sourceの非公開化（未コミット）の最中にowner忘却RPC→保存禁止が生き残る、②owner忘却（未コミット）の最中にservice_role再取込→ownerの忘却を尊重、③同じ人の2出典が異なる挿入順で並列取込→person行で直列化しdeadlockなし、④アカウント削除とowner忘却の競合→両トランザクション完結、を確認。新規取込された引用が実際の`public.snapshot_chia_person_memory()`で返ることも確認。テスト中のDBは**本番とは全く別のMacのlocalhostの合成クラスタ**、停止後に消去。
+- 再実行コマンド（Macのみ、プロジェクト外テストツール）：`npm install --prefix /tmp/chia-embedded-postgres-20261112 --no-save --no-audit --no-fund embedded-postgres@17.10.0-beta.17` / `CHIA_EMBEDDED_PG_MODULE=/tmp/chia-embedded-postgres-20261112/node_modules/embedded-postgres/dist/index.js node scripts/chia-memory-real-postgres-races.mjs`。
+- 既存PGlite/Node suite/Build再検証・新しいexact SHAでの**Codex独立READ ONLY監査**とProduction migration適用判断は別ゲート。
