@@ -32,29 +32,62 @@ create policy chia_memory_source_exclusions_owner_select
   on public.chia_memory_source_exclusions for select to authenticated
   using(person_profile_id=(select auth.uid()));
 
--- The existing memory UI deletes rows directly. Record the owner's deletion
--- atomically, so a future backfill cannot restore the same evidence.
-create function public.note_owner_deleted_chia_memory_source()
-returns trigger language plpgsql security definer set search_path = ''
+-- Distinguish an explicit owner's decision from source invalidation. A DELETE
+-- trigger cannot do this: auth.uid() also reflects the author while editing a
+-- public post, so the invalidation trigger would wrongly create an exclusion.
+-- The owner must use the RPC below. Direct authenticated DELETE is revoked.
+revoke delete on public.chia_person_memories from authenticated;
+
+-- Both explicit owner deletion and memory admission take the SAME transaction
+-- advisory key BEFORE locking a memory row. This serializes retries even when
+-- two different memory_keys refer to one star_letter. Hash collisions only
+-- serialize unrelated records and do not affect access control.
+create function public.chia_memory_source_lock_key(
+  p_chia_profile_id uuid,p_person_profile_id uuid,p_source_type text,p_source_id uuid)
+returns bigint language sql immutable strict set search_path = ''
 as $function$
+  select hashtextextended(p_chia_profile_id::text || ':' || p_person_profile_id::text || ':' ||
+    p_source_type || ':' || p_source_id::text, 0);
+$function$;
+revoke all on function public.chia_memory_source_lock_key(uuid,uuid,text,uuid) from public,anon,authenticated,service_role;
+
+-- Security-definer RPC: check auth.uid() rather than trusting any user-id
+-- argument. Exclusion and DELETE are atomic in one PostgreSQL transaction.
+create function public.delete_own_chia_memory(p_memory_id uuid)
+returns jsonb language plpgsql security definer set search_path = ''
+as $function$
+declare v_person_id uuid := auth.uid(); v_memory public.chia_person_memories%rowtype;
+  v_type text; v_id uuid;
 begin
-  if auth.uid() = old.person_profile_id and
-     exists(select 1 from public.profiles p where p.id = old.person_profile_id) and
-     exists(select 1 from public.profiles p where p.id = old.chia_profile_id) then
-    insert into public.chia_memory_source_exclusions
-      (chia_profile_id,person_profile_id,source_type,source_id)
-    values(old.chia_profile_id,old.person_profile_id,
-      case when old.source_post_id is not null then 'post' else 'star_letter' end,
-      coalesce(old.source_post_id,old.source_star_letter_id))
-    on conflict do nothing;
+  if v_person_id is null then
+    raise exception 'sign-in required' using errcode='42501';
   end if;
-  return old;
+  -- Preliminary read deliberately does not lock the memory row. Acquire the
+  -- shared source mutex first, then re-read it under FOR UPDATE.
+  select * into v_memory from public.chia_person_memories
+    where id=p_memory_id and person_profile_id=v_person_id;
+  if not found then return jsonb_build_object('outcome','not_found'); end if;
+  v_type:=case when v_memory.source_post_id is not null then 'post' else 'star_letter' end;
+  v_id:=coalesce(v_memory.source_post_id,v_memory.source_star_letter_id);
+  perform pg_advisory_xact_lock(public.chia_memory_source_lock_key(
+    v_memory.chia_profile_id,v_person_id,v_type,v_id));
+  select * into v_memory from public.chia_person_memories
+    where id=p_memory_id and person_profile_id=v_person_id for update;
+  if not found then return jsonb_build_object('outcome','not_found'); end if;
+  if coalesce(v_memory.source_post_id,v_memory.source_star_letter_id) is distinct from v_id or
+     (case when v_memory.source_post_id is not null then 'post' else 'star_letter' end) <> v_type then
+    raise exception 'memory source changed unexpectedly' using errcode='23514';
+  end if;
+  insert into public.chia_memory_source_exclusions
+    (chia_profile_id,person_profile_id,source_type,source_id)
+    values(v_memory.chia_profile_id,v_person_id,v_type,v_id)
+    on conflict do nothing;
+  delete from public.chia_person_memories where id=p_memory_id and person_profile_id=v_person_id;
+  return jsonb_build_object('outcome','deleted');
 end;
 $function$;
-create trigger note_owner_deleted_chia_memory_source_trigger
-  after delete on public.chia_person_memories for each row
-  execute function public.note_owner_deleted_chia_memory_source();
-revoke all on function public.note_owner_deleted_chia_memory_source() from public,anon,authenticated,service_role;
+revoke all on function public.delete_own_chia_memory(uuid) from public,anon,authenticated,service_role;
+grant execute on function public.delete_own_chia_memory(uuid) to authenticated;
 
 -- Preserve the old input and locking contract for star-letter memories. Only
 -- exact quotes from a currently public human-authored post may become a new
@@ -115,6 +148,12 @@ begin
       raise exception 'memory source has changed since observation' using errcode='23514';
     end if;
     new.source_updated_at := v_source_updated_at;
+    -- The owner deletion RPC takes this same key before locking the memory.
+    -- This closes both same-key and different-key concurrent reimport gaps.
+    perform pg_advisory_xact_lock(public.chia_memory_source_lock_key(
+      new.chia_profile_id,new.person_profile_id,
+      case when new.source_post_id is not null then 'post' else 'star_letter' end,
+      coalesce(new.source_post_id,new.source_star_letter_id)));
     -- Serialize admissions without blocking exclusion FK KEY SHARE, so owner
     -- deletion cannot deadlock waiting on the same profile row.
     perform 1 from public.profiles where id=new.person_profile_id for no key update;
@@ -160,26 +199,5 @@ begin
 end;
 $function$;
 
--- Re-check after the INSERT's unique-index wait, not only in BEFORE INSERT.
--- Otherwise an owner can delete a prior memory while an importer waits on its
--- unique row; the owner exclusion might commit after the first preflight.
-create function public.enforce_chia_memory_source_exclusion_after_insert()
-returns trigger language plpgsql security definer set search_path = ''
-as $function$
-begin
-  if exists(select 1 from public.chia_memory_source_exclusions x
-    where x.chia_profile_id=new.chia_profile_id and
-      x.person_profile_id=new.person_profile_id and
-      x.source_type=case when new.source_post_id is not null then 'post' else 'star_letter' end and
-      x.source_id=coalesce(new.source_post_id,new.source_star_letter_id)) then
-    raise exception 'source excluded by owner' using errcode='23514';
-  end if;
-  return new;
-end;
-$function$;
-create trigger enforce_chia_memory_source_exclusion_after_insert_trigger
-  after insert on public.chia_person_memories for each row
-  execute function public.enforce_chia_memory_source_exclusion_after_insert();
-revoke all on function public.enforce_chia_memory_source_exclusion_after_insert() from public,anon,authenticated,service_role;
 
 commit;
