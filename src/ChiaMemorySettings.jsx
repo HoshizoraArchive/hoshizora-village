@@ -58,13 +58,15 @@ export default function ChiaMemorySettings({ userId }) {
   async function erase(memory) {
     if (!userId || workingId || !window.confirm("この記憶を削除しますか？")) return;
     setWorkingId(memory.id);
-    const { error: deleteError } = await supabase
-      .from("chia_person_memories")
-      .delete()
-      .eq("id", memory.id)
-      .eq("person_profile_id", userId);
+    // Explicit owner deletion, distinct from automatic source invalidation.
+    // The RPC atomically records a permanent source exclusion before deleting.
+    const { data: deletion, error: deleteError } = await supabase
+      .rpc("delete_own_chia_memory", { p_memory_id: memory.id });
     setWorkingId(null);
-    if (deleteError) { setError("記憶を削除できませんでした。"); return; }
+    if (deleteError || deletion?.outcome !== "deleted") {
+      setError("記憶を削除できませんでした。");
+      return;
+    }
     setEditing(null);
     setError("");
     await reload();
