@@ -90,14 +90,20 @@ async function main() {
     const excluded=(await db.query(`select source_type,source_id from public.chia_memory_source_exclusions where person_profile_id='${human}'`)).rows;
     assert.deepEqual(excluded,[{source_type:'post',source_id:post}],'owner delete creates persistent reimport exclusion');
     await rejects(db,memorySQL(post),/source excluded by owner/,'cannot reimport a deleted owner memory');
-    // Multiple memory_keys can point at one star letter. Once the owner has
-    // deleted an explicitly remembered fact, another key cannot reintroduce
-    // the same source through the legacy writer.
+    // Multiple facts are already present for the SAME source. Explicit
+    // owner forget must remove all facts, not only the clicked key.
+    await db.exec(`insert into public.chia_person_memories
+      (chia_profile_id,person_profile_id,source_star_letter_id,memory_key,content)
+      values('${chia}','${human}','${letter}','different_topic','I also like singing.')`);
+    assert.equal(await count(db),2,'one star letter can back multiple fact keys');
+    // A source-wide tombstone must cover all keys, including those that were
+    // already stored before the owner clicked the forget button.
     await db.exec(`set role authenticated; select set_config('request.jwt.claim.sub','${human}',false);`);
     const starMemoryId=(await db.query(`select id from public.chia_person_memories where source_star_letter_id='${letter}'`)).rows[0].id;
     const starDeleted=(await db.query(`select public.delete_own_chia_memory('${starMemoryId}') as value`)).rows[0].value;
     assert.equal(starDeleted.outcome,'deleted');
     await db.exec('reset role; select set_config(\'request.jwt.claim.sub\',\'\',false);');
+    assert.equal(await count(db),0,'owner forget removes every memory from the same star-letter source');
     await rejects(db,memorySQL(letter,human,'I also like singing.','star_letter'),/source excluded by owner/, 'cannot reimport star letter under the same key');
     await rejects(db,`insert into public.chia_person_memories(chia_profile_id,person_profile_id,source_star_letter_id,memory_key,content) values('${chia}','${human}','${letter}','different_topic','I also like singing.')`,/source excluded by owner/, 'cannot reimport the same star-letter under a different key');
     const newRev=(await db.query(`select revision from public.chia_person_memory_partitions where chia_profile_id='${chia}' and person_profile_id='${human}'`)).rows[0].revision;
