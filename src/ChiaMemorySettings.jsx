@@ -56,7 +56,7 @@ export default function ChiaMemorySettings({ userId }) {
   }
 
   async function erase(memory) {
-    if (!userId || workingId || !window.confirm("この記憶を削除しますか？")) return;
+    if (!userId || workingId || !window.confirm("この流星便・星文に由来する記憶を、まとめて削除しますか？")) return;
     setWorkingId(memory.id);
     // Explicit owner deletion, distinct from automatic source invalidation.
     // The RPC atomically records a permanent source exclusion before deleting.
