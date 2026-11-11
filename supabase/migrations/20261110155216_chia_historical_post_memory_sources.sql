@@ -50,6 +50,9 @@ as $function$
     p_source_type || ':' || p_source_id::text, 0);
 $function$;
 revoke all on function public.chia_memory_source_lock_key(uuid,uuid,text,uuid) from public,anon,authenticated,service_role;
+-- The INSERT guard remains SECURITY INVOKER. Its existing service_role caller
+-- must be able to take this lock; do not broaden the helper to anon/owners.
+grant execute on function public.chia_memory_source_lock_key(uuid,uuid,text,uuid) to service_role;
 
 -- Security-definer RPC: check auth.uid() rather than trusting any user-id
 -- argument. Exclusion and DELETE are atomic in one PostgreSQL transaction.
