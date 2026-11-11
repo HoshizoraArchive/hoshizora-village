@@ -7,4 +7,5 @@ test('only an authenticated owner RPC may permanently forget a source',()=>{
   assert.doesNotMatch(source,/\.from\("chia_person_memories"\)\s*\.delete\(/);
   assert.match(source,/deletion\?\.outcome\s*!==\s*"deleted"/);
   assert.match(source,/まとめて削除しますか/);
+  assert.match(source,/公開した流星便やちあと交わした星文/);
 });

@@ -83,7 +83,7 @@
 
 - `delete_own_chia_memory` RPC: source advisory lockの後、メモリー行をロックする**前**に、ちあ／本人の `public.profiles` 行にID順 `FOR KEY SHARE` を取得する。Profile DELETE のFOR UPDATE→FK cascade DELETEと、owner忘却RPCの memory row→profile FKの逆順で発生する循環を防止する。投稿の自動無効化は除外履歴を残さない。
 - INSERT guard: 同じ人のprofile FOR NO KEY UPDATEを最初に取得してからsource advisoryを取る。2つの出典を一回の SQL INSERT で導入する合成PGliteケースを追加。**別の本物のDB接続2セッションでのrace実測は未実施**なので、追加の独立レビューによって静的ロック順序を点検する。
-- SQL補助関数 `chia_memory_source_lock_key` の `service_role EXECUTE` を付与。PGliteで `SET ROLE service_role` の1 statement・2 source INSERT成功を確認。Browser authenticatedからの EXECUTE は認めない。
+- SQL補助関数 `chia_memory_source_lock_key` の `service_role EXECUTE` を付与。PGliteで `SET ROLE service_role` の同一sourceのみ許容（別sourceを同transactionに挿入は新ルールで禁止）を確認。Browser authenticatedからの EXECUTE は認めない。
 
 ## 2026-11-12 02時台｜PostgreSQL 17実並列試験と残る監査
 
@@ -92,3 +92,12 @@
 - 真の PostgreSQL 17.10 Mac localhost限定の一時テストDB（`embedded-postgres@17.10.0-beta.17`）を実行。本物の5接続・合成UUIDのみ。①sourceの非公開化（未コミット）の最中にowner忘却RPC→保存禁止が生き残る、②owner忘却（未コミット）の最中にservice_role再取込→ownerの忘却を尊重、③同じ人の2出典が異なる挿入順で並列取込→person行で直列化しdeadlockなし、④アカウント削除とowner忘却の競合→両トランザクション完結、を確認。新規取込された引用が実際の`public.snapshot_chia_person_memory()`で返ることも確認。テスト中のDBは**本番とは全く別のMacのlocalhostの合成クラスタ**、停止後に消去。
 - 再実行コマンド（Macのみ、プロジェクト外テストツール）：`npm install --prefix /tmp/chia-embedded-postgres-20261112 --no-save --no-audit --no-fund embedded-postgres@17.10.0-beta.17` / `CHIA_EMBEDDED_PG_MODULE=/tmp/chia-embedded-postgres-20261112/node_modules/embedded-postgres/dist/index.js node scripts/chia-memory-real-postgres-races.mjs`。
 - 既存PGlite/Node suite/Build再検証・新しいexact SHAでの**Codex独立READ ONLY監査**とProduction migration適用判断は別ゲート。
+
+## 2026-11-12｜Codex CLI独立監査 HOLD後の単一出典トランザクション修正
+
+- 独立Codex CLI (`gpt-6.1-sol` / high、exact SHA `d1ca84d`) の判定はHOLD。3 blocking：①固定投稿を非公開化すると既存トリガーがprofileをUPDATEし、profile FOR NO KEY UPDATE→post FOR SHAREの逆順でdeadlock、②既存`remember_chia_star_letter_reply`はsource FOR UPDATE→guard前に順序があり同様の逆順、③複数sourceを1トランザクションでINSERTすると、owner忘却がsource advisoryを持ってrevision行待ち→importerが別source advisory待ちでcycle。
+- 新修正: `guard_chia_person_memory`は `profiles FOR KEY SHARE`→出典post/star_letter FOR SHARE→source advisoryを採用。KEY SHAREは固定投稿の非キーUPDATEを阻害せず、profile DELETEのカスケードより前に退避する。
+- 同じDBトランザクション内で2つ以上のsource/person/chiaの記憶をINSERTすることを `hoshizora.chia_memory_insert_source` の**transaction-local**値で拒否する。1 sourceから複数memory_keyは可。定期/一括バックフィルは1回に1 sourceずつ別トランザクションで進める。既存remember RPC（1 source/呼出）を変更せず、同時の複数sourceロックとrevision循環を避ける。
+- 新コードに対してPostgreSQL 17.10 Mac localhost・複数実接続のテストを再実行。source編集＋owner忘却、owner忘却＋reimport、クロスsource二重INSERTの早期拒否、固定投稿非公開化＋記憶INSERT、既存星文のsource-firstロック＋直接記憶INSERT、アカウント削除＋忘却の **6ケースPASS**。本番DB/Previewには一切書込みなし。
+- ユーザーの記憶管理UIの説明を、「公開した流星便」と「ちあと交わした星文」の両方を根拠にする旨へ変更。本人が訂正・削除可能な状態を維持。
+- この変更を含む新SHAは、Codex CLIで**再度**独立監査が必要。PRはDraft継続。

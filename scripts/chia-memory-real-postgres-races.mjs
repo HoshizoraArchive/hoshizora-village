@@ -16,14 +16,13 @@ const {default:EmbeddedPostgres}=await import(pathToFileURL(resolve(external)).h
 const oldHarness=await readFile(resolve(root,'scripts/chia-dot-star-letter-pglite-harness.mjs'),'utf8');
 const baseline=oldHarness.match(/const baseline = `([\s\S]*?)`;\n/);
 if(!baseline) throw new Error('Synthetic schema fixture baseline unavailable');
-const migrations=['20260908123500_add_chia_star_letter_reply_runs.sql','20261010213000_chia_reply_memory_and_fencing.sql','20261020120000_chia_dot_reply_atomic_guards.sql','20261020123000_chia_source_monotonic_revisions.sql','20261020124500_chia_source_monotonic_any_update.sql','20261110155216_chia_historical_post_memory_sources.sql'];
+const migrations=['20260908123500_add_chia_star_letter_reply_runs.sql','20260930103500_add_pinned_profile_post.sql','20261010213000_chia_reply_memory_and_fencing.sql','20261020120000_chia_dot_reply_atomic_guards.sql','20261020123000_chia_source_monotonic_revisions.sql','20261020124500_chia_source_monotonic_any_update.sql','20261110155216_chia_historical_post_memory_sources.sql'];
 const chia='41000000-0000-4000-8000-000000000001',human='41000000-0000-4000-8000-000000000002';
 const p1='42000000-0000-4000-8000-000000000002',p2='42000000-0000-4000-8000-000000000003',p3='42000000-0000-4000-8000-000000000004';
 const p4='42000000-0000-4000-8000-000000000005',p5='42000000-0000-4000-8000-000000000006';
 const key=id=>'historical_post_'+id.replaceAll('-','');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const timeout=(p,ms=8000)=>Promise.race([p,new Promise((_,reject)=>setTimeout(()=>reject(new Error('two-session test timeout')),ms))]);
-const waitFor=async(predicate)=>{for(let i=0;i<50;i++){if(await predicate())return;await delay(75)}throw new Error('expected concurrent wait not observed')};
 const q=(c,sql,params=[])=>c.query(sql,params);
 const inserter=(p,body)=>`insert into public.chia_person_memories(chia_profile_id,person_profile_id,source_post_id,memory_key,content) values('${chia}','${human}','${p}','${key(p)}','${body}')`;
 const asRole=async(client,role,person)=>{
@@ -93,25 +92,63 @@ try{
   assert.equal((await q(admin,`select count(*)::int n from public.chia_person_memories where source_post_id='${p2}'`)).rows[0].n,0);
   console.log('PG17_RACE_B_PASS: owner delete+new import cannot resurrect source');
 
-  // Race C: two concurrent transactions use opposite source order for one
-  // person. The person profile lock is acquired first, preventing deadlocks.
+  // Race C: a cross-source transaction is blocked before trying a second
+  // source lock; its rollback frees the partition revision for another writer.
   await q(writer,'begin');await q(writer,inserter(p3,'Synthetic song C'));
   await q(writer2,'begin');
   let writer2Finished=false;
   const writer2First=q(writer2,inserter(p4,'Synthetic song D')).finally(()=>{writer2Finished=true});
-  await delay(250);assert.equal(writer2Finished,false,'writer2 serialized by person profile lock');
-  await q(writer,inserter(p4,'Synthetic song D'));
-  await q(writer,'commit');
-  await assert.rejects(timeout(writer2First),/duplicate key value violates unique constraint/);
-  await q(writer2,'rollback');
+  await delay(250);assert.equal(writer2Finished,false,'writer2 serialized on the revision partition');
+  await assert.rejects(q(writer,inserter(p4,'Synthetic song D')),
+    /multiple memory sources in one transaction are not allowed/);
+  await q(writer,'rollback');
+  await timeout(writer2First);
+  await q(writer2,'commit');
+  await q(writer,inserter(p3,'Synthetic song C'));
   assert.equal((await q(admin,`select count(*)::int n from public.chia_person_memories where source_post_id in ('${p3}','${p4}')`)).rows[0].n,2);
-  console.log('PG17_RACE_C_PASS: multi-source same-person admissions serialize without deadlock');
+  console.log('PG17_RACE_C_PASS: cross-source transaction rejected before deadlocking with revision lock');
+
+  // Race E: a real pinned-post cleanup trigger updates the person profile
+  // while the post update is uncommitted. KEY SHARE of the person profile must
+  // NOT block this non-key UPDATE; the importer waits only on the post itself.
+  await q(admin,`update public.profiles set pinned_post_id='${p5}' where id='${human}'`);
+  await q(editor,'begin');
+  await q(editor,`update public.posts set visibility='private' where id='${p5}'`);
+  let pinImportDone=false;
+  const pinImport=q(writer,inserter(p5,'Synthetic song E')).finally(()=>{pinImportDone=true});
+  await delay(250);assert.equal(pinImportDone,false);
+  await q(editor,'commit');
+  await assert.rejects(timeout(pinImport),/invalid historical post evidence/);
+  assert.equal((await q(admin,`select pinned_post_id from public.profiles where id='${human}'`)).rows[0].pinned_post_id,null);
+  await q(admin,`update public.posts set visibility='public' where id='${p5}'`);
+  console.log('PG17_RACE_E_PASS: pinned-post cleanup and import have no profile/post lock cycle');
+
+  // Race F: existing star-letter remembering locks source FOR UPDATE before
+  // its INSERT. A direct source import now uses profile KEY SHARE and source
+  // FOR SHARE; both paths finish without incompatible person locks.
+  const chiaPost='42000000-0000-4000-8000-000000000009';
+  const letter='43000000-0000-4000-8000-000000000009';
+  await q(admin,`insert into public.posts(id,author_id,body) values('${chiaPost}','${chia}','Synthetic Chia note.');
+    insert into public.star_letters(id,post_id,author_id,body) values('${letter}','${chiaPost}','${human}','I compose demos.')`);
+  await q(writer2,'begin');
+  await q(writer2,`select sl.id from public.star_letters sl join public.posts p on p.id=sl.post_id
+    where sl.id='${letter}' for update of sl,p`);
+  let letterInsertDone=false;
+  const directLetterImport=q(writer,`insert into public.chia_person_memories
+    (chia_profile_id,person_profile_id,source_star_letter_id,memory_key,content)
+    values('${chia}','${human}','${letter}','synthetic_compose','I compose demos.')`).finally(()=>{letterInsertDone=true});
+  await delay(250);assert.equal(letterInsertDone,false);
+  await q(writer2,'commit');
+  await timeout(directLetterImport);
+  assert.equal((await q(admin,`select count(*)::int n from public.chia_person_memories where source_star_letter_id='${letter}'`)).rows[0].n,1);
+  console.log('PG17_RACE_F_PASS: source-first legacy star-letter path remains compatible');
 
   // Race D: account removal holds profile FOR UPDATE while owner forget
   // attempts KEY SHARE; neither should hold an opposite-ordered memory lock.
   await q(admin,inserter(p5,'Synthetic song E'));
   const memory5=(await q(admin,`select id from public.chia_person_memories where source_post_id='${p5}'`)).rows[0].id;
   await q(admin,'begin');
+  await q(admin,`delete from public.star_letters where author_id='${human}'`);
   await q(admin,`delete from public.posts where author_id='${human}'`);
   await q(admin,`delete from public.profiles where id='${human}'`);
   let gone=false;
@@ -122,6 +159,6 @@ try{
   assert.equal(goneOutcome,'account_gone');
   console.log('PG17_RACE_D_PASS: account removal+owner forget completes without deadlock');
 
-  console.log('PG17_REAL_CONCURRENCY_ALL_PASS: 4 scenarios, actual independent Postgres connections, synthetic only');
+  console.log('PG17_REAL_CONCURRENCY_ALL_PASS: 6 scenarios, actual independent Postgres connections, synthetic only');
 }catch(err){console.error('PG17_REAL_CONCURRENCY_FAIL:',err.message);process.exitCode=1}
 finally{for(const c of clients)await c.end().catch(()=>{});if(started)await pg.stop().catch(()=>{});}

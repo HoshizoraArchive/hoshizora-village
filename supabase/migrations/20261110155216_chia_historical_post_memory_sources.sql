@@ -117,6 +117,8 @@ as $function$
 declare
   v_source_updated_at timestamptz;
   v_source_body text;
+  v_transaction_source text;
+  v_current_source text;
 begin
   if tg_op = 'UPDATE' then
     if new.id is distinct from old.id or
@@ -130,10 +132,27 @@ begin
       raise exception 'memory identity is immutable' using errcode='23514';
     end if;
   else
-    -- Lock the owner profile BEFORE looking up/locking the source post or
-    -- star letter. Profile DELETE locks this row before FK-cascading to
-    -- posts/letters: the opposite order would deadlock.
-    perform 1 from public.profiles where id=new.person_profile_id for no key update;
+    -- Per-source transaction scope is intentional: the existing reply RPC
+    -- takes source FOR UPDATE before INSERT, while the memory revision trigger
+    -- can lock a person partition. Multi-source transactions may otherwise
+    -- deadlock with source invalidation or an owner's forget operation.
+    -- A new source/person must use a fresh DB transaction, including batch
+    -- backfills. Multi-key facts from the SAME source are still supported.
+    if (new.source_post_id is not null) = (new.source_star_letter_id is not null) then
+      raise exception 'exactly one memory evidence source required' using errcode='23514';
+    end if;
+    v_transaction_source := new.chia_profile_id::text || ':' || new.person_profile_id::text || ':' ||
+      case when new.source_post_id is not null then 'post:' || new.source_post_id::text
+           else 'star_letter:' || new.source_star_letter_id::text end;
+    v_current_source := nullif(current_setting('hoshizora.chia_memory_insert_source', true), '');
+    if v_current_source is not null and v_current_source <> v_transaction_source then
+      raise exception 'multiple memory sources in one transaction are not allowed'
+        using errcode='23514';
+    end if;
+    perform set_config('hoshizora.chia_memory_insert_source',v_transaction_source,true);
+    -- KEY SHARE prevents profile deletion but does not block ordinary profile
+    -- UPDATE, including pinned-post cleanup triggered by source edits.
+    perform 1 from public.profiles where id=new.person_profile_id for key share;
     if not found then
       raise exception 'missing memory person profile' using errcode='23514';
     end if;
@@ -173,9 +192,10 @@ begin
       raise exception 'memory source has changed since observation' using errcode='23514';
     end if;
     new.source_updated_at := v_source_updated_at;
-    -- The per-person admission lock was acquired BEFORE the source FOR SHARE.
-    -- Owner-deletion RPC takes only source advisory + memory row locks;
-    -- exclusion FKs use KEY SHARE, compatible with NO KEY UPDATE above.
+    -- The person profile was KEY SHARE-locked before the source FOR SHARE;
+    -- source scope above prevents cross-source transaction cycles. This also
+    -- preserves the existing remember RPC, which may lock the star letter
+    -- and post before its own single-source memory INSERT.
     -- Source lock pairs with the explicit owner deletion RPC, which obtains
     -- it before locking a memory row. Same- and different-key reimports are
     -- serialized against source-wide tombstones.

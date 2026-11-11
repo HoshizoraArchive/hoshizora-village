@@ -76,7 +76,7 @@ export default function ChiaMemorySettings({ userId }) {
   return (
     <section aria-label="ちあの記憶管理" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
       <h3 className="text-sm font-black text-white">ちあが覚えていること</h3>
-      <p className="mt-1 text-xs leading-6 text-slate-400">あなたの星文に合わせた返信のための記憶です。自分の記憶を確認・書き直し・削除できます。</p>
+      <p className="mt-1 text-xs leading-6 text-slate-400">あなたが公開した流星便やちあと交わした星文をもとにした記憶です。自分で確認・修正・削除できます。</p>
       {error && <p role="alert" className="mt-2 text-xs text-rose-300">{error}</p>}
       {loading ? <p className="mt-3 text-xs text-slate-400">読み込み中…</p> : null}
       {!loading && memories.length === 0 ? <p className="mt-3 text-xs text-slate-400">保存された記憶はありません。</p> : null}

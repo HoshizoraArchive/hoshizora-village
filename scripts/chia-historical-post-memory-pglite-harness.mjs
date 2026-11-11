@@ -13,7 +13,7 @@ const baseline = oldHarness.match(/const baseline = `([\s\S]*?)`;\n/);
 if (!baseline) throw new Error('Existing synthetic fixture baseline missing');
 const migration = 'supabase/migrations/20261110155216_chia_historical_post_memory_sources.sql';
 const src = async p => await readFile(resolve(repo,p),'utf8');
-const migrations = ['supabase/migrations/20260908123500_add_chia_star_letter_reply_runs.sql', 'supabase/migrations/20261010213000_chia_reply_memory_and_fencing.sql','supabase/migrations/20261020120000_chia_dot_reply_atomic_guards.sql','supabase/migrations/20261020123000_chia_source_monotonic_revisions.sql','supabase/migrations/20261020124500_chia_source_monotonic_any_update.sql',migration];
+const migrations = ['supabase/migrations/20260908123500_add_chia_star_letter_reply_runs.sql', 'supabase/migrations/20260930103500_add_pinned_profile_post.sql', 'supabase/migrations/20261010213000_chia_reply_memory_and_fencing.sql','supabase/migrations/20261020120000_chia_dot_reply_atomic_guards.sql','supabase/migrations/20261020123000_chia_source_monotonic_revisions.sql','supabase/migrations/20261020124500_chia_source_monotonic_any_update.sql',migration];
 const chia='41000000-0000-4000-8000-000000000001';
 const human='41000000-0000-4000-8000-000000000002';
 const other='41000000-0000-4000-8000-000000000003';
@@ -64,7 +64,7 @@ async function main() {
     assert.ok(records.some(x=>x.source_star_letter_id===letter&&x.source_post_id===null));
     await rejects(db,memorySQL(post,other),/invalid historical post evidence|invalid memory participants/, 'other human cannot claim the source');
     await rejects(db,memorySQL(secondPost,human,'Invented song title'),/invalid historical post evidence/, 'cannot hallucinate post quote');
-    await rejects(db,`insert into public.chia_person_memories(chia_profile_id,person_profile_id,source_post_id,source_star_letter_id,memory_key,content) values('${chia}','${human}','${secondPost}','${letter}','both','text')`,/exactly_one_source|invalid historical post evidence/, 'must have exactly one evidence source');
+    await rejects(db,`insert into public.chia_person_memories(chia_profile_id,person_profile_id,source_post_id,source_star_letter_id,memory_key,content) values('${chia}','${human}','${secondPost}','${letter}','both','text')`,/exactly one memory evidence source required|exactly_one_source|invalid historical post evidence/, 'must have exactly one evidence source');
     // Source invalidation runs in a human-authenticated session. It MUST NOT
     // be misclassified as the owner's explicit decision to delete the memory.
     // The synthetic fixture has no post-owner RLS grants; permit this fake
@@ -161,17 +161,21 @@ async function main() {
       grant select,update on public.posts,public.star_letters to service_role;
       grant select on public.profile_kinds,public.profile_blocks to service_role;
       set role service_role;`);
-    // One SQL statement with multiple sources must remain executable under
-    // service_role; true concurrent sessions are a separate test gate.
-    await db.exec(`insert into public.chia_person_memories
+    // Multiple sources in one transaction can invert locks with the existing
+    // star-letter remember RPC or a user forget. Reject the batch atomically.
+    const unsafeBatch = `insert into public.chia_person_memories
       (chia_profile_id,person_profile_id,source_post_id,memory_key,content) values
       ('${chia}','${human}','${serviceSource}','${key(serviceSource)}','Verified service role source.'),
-      ('${chia}','${human}','${serviceSource2}','${key(serviceSource2)}','Second service role source.')`);
+      ('${chia}','${human}','${serviceSource2}','${key(serviceSource2)}','Second service role source.')`;
+    await rejects(db,unsafeBatch,/multiple memory sources in one transaction are not allowed/,
+      'multi-source imports are rejected before acquiring a second source lock');
+    await db.exec(memorySQL(serviceSource,human,'Verified service role source.'));
+    await db.exec(memorySQL(serviceSource2,human,'Second service role source.'));
     await db.exec('reset role;');
-    assert.equal(await count(db),2, 'service_role can multi-row INSERT evidenced sources through the invoker trigger');
+    assert.equal(await count(db),2, 'service_role can import two sources in separate transactions');
     await db.exec(`delete from public.chia_person_memories where source_post_id in ('${serviceSource}','${serviceSource2}')`);
 
-    console.log('PGLITE_GREEN: legacy star letters, historical quotes, authenticated source edit vs explicit deletion, atomic owner RPC, different-key exclusion, RLS, revision');
+    console.log('PGLITE_GREEN: legacy star letters, historical quotes, single-source transaction guard, authenticated source edit vs explicit deletion, atomic owner RPC, different-key exclusion, RLS, revision');
     console.log('PGLITE_BOUNDARY: synthetic in-memory database; no Supabase or Production access');
   } finally {await db.close();}
 }
