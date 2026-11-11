@@ -71,3 +71,10 @@
 - INSERT guardは、全候補に共通する **person profile `FOR NO KEY UPDATE` を先に取得**し、その後各source advisory lockを取得する順序へ。Owner RPCではsource advisory→memory rowの順序を保持。Profile KEY SHARE（exclusion FK）との互換性を維持し、異なるsource順のmulti-row insertが互いにsource lockを保持してからperson lockを待つ循環を解消する。
 - 合成PGliteで同じ星文の別memory_key 2件→ownerの1件忘却で両件消失・再取込両キー拒否を検証。**別セッションの同時INSERT/DELETEによる実競合試験は未実施**。
 - 旧HEAD `6afcf11` への監査結果は旧コミットだけに対するもの。変更後の新SHAについて独立レビューを取り直す。
+
+## 2026-11-11｜サービス権限に関する追加検証
+
+- `guard_chia_person_memory` は **SECURITY INVOKER** のため、`service_role`から記憶行をINSERTすると、guard内で呼び出す補助関数にもEXECUTE権限が必要。`chia_memory_source_lock_key(uuid,uuid,text,uuid)` のEXECUTEは `service_role` のみに許可し、`authenticated` と `anon` には付けない。
+- Production の既存ACLを SELECT で照合：`service_role` はprofiles SELECT/UPDATE、posts/星文 SELECT/UPDATE、profile_kinds/profile_blocks SELECT、chia_person_memories INSERTを保持。
+- オフラインPGlite fixtureでも `SET ROLE service_role` で本物の証拠付きINSERTを実行して成功。`authenticated`にはロック関数EXECUTE権限なしのまま。権限の抜けを合成テストで再現可能にした。
+- 投稿の編集に伴う自動失効と、ownerが明示的に記憶を忘れるRPCの副作用は独立して保持。
