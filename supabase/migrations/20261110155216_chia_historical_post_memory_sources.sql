@@ -81,20 +81,22 @@ begin
   perform 1 from public.profiles
     where id in (v_memory.chia_profile_id,v_person_id)
     order by id for key share;
-  select * into v_memory from public.chia_person_memories
-    where id=p_memory_id and person_profile_id=v_person_id for update;
-  if not found then return jsonb_build_object('outcome','not_found'); end if;
-  if coalesce(v_memory.source_post_id,v_memory.source_star_letter_id) is distinct from v_id or
-     (case when v_memory.source_post_id is not null then 'post' else 'star_letter' end) <> v_type then
-    raise exception 'memory source changed unexpectedly' using errcode='23514';
+  -- Source invalidation can race between the preliminary owner-scoped read
+  -- and this source lock. If it already deleted the memory, the verified
+  -- user's forget intent still needs a durable exclusion for the source.
+  -- Only the preliminary owner-scoped row identifies the source. Never infer
+  -- identities from a caller-supplied source ID.
+  if (select count(*) from public.profiles
+      where id in (v_memory.chia_profile_id,v_person_id)) <> 2 then
+    return jsonb_build_object('outcome','account_gone');
   end if;
   insert into public.chia_memory_source_exclusions
     (chia_profile_id,person_profile_id,source_type,source_id)
     values(v_memory.chia_profile_id,v_person_id,v_type,v_id)
     on conflict do nothing;
   -- Forget the entire source, not just this memory_key: one source may have
-  -- several facts under different keys. The source-wide tombstone would be
-  -- inconsistent if any other facts from that source remained readable.
+  -- several facts under different keys. Source invalidation can have already
+  -- removed the chosen row. The exclusion nevertheless remains effective.
   delete from public.chia_person_memories
     where chia_profile_id=v_memory.chia_profile_id and person_profile_id=v_person_id
       and ((v_type='post' and source_post_id=v_id) or
@@ -128,6 +130,13 @@ begin
       raise exception 'memory identity is immutable' using errcode='23514';
     end if;
   else
+    -- Lock the owner profile BEFORE looking up/locking the source post or
+    -- star letter. Profile DELETE locks this row before FK-cascading to
+    -- posts/letters: the opposite order would deadlock.
+    perform 1 from public.profiles where id=new.person_profile_id for no key update;
+    if not found then
+      raise exception 'missing memory person profile' using errcode='23514';
+    end if;
     if not exists(select 1 from public.profile_kinds pk
       where pk.profile_id=new.chia_profile_id and pk.kind='ai_resident') or
        not exists(select 1 from public.profile_kinds pk
@@ -164,12 +173,9 @@ begin
       raise exception 'memory source has changed since observation' using errcode='23514';
     end if;
     new.source_updated_at := v_source_updated_at;
-    -- Acquire the common per-person admission lock BEFORE any per-source
-    -- advisory locks. This also handles multi-row INSERT statements whose
-    -- individual rows may have different source orders. Owner-deletion RPC
-    -- takes only source advisory + memory row locks; the exclusion FK uses
-    -- KEY SHARE, which is compatible with this NO KEY UPDATE profile lock.
-    perform 1 from public.profiles where id=new.person_profile_id for no key update;
+    -- The per-person admission lock was acquired BEFORE the source FOR SHARE.
+    -- Owner-deletion RPC takes only source advisory + memory row locks;
+    -- exclusion FKs use KEY SHARE, compatible with NO KEY UPDATE above.
     -- Source lock pairs with the explicit owner deletion RPC, which obtains
     -- it before locking a memory row. Same- and different-key reimports are
     -- serialized against source-wide tombstones.
