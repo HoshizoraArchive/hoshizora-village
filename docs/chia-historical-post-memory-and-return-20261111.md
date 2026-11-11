@@ -78,3 +78,9 @@
 - Production の既存ACLを SELECT で照合：`service_role` はprofiles SELECT/UPDATE、posts/星文 SELECT/UPDATE、profile_kinds/profile_blocks SELECT、chia_person_memories INSERTを保持。
 - オフラインPGlite fixtureでも `SET ROLE service_role` で本物の証拠付きINSERTを実行して成功。`authenticated`にはロック関数EXECUTE権限なしのまま。権限の抜けを合成テストで再現可能にした。
 - 投稿の編集に伴う自動失効と、ownerが明示的に記憶を忘れるRPCの副作用は独立して保持。
+
+## 2026-11-11｜競合・アカウント削除の最後の事前整備（監査待ち）
+
+- `delete_own_chia_memory` RPC: source advisory lockの後、メモリー行をロックする**前**に、ちあ／本人の `public.profiles` 行にID順 `FOR KEY SHARE` を取得する。Profile DELETE のFOR UPDATE→FK cascade DELETEと、owner忘却RPCの memory row→profile FKの逆順で発生する循環を防止する。投稿の自動無効化は除外履歴を残さない。
+- INSERT guard: 同じ人のprofile FOR NO KEY UPDATEを最初に取得してからsource advisoryを取る。2つの出典を一回の SQL INSERT で導入する合成PGliteケースを追加。**別の本物のDB接続2セッションでのrace実測は未実施**なので、追加の独立レビューによって静的ロック順序を点検する。
+- SQL補助関数 `chia_memory_source_lock_key` の `service_role EXECUTE` を付与。PGliteで `SET ROLE service_role` の1 statement・2 source INSERT成功を確認。Browser authenticatedからの EXECUTE は認めない。
