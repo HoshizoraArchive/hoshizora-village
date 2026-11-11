@@ -74,6 +74,13 @@ begin
   v_id:=coalesce(v_memory.source_post_id,v_memory.source_star_letter_id);
   perform pg_advisory_xact_lock(public.chia_memory_source_lock_key(
     v_memory.chia_profile_id,v_person_id,v_type,v_id));
+  -- Account deletion locks profile rows before cascading to memory rows.
+  -- Take these KEY SHARE locks first so this RPC never owns a memory row while
+  -- waiting for a profile DELETE's FOR UPDATE. KEY SHARE is compatible with
+  -- the importer's profile FOR NO KEY UPDATE lock.
+  perform 1 from public.profiles
+    where id in (v_memory.chia_profile_id,v_person_id)
+    order by id for key share;
   select * into v_memory from public.chia_person_memories
     where id=p_memory_id and person_profile_id=v_person_id for update;
   if not found then return jsonb_build_object('outcome','not_found'); end if;
