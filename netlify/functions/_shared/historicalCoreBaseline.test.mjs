@@ -50,11 +50,13 @@ test("historical core baseline is the canonical audited Git blob", () => {
 });
 
 test("historical baseline is the oldest unique migration", () => {
-  assert.ok(migrationFilenames.length >= 90, "audited migration history must not shrink");
-  assert.equal(new Set(migrationVersions).size, migrationFilenames.length);
+  assert.equal(migrationFilenames.length, 90);
+  assert.equal(new Set(migrationVersions).size, 90);
   assert.equal(migrationFilenames[0], baselineFilename);
-  assert.ok(migrationFilenames.includes("20261020124500_chia_source_monotonic_any_update.sql"));
-  assert.ok(migrationFilenames.includes("20261110155216_chia_historical_post_memory_sources.sql"));
+  assert.equal(
+    migrationFilenames.at(-1),
+    "20261110155216_chia_historical_post_memory_sources.sql",
+  );
 });
 
 test("historical baseline creates exactly the eight pre-notification core tables", () => {
