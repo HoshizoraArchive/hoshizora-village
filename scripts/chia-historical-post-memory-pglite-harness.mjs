@@ -49,6 +49,12 @@ async function main() {
       insert into public.star_letters(id,post_id,author_id,body) values
       ('${letter}','42000000-0000-4000-8000-000000000001','${human}','I also like singing.');
     `);
+    assert.equal((await db.query(`select has_function_privilege('service_role',
+      'public.chia_memory_source_lock_key(uuid,uuid,text,uuid)','EXECUTE') AS allowed`)).rows[0].allowed,
+      true, 'the existing SECURITY INVOKER guard must be able to acquire the source lock under service_role');
+    assert.equal((await db.query(`select has_function_privilege('authenticated',
+      'public.chia_memory_source_lock_key(uuid,uuid,text,uuid)','EXECUTE') AS allowed`)).rows[0].allowed,
+      false, 'the helper must not grant direct lock access to browser users');
     await db.exec(memorySQL(post));
     assert.equal(await count(db),1,'public historical post can seed a truthful quote');
     await db.exec(memorySQL(letter,human,'I also like singing.','star_letter'));
@@ -142,6 +148,22 @@ async function main() {
     assert.equal(await count(db),0,'re-attribution, physical deletion and letter edit invalidate facts');
     assert.equal((await db.query(`select count(*)::int n from public.chia_memory_source_exclusions`)).rows[0].n,2,
       'source edits, changes and cascades do not create owner-deletion exclusions');
+
+    // An actual service_role INSERT executes the trigger as a SECURITY
+    // INVOKER, unlike the prior superuser-only synthetic inserts. The helper
+    // function must be executable by that role.
+    const serviceSource='42000000-0000-4000-8000-000000000007';
+    await db.exec(`insert into public.posts(id,author_id,body)
+      values('${serviceSource}','${human}','Verified service role source.');
+      grant select,update on public.profiles to service_role;
+      grant select,update on public.posts,public.star_letters to service_role;
+      grant select on public.profile_kinds,public.profile_blocks to service_role;
+      set role service_role;`);
+    await db.exec(memorySQL(serviceSource,human,'Verified service role source.'));
+    await db.exec('reset role;');
+    assert.equal(await count(db),1, 'service_role can insert an evidenced memory through the invoker trigger');
+    await db.exec(`delete from public.chia_person_memories where source_post_id='${serviceSource}'`);
+
     console.log('PGLITE_GREEN: legacy star letters, historical quotes, authenticated source edit vs explicit deletion, atomic owner RPC, different-key exclusion, RLS, revision');
     console.log('PGLITE_BOUNDARY: synthetic in-memory database; no Supabase or Production access');
   } finally {await db.close();}
