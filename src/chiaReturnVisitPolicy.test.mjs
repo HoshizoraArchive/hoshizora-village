@@ -4,7 +4,9 @@ import {assessChiaReturnVisit as assess} from './chiaReturnVisitPolicy.mjs';
 const person='41000000-0000-4000-8000-000000000002',other='41000000-0000-4000-8000-000000000003';
 const now=Date.parse('2026-11-11T00:00:00Z');
 const open=(daysAgo,user_id=person)=>({user_id,opened_at:new Date(now-daysAgo*86400000).toISOString()});
-const input=openEvents=>({personProfileId:person,openEvents,now});
+const input=openEvents=>({personProfileId:person,openEvents,now,
+  verifiedWindow:{source:'app_open_events.opened_at',complete:true,personProfileId:person,
+    from:new Date(now-120*86400000).toISOString(),through:new Date(now).toISOString()}});
 test('real return needs two trusted same-person server open times with 14-day gap',()=>{
   const result=assess(input([open(0),open(40)]));
   assert.equal(result.isReturning,true);
@@ -31,4 +33,13 @@ test('future client signal cannot become a return; do not send notifications',()
 test('browser-client time is not accepted as proof of a visit',()=>{
   const events=[{user_id:person,client_opened_at:new Date(now).toISOString()},{user_id:person,client_opened_at:new Date(now-40*86400000).toISOString()}];
   assert.equal(assess(input(events)),null);
+});
+
+test('incomplete or unverified event history cannot manufacture a return',()=>{
+  const history=[open(0),open(40)];
+  assert.equal(assess({...input(history),verifiedWindow:undefined}),null);
+  assert.equal(assess({...input(history),verifiedWindow:{...input(history).verifiedWindow,complete:false}}),null);
+  assert.equal(assess({...input(history),verifiedWindow:{...input(history).verifiedWindow,from:new Date(now-3*86400000).toISOString()}}),null);
+  assert.equal(assess({...input(history),verifiedWindow:{...input(history).verifiedWindow,personProfileId:other}}),null);
+  assert.equal(assess({...input(history),verifiedWindow:{...input(history).verifiedWindow,through:new Date(now-86400000).toISOString()}}),null);
 });
