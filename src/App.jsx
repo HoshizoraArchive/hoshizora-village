@@ -9434,8 +9434,9 @@ function App() {
   };
   const isPasswordRecoveryVisible = Boolean(passwordRecovery);
   const isPostEditor = !isPasswordRecoveryVisible && route.name === "home" && activeTab === "post";
+  const isObserveHome = route.name === "home" && activeTab === "observe";
   const showObserveIntro =
-    !observeIntroPlayed && !isPasswordRecoveryVisible && route.name === "home" && activeTab === "observe";
+    !observeIntroPlayed && !isPasswordRecoveryVisible && isObserveHome;
 
   return (
     <div
@@ -9468,7 +9469,7 @@ function App() {
           />
         ) : (
           <>
-            {!isPostEditor && <AppHeader auth={auth} />}
+            {!isPostEditor && !isObserveHome && <AppHeader auth={auth} />}
 
             <TabContent
           activeTab={activeTab}
@@ -9576,6 +9577,10 @@ function App() {
 
 
 function AppHeader({ auth }) {
+  // Never flash the guest login form while an existing session is still resolving.
+  if (auth.status === "確認中" && !auth.confirmation) {
+    return null;
+  }
   if (auth.session && auth.confirmation?.kind !== AUTH_CONFIRMATION_KIND.CONFIRMED) {
     return null;
   }
@@ -9709,6 +9714,7 @@ function TabContent({
 
   return (
     <ObserveScreen
+      auth={auth}
       introEnabled={observeIntroEnabled}
       onIntroFinished={onObserveIntroFinished}
       archive={archive}
@@ -9734,6 +9740,7 @@ function TabContent({
 
 function ObserveScreen({
   archive,
+  auth,
   introEnabled,
   onIntroFinished,
   onboarding,
@@ -9757,6 +9764,7 @@ function ObserveScreen({
         error={postsError}
         onIntroFinished={onIntroFinished}
       />
+      <AppHeader auth={auth} />
       <ObserveTimelineRefreshNotice timelineRefresh={timelineRefresh} />
       <Timeline
         archive={archive}

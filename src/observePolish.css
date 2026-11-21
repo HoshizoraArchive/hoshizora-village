@@ -117,10 +117,10 @@
   transform: translate(-50%, -50%);
   filter: drop-shadow(0 0 18px rgb(128 189 255 / 0.24));
   transition:
-    top 780ms cubic-bezier(0.2, 0.76, 0.18, 1),
-    left 780ms cubic-bezier(0.2, 0.76, 0.18, 1),
-    height 780ms cubic-bezier(0.2, 0.76, 0.18, 1),
-    filter 780ms ease;
+    top 640ms cubic-bezier(0.2, 0.76, 0.18, 1),
+    left 640ms cubic-bezier(0.2, 0.76, 0.18, 1),
+    height 640ms cubic-bezier(0.2, 0.76, 0.18, 1),
+    filter 640ms ease;
 }
 
 .observe-brand-intro-image,
@@ -192,11 +192,6 @@
   white-space: nowrap;
   transform: translateX(-50%);
   transition: opacity 200ms ease;
-}
-
-.observe-brand-intro.is-fading {
-  opacity: 0;
-  transition: opacity 420ms ease;
 }
 
 .observe-brand-intro.is-flying .observe-brand-intro-status,

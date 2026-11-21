@@ -32,10 +32,12 @@ test("observe header polish stays scoped and preserves the starry background", (
 });
 
 test("initial Observe loading uses the existing brand logo, settles on error, and respects reduced motion", () => {
-  assert.match(appSource, /!observeIntroPlayed[\s\S]*activeTab === "observe"/);
+  assert.match(appSource, /isObserveHome = route\.name === "home" && activeTab === "observe"/);
+  assert.match(appSource, /!observeIntroPlayed[\s\S]*isObserveHome/);
   assert.match(appSource, /observeIntroEnabled=\{showObserveIntro\}/);
-  assert.match(headerSource, /INTRO_MINIMUM_MS = 1050/);
-  assert.match(headerSource, /INTRO_MAXIMUM_MS = 8500/);
+  assert.match(headerSource, /INTRO_MINIMUM_MS = 700/);
+  assert.match(headerSource, /INTRO_MAXIMUM_MS = 1700/);
+  assert.match(appSource, /<ObserveBrandHeader[\s\S]*<AppHeader auth=\{auth\} \/>/);
   assert.match(headerSource, /sawLoading && !loading/);
   assert.match(headerSource, /Boolean\(error\) \|\| maximumElapsed/);
   assert.match(headerSource, /prefers-reduced-motion: reduce/);

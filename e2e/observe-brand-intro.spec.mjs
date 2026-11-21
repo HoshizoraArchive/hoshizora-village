@@ -105,6 +105,38 @@ test("mobile entry shimmers at center, then lands in the original header before 
   await expect(page.locator("[data-observe-intro]")).toHaveCount(0);
 });
 
+test("guest login never blocks the upward logo flight, even when posts stay pending", async ({ page }, testInfo) => {
+  const releasePosts = await mockVillage(page, { delayPosts: true });
+  const startedAt = Date.now();
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  const intro = page.locator("[data-observe-intro]");
+  const headerLogo = page.locator(".observe-brand-header-logo");
+  const loginPanel = page.locator('[data-auth-panel="visible"]');
+  const navigation = page.getByRole("navigation", { name: "星空Village bottom navigation" });
+  await expect(intro).toHaveAttribute("data-phase", "loading");
+  const centerY = await page.locator(".observe-brand-intro-flight").evaluate((node) => node.getBoundingClientRect().top);
+  await expect(loginPanel).toBeHidden();
+  await expect(intro).toHaveAttribute("data-phase", "flying", { timeout: 3000 });
+  await expect(loginPanel).toBeHidden();
+
+  await expect(intro).toHaveCount(0, { timeout: 3500 });
+  const completionMs = Date.now() - startedAt;
+  expect(completionMs).toBeLessThan(3500);
+  await expect(headerLogo).toBeVisible();
+  await expect(loginPanel).toBeVisible();
+  await expect(navigation).toBeVisible();
+
+  const headerBottom = await page.locator(".observe-brand-header").evaluate((node) => node.getBoundingClientRect().bottom);
+  const finalLogoY = await headerLogo.evaluate((node) => node.getBoundingClientRect().top);
+  const loginTop = await loginPanel.evaluate((node) => node.getBoundingClientRect().top);
+  expect(headerBottom).toBeLessThan(loginTop);
+  expect(finalLogoY).toBeLessThan(centerY);
+  expect(headerBottom).toBeLessThan(150);
+  await page.screenshot({ path: testInfo.outputPath("guest-finished.png") });
+  releasePosts();
+});
+
 test("failed public-post reads also return to the normal header and visible UI", async ({ page }) => {
   await mockVillage(page, { failPosts: true });
   await page.goto("/", { waitUntil: "domcontentloaded" });

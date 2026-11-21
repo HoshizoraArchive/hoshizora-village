@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import hoshizoraVillageLogo from "./assets/branding/hoshizora-village-logo.png";
 
-const INTRO_MINIMUM_MS = 1050;
-const INTRO_MAXIMUM_MS = 8500;
-const INTRO_FLIGHT_MS = 780;
+const INTRO_MINIMUM_MS = 700;
+const INTRO_MAXIMUM_MS = 1700;
+const INTRO_FLIGHT_MS = 640;
 
 export default function ObserveBrandHeader({
   error = "",
@@ -89,12 +89,6 @@ export default function ObserveBrandHeader({
     }
 
     const rect = headerLogo.getBoundingClientRect();
-    // Guest auth can push the header below the viewport center.
-    // Crossfade instead of sending the logo downward in that layout.
-    if (rect.top + rect.height / 2 >= window.innerHeight * 0.45) {
-      setIntroPhase("fading");
-      return undefined;
-    }
     const frameId = window.requestAnimationFrame(() => {
       setFlightTarget({
         x: rect.left + rect.width / 2,
@@ -113,21 +107,12 @@ export default function ObserveBrandHeader({
     };
   }, [introPhase]);
 
-  useEffect(() => {
-    if (introPhase !== "fading") return undefined;
-    const timer = window.setTimeout(() => {
-      setIntroPhase("complete");
-      onIntroFinishedRef.current?.();
-    }, 450);
-    return () => window.clearTimeout(timer);
-  }, [introPhase]);
-
   const isIntroActive = introEnabled && introPhase !== "complete";
 
   return (
     <>
       <header
-        className={`observe-brand-header${isScrolled ? " is-scrolled" : ""}${isIntroActive && introPhase !== "fading" ? " is-intro-active" : ""}`}
+        className={`observe-brand-header${isScrolled ? " is-scrolled" : ""}${isIntroActive ? " is-intro-active" : ""}`}
       >
         <div className="observe-brand-header-logo-slot">
           {isLogoAvailable ? (
@@ -146,7 +131,7 @@ export default function ObserveBrandHeader({
       </header>
 
       {isIntroActive && (
-        <div className={`observe-brand-intro${introPhase === "flying" ? " is-flying" : ""}${introPhase === "fading" ? " is-fading" : ""}`}
+        <div className={`observe-brand-intro${introPhase === "flying" ? " is-flying" : ""}`}
           data-observe-intro
           data-phase={introPhase}
         >
