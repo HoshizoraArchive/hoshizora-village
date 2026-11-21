@@ -12,7 +12,7 @@ test("observe header polish stays scoped and preserves the starry background", (
     mainSource,
     /import "\.\/titlePlateSquareFix\.css";\s*import "\.\/observePolish\.css";/,
   );
-  assert.match(appSource, /function ObserveScreen[\s\S]*<ObserveBrandHeader[\s\S]*introEnabled=\{introEnabled\}[\s\S]*\/>/);
+  assert.match(appSource, /\{isObserveHome && \([\s\S]*<ObserveBrandHeader[\s\S]*introEnabled=\{showObserveIntro\}[\s\S]*<AppHeader auth=\{auth\} key="app-auth-panel" \/>/);
   assert.match(headerSource, /import hoshizoraVillageLogo from "\.\/assets\/branding\/hoshizora-village-logo\.png"/);
   assert.match(headerSource, /<img[\s\S]*alt="星空Village"[\s\S]*src=\{hoshizoraVillageLogo\}/);
   assert.match(headerSource, /onError=\{\(\) => setIsLogoAvailable\(false\)\}/);
@@ -34,10 +34,10 @@ test("observe header polish stays scoped and preserves the starry background", (
 test("initial Observe loading uses the existing brand logo, settles on error, and respects reduced motion", () => {
   assert.match(appSource, /isObserveHome = route\.name === "home" && activeTab === "observe"/);
   assert.match(appSource, /!observeIntroPlayed[\s\S]*isObserveHome/);
-  assert.match(appSource, /observeIntroEnabled=\{showObserveIntro\}/);
+  assert.match(appSource, /introEnabled=\{showObserveIntro\}/);
   assert.match(headerSource, /INTRO_MINIMUM_MS = 700/);
   assert.match(headerSource, /INTRO_MAXIMUM_MS = 1700/);
-  assert.match(appSource, /<ObserveBrandHeader[\s\S]*<AppHeader auth=\{auth\} \/>/);
+  assert.match(appSource, /!isPostEditor && <AppHeader auth=\{auth\} key="app-auth-panel" \/>/);
   assert.match(headerSource, /sawLoading && !loading/);
   assert.match(headerSource, /Boolean\(error\) \|\| maximumElapsed/);
   assert.match(headerSource, /prefers-reduced-motion: reduce/);

@@ -12,6 +12,9 @@
   position: sticky;
   top: 0;
   z-index: 24;
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
   display: flex;
   align-items: center;
   justify-content: center;

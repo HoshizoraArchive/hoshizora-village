@@ -9469,12 +9469,18 @@ function App() {
           />
         ) : (
           <>
-            {!isPostEditor && !isObserveHome && <AppHeader auth={auth} />}
+            {isObserveHome && (
+              <ObserveBrandHeader
+                introEnabled={showObserveIntro}
+                loading={postsLoading}
+                error={postsError}
+                onIntroFinished={() => setObserveIntroPlayed(true)}
+              />
+            )}
+            {!isPostEditor && <AppHeader auth={auth} key="app-auth-panel" />}
 
             <TabContent
           activeTab={activeTab}
-          observeIntroEnabled={showObserveIntro}
-          onObserveIntroFinished={() => setObserveIntroPlayed(true)}
           onboarding={onboardingState}
           auth={auth}
           composer={composer}
@@ -9594,8 +9600,6 @@ function AppHeader({ auth }) {
 
 function TabContent({
   activeTab,
-  observeIntroEnabled,
-  onObserveIntroFinished,
   archive,
   auth,
   composer,
@@ -9714,9 +9718,6 @@ function TabContent({
 
   return (
     <ObserveScreen
-      auth={auth}
-      introEnabled={observeIntroEnabled}
-      onIntroFinished={onObserveIntroFinished}
       archive={archive}
       onboarding={onboarding}
       postActions={postActions}
@@ -9740,9 +9741,6 @@ function TabContent({
 
 function ObserveScreen({
   archive,
-  auth,
-  introEnabled,
-  onIntroFinished,
   onboarding,
   onOpenMeteorDetail,
   onOpenPostMedia,
@@ -9758,13 +9756,6 @@ function ObserveScreen({
 }) {
   return (
     <main className="observe-screen mx-auto min-w-0 max-w-3xl border-x border-white/10">
-      <ObserveBrandHeader
-        introEnabled={introEnabled}
-        loading={postsLoading}
-        error={postsError}
-        onIntroFinished={onIntroFinished}
-      />
-      <AppHeader auth={auth} />
       <ObserveTimelineRefreshNotice timelineRefresh={timelineRefresh} />
       <Timeline
         archive={archive}

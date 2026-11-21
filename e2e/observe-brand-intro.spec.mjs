@@ -145,6 +145,20 @@ test("failed public-post reads also return to the normal header and visible UI",
   await expect(page.locator(".observe-brand-header-logo")).toBeVisible();
 });
 
+test("guest login draft persists when switching Observe and Archive", async ({ page }) => {
+  await mockVillage(page);
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-observe-intro]")).toHaveCount(0, { timeout: 4500 });
+  const email = page.getByLabel("メールアドレス");
+  await expect(email).toBeVisible();
+  await email.fill("guest-draft@example.com");
+  const navigation = page.getByRole("navigation", { name: "星空Village bottom navigation" });
+  await navigation.getByRole("button", { name: "Archive" }).click();
+  await expect(email).toHaveValue("guest-draft@example.com");
+  await navigation.getByRole("button", { name: "観測" }).click();
+  await expect(email).toHaveValue("guest-draft@example.com");
+});
+
 test("reduced-motion users skip the moving logo without hiding navigation", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockVillage(page);
