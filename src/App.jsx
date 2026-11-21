@@ -1763,6 +1763,7 @@ function App() {
   const [sentStarLettersLoading, setSentStarLettersLoading] = useState(false);
   const [sentStarLettersError, setSentStarLettersError] = useState("");
   const [postsLoading, setPostsLoading] = useState(false);
+  const [observeIntroPlayed, setObserveIntroPlayed] = useState(false);
   const [postsError, setPostsError] = useState("");
   const [timelineRefreshing, setTimelineRefreshing] = useState(false);
   const [timelinePullDistance, setTimelinePullDistance] = useState(0);
@@ -9433,10 +9434,13 @@ function App() {
   };
   const isPasswordRecoveryVisible = Boolean(passwordRecovery);
   const isPostEditor = !isPasswordRecoveryVisible && route.name === "home" && activeTab === "post";
+  const isObserveHome = route.name === "home" && activeTab === "observe";
+  const showObserveIntro =
+    !observeIntroPlayed && !isPasswordRecoveryVisible && isObserveHome;
 
   return (
     <div
-      className={`app-shell relative isolate bg-night-950 text-starlight ${
+      className={`app-shell relative isolate bg-night-950 text-starlight ${showObserveIntro ? "observe-intro-active " : ""}${
         isPostEditor
           ? "post-editor-shell overflow-hidden pb-0"
           : isPasswordRecoveryVisible
@@ -9465,7 +9469,15 @@ function App() {
           />
         ) : (
           <>
-            {!isPostEditor && <AppHeader auth={auth} />}
+            {isObserveHome && (
+              <ObserveBrandHeader
+                introEnabled={showObserveIntro}
+                loading={postsLoading}
+                error={postsError}
+                onIntroFinished={() => setObserveIntroPlayed(true)}
+              />
+            )}
+            {!isPostEditor && <AppHeader auth={auth} key="app-auth-panel" />}
 
             <TabContent
           activeTab={activeTab}
@@ -9571,6 +9583,10 @@ function App() {
 
 
 function AppHeader({ auth }) {
+  // Never flash the guest login form while an existing session is still resolving.
+  if (auth.status === "確認中" && !auth.confirmation) {
+    return null;
+  }
   if (auth.session && auth.confirmation?.kind !== AUTH_CONFIRMATION_KIND.CONFIRMED) {
     return null;
   }
@@ -9740,7 +9756,6 @@ function ObserveScreen({
 }) {
   return (
     <main className="observe-screen mx-auto min-w-0 max-w-3xl border-x border-white/10">
-      <ObserveBrandHeader />
       <ObserveTimelineRefreshNotice timelineRefresh={timelineRefresh} />
       <Timeline
         archive={archive}
