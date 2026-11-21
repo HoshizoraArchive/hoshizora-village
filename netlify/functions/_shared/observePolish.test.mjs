@@ -12,7 +12,7 @@ test("observe header polish stays scoped and preserves the starry background", (
     mainSource,
     /import "\.\/titlePlateSquareFix\.css";\s*import "\.\/observePolish\.css";/,
   );
-  assert.match(appSource, /function ObserveScreen[\s\S]*<ObserveBrandHeader\s*\/>/);
+  assert.match(appSource, /function ObserveScreen[\s\S]*<ObserveBrandHeader[\s\S]*introEnabled=\{introEnabled\}[\s\S]*\/>/);
   assert.match(headerSource, /import hoshizoraVillageLogo from "\.\/assets\/branding\/hoshizora-village-logo\.png"/);
   assert.match(headerSource, /<img[\s\S]*alt="星空Village"[\s\S]*src=\{hoshizoraVillageLogo\}/);
   assert.match(headerSource, /onError=\{\(\) => setIsLogoAvailable\(false\)\}/);
@@ -29,6 +29,21 @@ test("observe header polish stays scoped and preserves the starry background", (
     /\.observe-screen \.timeline-post-list > \* \+ \*[\s\S]*margin-top: 0\.9rem !important/,
   );
   assert.doesNotMatch(cssSource, /cosmic-background|stars-layer|distant-stars|foreground-stardust/);
+});
+
+test("initial Observe loading uses the existing brand logo, settles on error, and respects reduced motion", () => {
+  assert.match(appSource, /!observeIntroPlayed[\s\S]*activeTab === "observe"/);
+  assert.match(appSource, /observeIntroEnabled=\{showObserveIntro\}/);
+  assert.match(headerSource, /INTRO_MINIMUM_MS = 1050/);
+  assert.match(headerSource, /INTRO_MAXIMUM_MS = 8500/);
+  assert.match(headerSource, /sawLoading && !loading/);
+  assert.match(headerSource, /Boolean\(error\) \|\| maximumElapsed/);
+  assert.match(headerSource, /prefers-reduced-motion: reduce/);
+  assert.match(headerSource, /getBoundingClientRect\(\)/);
+  assert.match(headerSource, /data-observe-intro/);
+  assert.match(cssSource, /\.observe-brand-intro-shine[\s\S]*observe-logo-shimmer/);
+  assert.match(cssSource, /\.observe-brand-intro-flight[\s\S]*transition:/);
+  assert.doesNotMatch(headerSource, /sessionStorage|localStorage/);
 });
 
 test("the starry post surface is shared by every PostCard context", () => {

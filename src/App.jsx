@@ -1763,6 +1763,7 @@ function App() {
   const [sentStarLettersLoading, setSentStarLettersLoading] = useState(false);
   const [sentStarLettersError, setSentStarLettersError] = useState("");
   const [postsLoading, setPostsLoading] = useState(false);
+  const [observeIntroPlayed, setObserveIntroPlayed] = useState(false);
   const [postsError, setPostsError] = useState("");
   const [timelineRefreshing, setTimelineRefreshing] = useState(false);
   const [timelinePullDistance, setTimelinePullDistance] = useState(0);
@@ -9433,10 +9434,12 @@ function App() {
   };
   const isPasswordRecoveryVisible = Boolean(passwordRecovery);
   const isPostEditor = !isPasswordRecoveryVisible && route.name === "home" && activeTab === "post";
+  const showObserveIntro =
+    !observeIntroPlayed && !isPasswordRecoveryVisible && route.name === "home" && activeTab === "observe";
 
   return (
     <div
-      className={`app-shell relative isolate bg-night-950 text-starlight ${
+      className={`app-shell relative isolate bg-night-950 text-starlight ${showObserveIntro ? "observe-intro-active " : ""}${
         isPostEditor
           ? "post-editor-shell overflow-hidden pb-0"
           : isPasswordRecoveryVisible
@@ -9469,6 +9472,8 @@ function App() {
 
             <TabContent
           activeTab={activeTab}
+          observeIntroEnabled={showObserveIntro}
+          onObserveIntroFinished={() => setObserveIntroPlayed(true)}
           onboarding={onboardingState}
           auth={auth}
           composer={composer}
@@ -9584,6 +9589,8 @@ function AppHeader({ auth }) {
 
 function TabContent({
   activeTab,
+  observeIntroEnabled,
+  onObserveIntroFinished,
   archive,
   auth,
   composer,
@@ -9702,6 +9709,8 @@ function TabContent({
 
   return (
     <ObserveScreen
+      introEnabled={observeIntroEnabled}
+      onIntroFinished={onObserveIntroFinished}
       archive={archive}
       onboarding={onboarding}
       postActions={postActions}
@@ -9725,6 +9734,8 @@ function TabContent({
 
 function ObserveScreen({
   archive,
+  introEnabled,
+  onIntroFinished,
   onboarding,
   onOpenMeteorDetail,
   onOpenPostMedia,
@@ -9740,7 +9751,12 @@ function ObserveScreen({
 }) {
   return (
     <main className="observe-screen mx-auto min-w-0 max-w-3xl border-x border-white/10">
-      <ObserveBrandHeader />
+      <ObserveBrandHeader
+        introEnabled={introEnabled}
+        loading={postsLoading}
+        error={postsError}
+        onIntroFinished={onIntroFinished}
+      />
       <ObserveTimelineRefreshNotice timelineRefresh={timelineRefresh} />
       <Timeline
         archive={archive}
