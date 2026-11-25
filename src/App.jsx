@@ -3926,76 +3926,97 @@ function App() {
       };
     }
 
+    const requestedSession = captureDataMutationSession();
+    const isCurrentRequest = () =>
+      isMounted && isCurrentDataMutationSession(requestedSession);
+
     async function readNotifications() {
       setNotificationsLoading(true);
       setNotificationsError("");
       setNotificationsMessage("");
 
-      let notificationResult = await supabase
-        .from("notifications")
-        .select("id, recipient_id, actor_id, post_id, star_letter_id, content_report_id, type, message, is_read, created_at")
-        .eq("recipient_id", userId)
-        .order("created_at", { ascending: false });
-
-      if (
-        notificationResult.error &&
-        ["42703", "PGRST204"].includes(String(notificationResult.error.code ?? "")) &&
-        String(notificationResult.error.message ?? "").includes("content_report_id")
-      ) {
-        notificationResult = await supabase
+      try {
+        let notificationResult = await supabase
           .from("notifications")
-          .select("id, recipient_id, actor_id, post_id, star_letter_id, type, message, is_read, created_at")
+          .select("id, recipient_id, actor_id, post_id, star_letter_id, content_report_id, type, message, is_read, created_at")
           .eq("recipient_id", userId)
           .order("created_at", { ascending: false });
-      }
 
-      const { data, error } = notificationResult;
-
-      if (!isMounted) {
-        return;
-      }
-
-      setNotificationsLoading(false);
-
-      if (error) {
-        setNotificationsError(getUserFacingError(error, ERROR_OPERATION.NOTIFICATION_LOAD));
-        return;
-      }
-
-      const actorIds = [...new Set((data ?? []).map((notification) => notification.actor_id).filter(Boolean))];
-      const profilesById = new Map();
-
-      if (actorIds.length > 0) {
-        const { data: profileRows } = await runProfileQuery(
-          (columns) => supabase.from("profiles").select(columns).in("id", actorIds),
-          PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
-          PROFILE_BASIC_SELECT_COLUMNS,
-        );
-
-        if (!isMounted) {
+        if (!isCurrentRequest()) {
           return;
         }
 
-        for (const profileRow of profileRows ?? []) {
-          profilesById.set(profileRow.id, profileRow);
+        if (
+          notificationResult.error &&
+          ["42703", "PGRST204"].includes(String(notificationResult.error.code ?? "")) &&
+          String(notificationResult.error.message ?? "").includes("content_report_id")
+        ) {
+          notificationResult = await supabase
+            .from("notifications")
+            .select("id, recipient_id, actor_id, post_id, star_letter_id, type, message, is_read, created_at")
+            .eq("recipient_id", userId)
+            .order("created_at", { ascending: false });
         }
-      }
 
-      setNotifications(
-        (data ?? []).map((notification) => ({
+        if (!isCurrentRequest()) {
+          return;
+        }
+
+        const { data, error } = notificationResult;
+        if (error) {
+          setNotificationsError(getUserFacingError(error, ERROR_OPERATION.NOTIFICATION_LOAD));
+          return;
+        }
+
+        // The source should already be scoped by RLS; keep the UI scoped too.
+        const ownNotifications = (data ?? []).filter((item) => item.recipient_id === userId);
+        const actorIds = [...new Set(ownNotifications.map((notification) => notification.actor_id).filter(Boolean))];
+        const profilesById = new Map();
+
+        if (actorIds.length > 0) {
+          const { data: profileRows } = await runProfileQuery(
+            (columns) => supabase.from("profiles").select(columns).in("id", actorIds),
+            PROFILE_BASIC_SELECT_COLUMNS_WITH_FRAME,
+            PROFILE_BASIC_SELECT_COLUMNS,
+          );
+
+          if (!isCurrentRequest()) {
+            return;
+          }
+
+          for (const profileRow of profileRows ?? []) {
+            profilesById.set(profileRow.id, profileRow);
+          }
+        }
+
+        const hydrated = ownNotifications.map((notification) => ({
           ...notification,
           actorProfile: profilesById.get(notification.actor_id) ?? null,
           actorFrame: getProfileFrameById(profileFrames, profilesById.get(notification.actor_id)?.active_frame_id),
-        })),
-      );
+        }));
+        // A queued React updater may run after a synchronous Auth switch.
+        setNotifications((currentNotifications) =>
+          isCurrentRequest() ? hydrated : currentNotifications,
+        );
+      } catch (error) {
+        if (!isCurrentRequest()) {
+          return;
+        }
+        logSafeError(ERROR_OPERATION.NOTIFICATION_LOAD, error);
+        setNotificationsError(getUserFacingError(error, ERROR_OPERATION.NOTIFICATION_LOAD));
+      } finally {
+        if (isCurrentRequest()) {
+          setNotificationsLoading(false);
+        }
+      }
     }
 
-    readNotifications();
+    void readNotifications();
 
     return () => {
       isMounted = false;
     };
-  }, [session?.user?.id, profileFrames, authIdentityEpoch]);
+  }, [session?.user?.id, profileFrames, activeTab, authIdentityEpoch]);
 
   useEffect(() => {
     appMountedRef.current = true;
@@ -9243,9 +9264,15 @@ function App() {
     session,
     updatingId: postUpdatingId,
   };
+  // Auth can switch before the next effect cleans up previously loaded data.
+  // Never render another account's notification text during that transition.
+  const visibleNotifications = session?.user?.id
+    ? notifications.filter((notification) => notification.recipient_id === session.user.id)
+    : [];
+  const unreadNotificationCount = visibleNotifications.filter((notification) => !notification.is_read).length;
   const notificationState = {
     error: notificationsError,
-    items: notifications,
+    items: visibleNotifications,
     loading: notificationsLoading,
     message: notificationsMessage,
     onMarkRead: handleMarkNotificationRead,
@@ -9509,6 +9536,7 @@ function App() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
           onboardingTarget={onboardingTarget}
+          unreadCount={unreadNotificationCount}
         />
       )}
       <AvatarPreviewModal avatar={avatarModal} onClose={handleCloseAvatarModal} />

@@ -7,7 +7,7 @@ export const bottomNavItems = [
   { id: "profile", label: "My Universe", ariaLabel: "My Universe", icon: "asterism" },
 ];
 
-export function BottomNav({ activeTab, onTabChange, onboardingTarget = "" }) {
+export function BottomNav({ activeTab, onTabChange, onboardingTarget = "", unreadCount = 0 }) {
   return (
     <nav
       aria-label="星空Village bottom navigation"
@@ -17,6 +17,7 @@ export function BottomNav({ activeTab, onTabChange, onboardingTarget = "" }) {
         <div className="grid grid-cols-5 items-end gap-1">
           {bottomNavItems.map((item) => {
             const isActive = activeTab === item.id;
+            const showUnread = item.id === "rconnect" && unreadCount > 0;
             const buttonClass = item.primary
               ? `-mt-5 flex min-h-16 flex-col items-center justify-center gap-1 rounded-3xl bg-gradient-to-br from-comet via-aurora to-sakura px-2 pb-2 pt-2 text-night-950 shadow-glow transition hover:scale-[1.03] ${
                   isActive ? "-translate-y-1 ring-2 ring-white/40" : ""
@@ -29,6 +30,7 @@ export function BottomNav({ activeTab, onTabChange, onboardingTarget = "" }) {
               <button
                 aria-current={isActive ? "page" : undefined}
                 aria-label={item.ariaLabel ?? item.label}
+                aria-describedby={showUnread ? "rconnect-unread-description" : undefined}
                 className={buttonClass}
                 data-onboarding-target={onboardingTarget === `nav-${item.id}` ? onboardingTarget : undefined}
                 key={item.id}
@@ -39,10 +41,24 @@ export function BottomNav({ activeTab, onTabChange, onboardingTarget = "" }) {
                   className={
                     item.primary
                       ? "grid h-9 w-9 place-items-center rounded-full bg-night-950/15 text-night-950"
-                      : `grid h-6 w-6 place-items-center ${isActive ? "text-white" : "text-comet"}`
+                      : `relative grid h-6 w-6 place-items-center ${isActive ? "text-white" : "text-comet"}`
                   }
                 >
                   <BottomNavIcon icon={item.icon} />
+                  {showUnread && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-3 -top-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border border-night-950 bg-sakura px-1 text-[10px] font-black leading-none text-night-950 shadow-glow"
+                        data-testid="rconnect-unread-badge"
+                      >
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                      <span className="sr-only" id="rconnect-unread-description">
+                        未読{unreadCount}件
+                      </span>
+                    </>
+                  )}
                 </span>
                 <span
                   className={`text-center text-[10px] font-black leading-tight ${item.primary ? "text-night-950" : ""}`}
